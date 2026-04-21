@@ -124,6 +124,7 @@
       "user": "Пользователь",
       "key": "Ключ",
       "sessionId": "ID сессии",
+      "ip": "IP",
       "provider": "Поставщик",
       "model": "Модель тарификации",
       "endpoint": "Эндпоинт",
@@ -249,6 +250,10 @@
       "errorMessage": "Сообщение об ошибке",
       "fake200ForwardedNotice": "Примечание: для потоковых запросов эта ошибка может быть обнаружена только после завершения потока; содержимое ответа могло уже быть передано клиенту.",
       "fake200DetectedReason": "Причина обнаружения: {reason}",
+      "fake200RetryTooltipLabel": "Почему сервер не может повторить запрос?",
+      "fake200RetryTooltipTitle": "Почему CCH не может повторить этот ответ на стороне сервера",
+      "fake200RetryTooltipServerRetry": "Апстрим уже вернул HTTP 200, и CCH уже начал пересылать SSE-тело клиенту. Когда ошибка распознаётся в более позднем событии потока, этот ответ уже нельзя аккуратно повторить на стороне сервера.",
+      "fake200RetryTooltipSessionFallback": "Клиент всё ещё может повторить запрос сам; последующие запросы в той же Session будут обходить провайдера, который только что дал fake-200, и продолжат fallback.",
       "fake200Reasons": {
         "emptyBody": "Пустое тело ответа",
         "htmlBody": "Получен HTML-документ (возможно, страница ошибки)",
@@ -300,6 +305,14 @@
           "priority_fallback": "Приоритетная резервная цена",
           "single_provider_top_level": "Цена верхнего уровня для одного провайдера",
           "official_fallback": "Официальная цена"
+        },
+        "baseCost": "Базовая стоимость",
+        "providerMultiplier": "Множитель поставщика",
+        "groupMultiplier": "Множитель группы",
+        "baseTotal": "Базовый итог",
+        "unitPricePer1M": "@ {price} / 1M",
+        "unit": {
+          "tokens": "токенов"
         }
       },
       "performance": {
@@ -394,6 +407,7 @@
       "cacheTtlSwapped": "TTL биллинга (инверсия)",
       "multiplier": "Множитель поставщика",
       "totalCost": "Общая стоимость",
+      "unitPricePer1M": "@ {price} / 1M",
       "fast": "fast",
       "fastPriority": "Приоритетный уровень обслуживания (режим fast)",
       "context1m": "1M Контекст",
@@ -407,6 +421,13 @@
         "priority_fallback": "Приоритетная резервная цена",
         "single_provider_top_level": "Цена верхнего уровня для одного провайдера",
         "official_fallback": "Официальная цена"
+      },
+      "baseCost": "Базовая стоимость",
+      "providerMultiplier": "Множитель поставщика",
+      "groupMultiplier": "Множитель группы",
+      "baseTotal": "Базовый итог",
+      "unit": {
+        "tokens": "токенов"
       }
     }
   },
@@ -425,6 +446,7 @@
       "users": "Рейтинг пользователей",
       "keys": "Рейтинг ключей",
       "userRanking": "Рейтинг пользователей",
+      "userCacheHitRateRanking": "Рейтинг пользователей по попаданиям в кэш",
       "providerRanking": "Рейтинг поставщиков",
       "providerCacheHitRateRanking": "Рейтинг по попаданиям в кэш",
       "modelRanking": "Рейтинг моделей",
@@ -736,6 +758,7 @@
     "quotasManagement": "Квоты",
     "userManagement": "Пользователи",
     "providers": "Поставщики",
+    "auditLogs": "Журнал аудита",
     "documentation": "Доки",
     "systemSettings": "Настройки",
     "feedback": "Обратная связь",

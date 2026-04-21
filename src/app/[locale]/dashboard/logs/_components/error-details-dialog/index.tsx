@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import type { StoredCostBreakdown } from "@/types/cost-breakdown";
 import type { ProviderChainItem } from "@/types/message";
 import type { SpecialSetting } from "@/types/special-settings";
 import type { BillingModelSource } from "@/types/system-config";
@@ -25,6 +26,7 @@ interface ErrorDetailsDialogProps {
   originalModel?: string | null;
   currentModel?: string | null;
   userAgent?: string | null;
+  clientIp?: string | null;
   messagesCount?: number | null;
   endpoint?: string | null;
   billingModelSource?: BillingModelSource;
@@ -39,6 +41,8 @@ interface ErrorDetailsDialogProps {
   swapCacheTtlApplied?: boolean | null;
   costUsd?: string | null;
   costMultiplier?: string | null;
+  groupCostMultiplier?: string | null;
+  costBreakdown?: StoredCostBreakdown | null;
   context1mApplied?: boolean | null;
   durationMs?: number | null;
   ttfbMs?: number | null;
@@ -64,6 +68,7 @@ export function ErrorDetailsDialog({
   originalModel,
   currentModel,
   userAgent,
+  clientIp,
   messagesCount,
   endpoint,
   billingModelSource = "original",
@@ -78,6 +83,8 @@ export function ErrorDetailsDialog({
   swapCacheTtlApplied,
   costUsd,
   costMultiplier,
+  groupCostMultiplier,
+  costBreakdown,
   context1mApplied,
   durationMs,
   ttfbMs,
@@ -208,6 +215,7 @@ export function ErrorDetailsDialog({
     originalModel,
     currentModel,
     userAgent,
+    clientIp,
     messagesCount,
     endpoint,
     billingModelSource,
@@ -222,6 +230,8 @@ export function ErrorDetailsDialog({
     swapCacheTtlApplied,
     costUsd,
     costMultiplier,
+    groupCostMultiplier,
+    costBreakdown,
     context1mApplied,
     durationMs,
     ttfbMs,

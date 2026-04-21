@@ -2,29 +2,41 @@
 
 import { fromZonedTime } from "date-fns-tz";
 import { and, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { getTranslations } from "next-intl/server";
 import { db } from "@/drizzle/db";
 import { messageRequest, usageLedger } from "@/drizzle/schema";
 import { getSession } from "@/lib/auth";
+import { lookupIp } from "@/lib/ip-geo/client";
+import { isLedgerOnlyMode } from "@/lib/ledger-fallback";
 import { logger } from "@/lib/logger";
 import { resolveKeyConcurrentSessionLimit } from "@/lib/rate-limit/concurrent-session-limit";
 import { resolveKeyCostResetAt } from "@/lib/rate-limit/cost-reset-utils";
 import type { DailyResetMode } from "@/lib/rate-limit/time-utils";
 import { SessionTracker } from "@/lib/session-tracker";
 import type { CurrencyCode } from "@/lib/utils";
+import { ERROR_CODES } from "@/lib/utils/error-messages";
 import { resolveSystemTimezone } from "@/lib/utils/timezone";
 import { LEDGER_BILLING_CONDITION } from "@/repository/_shared/ledger-conditions";
 import { EXCLUDE_WARMUP_CONDITION } from "@/repository/_shared/message-request-conditions";
 import { getSystemSettings } from "@/repository/system-config";
 import {
+  findUsageLogsBatch,
   findUsageLogsForKeyBatch,
   findUsageLogsForKeySlim,
   getDistinctEndpointsForKey,
   getDistinctModelsForKey,
+  type UsageLogBatchFilters,
   type UsageLogSlimBatchResult,
   type UsageLogSummary,
+  type UsageLogsBatchResult,
 } from "@/repository/usage-logs";
+import type { IpGeoLookupResult, IpGeoPrivateMarker } from "@/types/ip-geo";
 import type { BillingModelSource } from "@/types/system-config";
 import type { ActionResult } from "./types";
+
+async function getErrorTranslator() {
+  return getTranslations("errors");
+}
 
 /**
  * Parse date range strings to timestamps using server timezone (TZ config).
@@ -86,6 +98,7 @@ export interface MyUsageMetadata {
   dailyResetMode: "fixed" | "rolling";
   dailyResetTime: string;
   currencyCode: CurrencyCode;
+  billingModelSource: BillingModelSource;
 }
 
 export interface MyUsageQuota {
@@ -224,6 +237,7 @@ export async function getMyUsageMetadata(): Promise<ActionResult<MyUsageMetadata
       dailyResetMode: key.dailyResetMode ?? "fixed",
       dailyResetTime: key.dailyResetTime ?? "00:00",
       currencyCode: settings.currencyDisplay,
+      billingModelSource: settings.billingModelSource,
     };
 
     return { ok: true, data: metadata };
@@ -638,29 +652,161 @@ export async function getMyUsageLogsBatch(
   }
 }
 
-export async function getMyAvailableModels(): Promise<ActionResult<string[]>> {
+/**
+ * Full-format batch fetch for VirtualizedLogsTable on my-usage page.
+ * Scoped to the current key (not just user) and uses allowReadOnlyAccess.
+ * Returns UsageLogsBatchResult (same shape as admin getUsageLogsBatch).
+ */
+export async function getMyUsageLogsBatchFull(
+  params: Omit<UsageLogBatchFilters, "userId" | "keyId" | "providerId">
+): Promise<ActionResult<UsageLogsBatchResult>> {
+  const tError = await getErrorTranslator();
   try {
     const session = await getSession({ allowReadOnlyAccess: true });
-    if (!session) return { ok: false, error: "Unauthorized" };
+    if (!session) {
+      return { ok: false, error: tError("UNAUTHORIZED"), errorCode: ERROR_CODES.UNAUTHORIZED };
+    }
+
+    const { userId: _u, keyId: _k, providerId: _p, ...safeParams } = params as UsageLogBatchFilters;
+    const result = await findUsageLogsBatch({
+      ...safeParams,
+      keyId: session.key.id,
+    });
+
+    return { ok: true, data: result };
+  } catch (error) {
+    logger.error("[my-usage] getMyUsageLogsBatchFull failed", error);
+    return {
+      ok: false,
+      error: tError("OPERATION_FAILED"),
+      errorCode: ERROR_CODES.OPERATION_FAILED,
+    };
+  }
+}
+
+export async function getMyAvailableModels(): Promise<ActionResult<string[]>> {
+  const tError = await getErrorTranslator();
+  try {
+    const session = await getSession({ allowReadOnlyAccess: true });
+    if (!session) {
+      return { ok: false, error: tError("UNAUTHORIZED"), errorCode: ERROR_CODES.UNAUTHORIZED };
+    }
 
     const models = await getDistinctModelsForKey(session.key.key);
     return { ok: true, data: models };
   } catch (error) {
     logger.error("[my-usage] getMyAvailableModels failed", error);
-    return { ok: false, error: "Failed to get model list" };
+    return {
+      ok: false,
+      error: tError("OPERATION_FAILED"),
+      errorCode: ERROR_CODES.OPERATION_FAILED,
+    };
   }
 }
 
 export async function getMyAvailableEndpoints(): Promise<ActionResult<string[]>> {
+  const tError = await getErrorTranslator();
   try {
     const session = await getSession({ allowReadOnlyAccess: true });
-    if (!session) return { ok: false, error: "Unauthorized" };
+    if (!session) {
+      return { ok: false, error: tError("UNAUTHORIZED"), errorCode: ERROR_CODES.UNAUTHORIZED };
+    }
 
     const endpoints = await getDistinctEndpointsForKey(session.key.key);
     return { ok: true, data: endpoints };
   } catch (error) {
     logger.error("[my-usage] getMyAvailableEndpoints failed", error);
-    return { ok: false, error: "Failed to get endpoint list" };
+    return {
+      ok: false,
+      error: tError("OPERATION_FAILED"),
+      errorCode: ERROR_CODES.OPERATION_FAILED,
+    };
+  }
+}
+
+export async function getMyIpGeoDetails(params: { ip: string; lang?: string }): Promise<
+  ActionResult<{
+    status: "ok" | "private" | "error";
+    data?: IpGeoLookupResult | IpGeoPrivateMarker;
+    error?: string;
+  }>
+> {
+  const tError = await getErrorTranslator();
+  try {
+    const session = await getSession({ allowReadOnlyAccess: true });
+    if (!session) {
+      return { ok: false, error: tError("UNAUTHORIZED"), errorCode: ERROR_CODES.UNAUTHORIZED };
+    }
+
+    const ip = params.ip.trim();
+    if (!ip) {
+      return {
+        ok: false,
+        error: tError("REQUIRED_FIELD", { field: tError("IP_ADDRESS_FIELD") }),
+        errorCode: ERROR_CODES.REQUIRED_FIELD,
+      };
+    }
+
+    const settings = await getSystemSettings();
+    if (!settings.ipGeoLookupEnabled) {
+      return { ok: false, error: tError("INVALID_STATE"), errorCode: ERROR_CODES.INVALID_STATE };
+    }
+
+    // 仅允许查询当前 key 在 my-usage 可见日志中真实出现过的 IP。
+    const [messageRequestMatch] = await db
+      .select({ id: messageRequest.id })
+      .from(messageRequest)
+      .where(
+        and(
+          isNull(messageRequest.deletedAt),
+          EXCLUDE_WARMUP_CONDITION,
+          eq(messageRequest.key, session.key.key),
+          eq(messageRequest.clientIp, ip)
+        )
+      )
+      .limit(1);
+
+    let visibleLogId = messageRequestMatch?.id ?? null;
+
+    if (!visibleLogId && (await isLedgerOnlyMode())) {
+      const [ledgerMatch] = await db
+        .select({ id: usageLedger.requestId })
+        .from(usageLedger)
+        .where(
+          and(
+            LEDGER_BILLING_CONDITION,
+            eq(usageLedger.key, session.key.key),
+            eq(usageLedger.clientIp, ip)
+          )
+        )
+        .limit(1);
+
+      visibleLogId = ledgerMatch?.id ?? null;
+    }
+
+    if (!visibleLogId) {
+      return { ok: false, error: tError("NOT_FOUND"), errorCode: ERROR_CODES.NOT_FOUND };
+    }
+
+    const result = await lookupIp(ip, { lang: params.lang });
+    if (result.status === "error") {
+      logger.warn("[my-usage] getMyIpGeoDetails lookup returned error", {
+        messageRequestId: visibleLogId,
+        lang: params.lang,
+        userId: session.user.id,
+        keyId: session.key.id,
+        error: result.error,
+      });
+    }
+
+    return { ok: true, data: result };
+  } catch (error) {
+    logger.error("[my-usage] getMyIpGeoDetails failed", { error });
+    return {
+      ok: false,
+      error: tError("OPERATION_FAILED"),
+      errorCode: ERROR_CODES.OPERATION_FAILED,
+    };
   }
 }
 

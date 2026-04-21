@@ -124,6 +124,7 @@
       "user": "用户",
       "key": "密钥",
       "sessionId": "Session ID",
+      "ip": "IP",
       "provider": "供应商",
       "model": "计费模型",
       "endpoint": "端点",
@@ -249,6 +250,10 @@
       "errorMessage": "错误信息",
       "fake200ForwardedNotice": "提示：对于流式请求，该失败可能在流结束后才被识别；响应内容可能已原样透传给客户端。",
       "fake200DetectedReason": "检测原因：{reason}",
+      "fake200RetryTooltipLabel": "为何这次不能服务端重试？",
+      "fake200RetryTooltipTitle": "为什么 CCH 无法在服务端重试这次响应",
+      "fake200RetryTooltipServerRetry": "上游已经先返回了 HTTP 200，CCH 也已开始向客户端透传 SSE 响应体；当后续流事件里才识别到错误时，这次响应已经无法再被服务端优雅重试。",
+      "fake200RetryTooltipSessionFallback": "客户端仍可自行重试；同一 Session 的后续请求会避开刚刚 fake200 的供应商，并继续自动 fallback。",
       "fake200Reasons": {
         "emptyBody": "响应体为空",
         "htmlBody": "返回了 HTML 文档（可能是错误页）",
@@ -300,6 +305,14 @@
           "priority_fallback": "优先级回退价格",
           "single_provider_top_level": "顶层单提供商价格",
           "official_fallback": "官方价格"
+        },
+        "baseCost": "基础费用",
+        "providerMultiplier": "供应商倍率",
+        "groupMultiplier": "分组倍率",
+        "baseTotal": "基础合计",
+        "unitPricePer1M": "@ {price} / 1M",
+        "unit": {
+          "tokens": "tokens"
         }
       },
       "performance": {
@@ -394,6 +407,7 @@
       "cacheTtlSwapped": "计费 TTL (已互换)",
       "multiplier": "供应商倍率",
       "totalCost": "总费用",
+      "unitPricePer1M": "@ {price} / 1M",
       "fast": "fast",
       "fastPriority": "优先服务等级（fast 模式）",
       "context1m": "1M 上下文",
@@ -407,6 +421,13 @@
         "priority_fallback": "优先级回退价格",
         "single_provider_top_level": "顶层单提供商价格",
         "official_fallback": "官方价格"
+      },
+      "baseCost": "基础费用",
+      "providerMultiplier": "供应商倍率",
+      "groupMultiplier": "分组倍率",
+      "baseTotal": "基础合计",
+      "unit": {
+        "tokens": "tokens"
       }
     }
   },
@@ -425,6 +446,7 @@
       "users": "用户排行",
       "keys": "密钥排行",
       "userRanking": "用户排行",
+      "userCacheHitRateRanking": "用户缓存命中率排行",
       "providerRanking": "供应商排行",
       "providerCacheHitRateRanking": "供应商缓存命中率排行",
       "modelRanking": "模型排行",
@@ -735,6 +757,7 @@
     "myQuota": "我的配额",
     "quotasManagement": "限额管理",
     "providers": "供应商管理",
+    "auditLogs": "审计日志",
     "documentation": "文档",
     "systemSettings": "系统设置",
     "feedback": "反馈问题",

@@ -27,22 +27,22 @@ BEGIN
     request_id, user_id, key, provider_id, final_provider_id,
     model, original_model, endpoint, api_type, session_id,
     status_code, is_success, blocked_by,
-    cost_usd, cost_multiplier,
+    cost_usd, cost_multiplier, group_cost_multiplier,
     input_tokens, output_tokens,
     cache_creation_input_tokens, cache_read_input_tokens,
     cache_creation_5m_input_tokens, cache_creation_1h_input_tokens,
     cache_ttl_applied, context_1m_applied, swap_cache_ttl_applied,
-    duration_ms, ttfb_ms, created_at
+    duration_ms, ttfb_ms, client_ip, created_at
   ) VALUES (
     NEW.id, NEW.user_id, NEW.key, NEW.provider_id, v_final_provider_id,
     NEW.model, NEW.original_model, NEW.endpoint, NEW.api_type, NEW.session_id,
     NEW.status_code, v_is_success, NEW.blocked_by,
-    NEW.cost_usd, NEW.cost_multiplier,
+    NEW.cost_usd, NEW.cost_multiplier, NEW.group_cost_multiplier,
     NEW.input_tokens, NEW.output_tokens,
     NEW.cache_creation_input_tokens, NEW.cache_read_input_tokens,
     NEW.cache_creation_5m_input_tokens, NEW.cache_creation_1h_input_tokens,
     NEW.cache_ttl_applied, NEW.context_1m_applied, NEW.swap_cache_ttl_applied,
-    NEW.duration_ms, NEW.ttfb_ms, NEW.created_at
+    NEW.duration_ms, NEW.ttfb_ms, NEW.client_ip, NEW.created_at
   )
   ON CONFLICT (request_id) DO UPDATE SET
     user_id = EXCLUDED.user_id,
@@ -59,6 +59,7 @@ BEGIN
     blocked_by = EXCLUDED.blocked_by,
     cost_usd = EXCLUDED.cost_usd,
     cost_multiplier = EXCLUDED.cost_multiplier,
+    group_cost_multiplier = EXCLUDED.group_cost_multiplier,
     input_tokens = EXCLUDED.input_tokens,
     output_tokens = EXCLUDED.output_tokens,
     cache_creation_input_tokens = EXCLUDED.cache_creation_input_tokens,
@@ -70,7 +71,9 @@ BEGIN
     swap_cache_ttl_applied = EXCLUDED.swap_cache_ttl_applied,
     duration_ms = EXCLUDED.duration_ms,
     ttfb_ms = EXCLUDED.ttfb_ms,
-    created_at = EXCLUDED.created_at;
+    client_ip = EXCLUDED.client_ip;
+    -- created_at deliberately NOT updated on conflict: it represents the
+    -- original insert time of the ledger row, which is immutable by design.
 
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN

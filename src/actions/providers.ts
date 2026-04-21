@@ -8,6 +8,7 @@ import { buildProxyUrl } from "@/app/v1/_lib/url";
 import { db } from "@/drizzle/db";
 import { providers as providersTable } from "@/drizzle/schema";
 import { normalizeAllowedModelRules } from "@/lib/allowed-model-rules";
+import { emitActionAudit } from "@/lib/audit/emit";
 import { getSession } from "@/lib/auth";
 import { publishProviderCacheInvalidation } from "@/lib/cache/provider-cache";
 import {
@@ -74,6 +75,7 @@ import {
   getOrCreateProviderVendorIdFromUrls,
   tryDeleteProviderVendorIfEmpty,
 } from "@/repository/provider-endpoints";
+import { ensureProviderGroupsExist } from "@/repository/provider-groups";
 import type { CacheTtlPreference } from "@/types/cache";
 import type {
   AllowedModelRuleInput,
@@ -636,6 +638,16 @@ export async function addProvider(data: {
       providerId: provider.id,
     });
 
+    // 同步 provider_groups 表（系统级，失败不影响主流程）
+    try {
+      await ensureProviderGroupsExist(parseProviderGroups(payload.group_tag));
+    } catch (error) {
+      logger.warn("addProvider:provider_groups_sync_failed", {
+        providerId: provider.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
     // 同步熔断器配置到 Redis
     try {
       await saveProviderCircuitConfig(provider.id, {
@@ -657,6 +669,20 @@ export async function addProvider(data: {
     // 广播缓存更新（跨实例即时生效）
     await broadcastProviderCacheInvalidation({ operation: "add", providerId: provider.id });
 
+    emitActionAudit({
+      category: "provider",
+      action: "provider.create",
+      targetType: "provider",
+      targetId: String(provider.id),
+      targetName: provider.name,
+      after: {
+        id: provider.id,
+        name: provider.name,
+        url: provider.url,
+        isEnabled: provider.isEnabled,
+      },
+      success: true,
+    });
     return { ok: true };
   } catch (error) {
     logger.trace("addProvider:error", {
@@ -665,6 +691,14 @@ export async function addProvider(data: {
     });
     logger.error("创建服务商失败:", error);
     const message = error instanceof Error ? error.message : "创建服务商失败";
+    emitActionAudit({
+      category: "provider",
+      action: "provider.create",
+      targetType: "provider",
+      targetName: data.name,
+      success: false,
+      errorMessage: "CREATE_FAILED",
+    });
     return { ok: false, error: message };
   }
 }
@@ -805,6 +839,27 @@ export async function editProvider(
       return { ok: false, error: "供应商不存在" };
     }
 
+    // 同步 provider_groups 表（系统级，失败不影响主流程）
+    // 同时覆盖 group_tag 新增 tag 与 group_priorities 引用的分组名（如 admin 在 Tab 里给某 provider
+    // 设置了新组的优先级，该组名也应立即物化为表行）
+    const groupNamesToEnsure = new Set<string>();
+    if (payload.group_tag !== undefined) {
+      for (const n of parseProviderGroups(payload.group_tag)) groupNamesToEnsure.add(n);
+    }
+    if (validated.group_priorities !== undefined && validated.group_priorities !== null) {
+      for (const n of Object.keys(validated.group_priorities)) groupNamesToEnsure.add(n);
+    }
+    if (groupNamesToEnsure.size > 0) {
+      try {
+        await ensureProviderGroupsExist([...groupNamesToEnsure]);
+      } catch (error) {
+        logger.warn("editProvider:provider_groups_sync_failed", {
+          providerId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     if (shouldInvalidateStickySessionsOnProviderEdit(preimageFields)) {
       await SessionManager.terminateStickySessionsForProviders([providerId], "editProvider");
     }
@@ -854,6 +909,16 @@ export async function editProvider(
       patch: EMPTY_PROVIDER_BATCH_PATCH,
     });
 
+    emitActionAudit({
+      category: "provider",
+      action: "provider.update",
+      targetType: "provider",
+      targetId: String(providerId),
+      before: preimageFields,
+      after: data,
+      success: true,
+      redactExtraKeys: ["key"],
+    });
     return {
       ok: true,
       data: {
@@ -864,6 +929,14 @@ export async function editProvider(
   } catch (error) {
     logger.error("更新服务商失败:", error);
     const message = error instanceof Error ? error.message : "更新服务商失败";
+    emitActionAudit({
+      category: "provider",
+      action: "provider.update",
+      targetType: "provider",
+      targetId: String(providerId),
+      success: false,
+      errorMessage: "UPDATE_FAILED",
+    });
     return { ok: false, error: message };
   }
 }
@@ -923,6 +996,15 @@ export async function removeProvider(
     // 广播缓存更新（跨实例即时生效）
     await broadcastProviderCacheInvalidation({ operation: "remove", providerId });
 
+    emitActionAudit({
+      category: "provider",
+      action: "provider.delete",
+      targetType: "provider",
+      targetId: String(providerId),
+      targetName: provider?.name ?? null,
+      before: provider ? { id: provider.id, name: provider.name, url: provider.url } : undefined,
+      success: true,
+    });
     return {
       ok: true,
       data: {
@@ -933,6 +1015,14 @@ export async function removeProvider(
   } catch (error) {
     logger.error("删除服务商失败:", error);
     const message = error instanceof Error ? error.message : "删除服务商失败";
+    emitActionAudit({
+      category: "provider",
+      action: "provider.delete",
+      targetType: "provider",
+      targetId: String(providerId),
+      success: false,
+      errorMessage: "DELETE_FAILED",
+    });
     return { ok: false, error: message };
   }
 }
@@ -2301,6 +2391,17 @@ export async function batchUpdateProviders(
     }
 
     const updatedCount = await updateProvidersBatch(providerIds, repositoryUpdates);
+
+    // 同步 provider_groups 表（系统级，失败不影响主流程）
+    if (repositoryUpdates.groupTag !== undefined) {
+      try {
+        await ensureProviderGroupsExist(parseProviderGroups(repositoryUpdates.groupTag));
+      } catch (error) {
+        logger.warn("batchUpdateProviders:provider_groups_sync_failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
 
     const shouldInvalidateStickySessions =
       updates.group_tag !== undefined ||
@@ -4020,7 +4121,7 @@ export async function testProviderAnthropicMessages(
 ): Promise<ProviderApiTestResult> {
   return executeProviderApiTest(data, {
     path: "/v1/messages",
-    defaultModel: "claude-sonnet-4-5-20250929",
+    defaultModel: "claude-sonnet-4-6",
     headers: (apiKey, context) => resolveAnthropicAuthHeaders(apiKey, context.providerUrl),
     body: (model) => ({
       model,
@@ -4028,7 +4129,7 @@ export async function testProviderAnthropicMessages(
       stream: false, // 显式禁用流式响应，避免 Cloudflare 520 错误
       messages: [{ role: "user", content: API_TEST_CONFIG.TEST_PROMPT }],
     }),
-    userAgent: "claude-cli/2.0.50 (external, cli)",
+    userAgent: "claude-cli/2.1.76 (external, cli)",
     successMessage: "Anthropic Messages API 测试成功",
     extract: (result) => ({
       model: "model" in result ? result.model : undefined,
@@ -4046,7 +4147,7 @@ export async function testProviderOpenAIChatCompletions(
 ): Promise<ProviderApiTestResult> {
   return executeProviderApiTest(data, {
     path: "/v1/chat/completions",
-    defaultModel: "gpt-5.1-codex",
+    defaultModel: "gpt-5.3-codex",
     headers: (apiKey, context) => {
       void context;
       return {
@@ -4080,7 +4181,7 @@ export async function testProviderOpenAIResponses(
 ): Promise<ProviderApiTestResult> {
   return executeProviderApiTest(data, {
     path: "/v1/responses",
-    defaultModel: "gpt-5.1-codex",
+    defaultModel: "gpt-5.3-codex",
     headers: (apiKey, context) => {
       void context;
       return {

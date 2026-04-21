@@ -124,6 +124,7 @@
       "user": "ユーザー",
       "key": "キー",
       "sessionId": "セッションID",
+      "ip": "IP",
       "provider": "プロバイダー",
       "model": "課金モデル",
       "endpoint": "エンドポイント",
@@ -249,6 +250,10 @@
       "errorMessage": "エラーメッセージ",
       "fake200ForwardedNotice": "注意：ストリーミング要求では、失敗判定がストリーム終了後になる場合があります。応答内容は既にクライアントへ転送されている可能性があります。",
       "fake200DetectedReason": "検出理由：{reason}",
+      "fake200RetryTooltipLabel": "なぜ今回はサーバー側で再試行できないのか？",
+      "fake200RetryTooltipTitle": "なぜ CCH はこの応答をサーバー側で再試行できないのか",
+      "fake200RetryTooltipServerRetry": "アップストリームはすでに HTTP 200 を返しており、CCH も SSE 応答本文の転送を開始しています。後続のストリームイベントでエラーを検出した時点では、この応答をサーバー側で穏当に再試行することはできません。",
+      "fake200RetryTooltipSessionFallback": "クライアント側での再試行は可能です。同じ Session の後続リクエストでは、直前に fake200 を返したプロバイダーを避けて自動 fallback が続行されます。",
       "fake200Reasons": {
         "emptyBody": "レスポンス本文が空です",
         "htmlBody": "HTML ドキュメントが返されました (エラーページの可能性)",
@@ -300,6 +305,14 @@
           "priority_fallback": "優先フォールバック価格",
           "single_provider_top_level": "トップレベル単一プロバイダー価格",
           "official_fallback": "公式価格"
+        },
+        "baseCost": "基本コスト",
+        "providerMultiplier": "プロバイダー倍率",
+        "groupMultiplier": "グループ倍率",
+        "baseTotal": "基本合計",
+        "unitPricePer1M": "@ {price} / 1M",
+        "unit": {
+          "tokens": "トークン"
         }
       },
       "performance": {
@@ -394,6 +407,7 @@
       "cacheTtlSwapped": "課金 TTL (スワップ済み)",
       "multiplier": "プロバイダー倍率",
       "totalCost": "合計費用",
+      "unitPricePer1M": "@ {price} / 1M",
       "fast": "fast",
       "fastPriority": "Priority service tier (fast モード)",
       "context1m": "1M コンテキスト",
@@ -407,6 +421,13 @@
         "priority_fallback": "優先フォールバック価格",
         "single_provider_top_level": "トップレベル単一プロバイダー価格",
         "official_fallback": "公式価格"
+      },
+      "baseCost": "基本コスト",
+      "providerMultiplier": "プロバイダー倍率",
+      "groupMultiplier": "グループ倍率",
+      "baseTotal": "基本合計",
+      "unit": {
+        "tokens": "トークン"
       }
     }
   },
@@ -425,6 +446,7 @@
       "users": "ユーザー ランキング",
       "keys": "キー ランキング",
       "userRanking": "ユーザーランキング",
+      "userCacheHitRateRanking": "ユーザーキャッシュ命中率",
       "providerRanking": "プロバイダーランキング",
       "providerCacheHitRateRanking": "プロバイダーキャッシュ命中率",
       "modelRanking": "モデルランキング",
@@ -733,6 +755,7 @@
     "quotasManagement": "クォータ管理",
     "userManagement": "ユーザー",
     "providers": "プロバイダー管理",
+    "auditLogs": "監査ログ",
     "documentation": "ドキュ",
     "systemSettings": "設定",
     "feedback": "フィードバック",

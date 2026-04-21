@@ -19,6 +19,7 @@ import { apiReference } from "@scalar/hono-api-reference";
 import { handle } from "hono/vercel";
 import { z } from "zod";
 import * as activeSessionActions from "@/actions/active-sessions";
+import * as auditLogActions from "@/actions/audit-logs";
 import * as keyActions from "@/actions/keys";
 import * as modelPriceActions from "@/actions/model-prices";
 import * as myUsageActions from "@/actions/my-usage";
@@ -35,6 +36,7 @@ import * as userActions from "@/actions/users";
 import * as webhookTargetActions from "@/actions/webhook-targets";
 import { createActionRoute } from "@/lib/api/action-adapter-openapi";
 import { NOTIFICATION_JOB_TYPES } from "@/lib/constants/notification.constants";
+import { logger } from "@/lib/logger";
 import { PROVIDER_MODEL_REDIRECT_RULE_SCHEMA } from "@/lib/provider-model-redirect-schema";
 // 导入 validation schemas
 import {
@@ -1312,6 +1314,30 @@ const { route: getMyAvailableEndpointsRoute, handler: getMyAvailableEndpointsHan
   });
 app.openapi(getMyAvailableEndpointsRoute, getMyAvailableEndpointsHandler);
 
+const { route: getMyIpGeoDetailsRoute, handler: getMyIpGeoDetailsHandler } = createActionRoute(
+  "my-usage",
+  "getMyIpGeoDetails",
+  myUsageActions.getMyIpGeoDetails,
+  {
+    requestSchema: z.object({
+      ip: z.string().min(1).describe("要查询的客户端 IP"),
+      lang: z.string().optional().describe("界面 locale，用于本地化地理名称"),
+    }),
+    responseSchema: z
+      .object({
+        status: z.enum(["ok", "private", "error"]),
+        data: z.unknown().optional(),
+        error: z.string().optional(),
+      })
+      .passthrough(),
+    description: "仅查询当前 key 使用日志中真实出现过的 IP 详情",
+    summary: "获取我的 IP 详情",
+    tags: ["使用日志"],
+    allowReadOnlyAccess: true,
+  }
+);
+app.openapi(getMyIpGeoDetailsRoute, getMyIpGeoDetailsHandler);
+
 const { route: getMyStatsSummaryRoute, handler: getMyStatsSummaryHandler } = createActionRoute(
   "my-usage",
   "getMyStatsSummary",
@@ -1478,6 +1504,88 @@ const { route: getCacheStatsRoute, handler: getCacheStatsHandler } = createActio
   }
 );
 app.openapi(getCacheStatsRoute, getCacheStatsHandler);
+
+// ==================== 审计日志 ====================
+
+const auditLogCursorSchema = z
+  .object({
+    createdAt: z.string(),
+    id: z.number().int(),
+  })
+  .nullable()
+  .optional();
+
+const auditLogRowSchema = z.object({
+  id: z.number(),
+  actionCategory: z.string(),
+  actionType: z.string(),
+  targetType: z.string().nullable(),
+  targetId: z.string().nullable(),
+  targetName: z.string().nullable(),
+  beforeValue: z.any().nullable(),
+  afterValue: z.any().nullable(),
+  operatorUserId: z.number().nullable(),
+  operatorUserName: z.string().nullable(),
+  operatorKeyId: z.number().nullable(),
+  operatorKeyName: z.string().nullable(),
+  operatorIp: z.string().nullable(),
+  userAgent: z.string().nullable(),
+  success: z.boolean(),
+  errorMessage: z.string().nullable(),
+  createdAt: z.union([z.date(), z.string()]),
+});
+
+const { route: getAuditLogsBatchRoute, handler: getAuditLogsBatchHandler } = createActionRoute(
+  "audit-logs",
+  "getAuditLogsBatch",
+  auditLogActions.getAuditLogsBatch,
+  {
+    requestSchema: z.object({
+      filter: z
+        .object({
+          category: z.string().optional(),
+          success: z.boolean().optional(),
+          from: z.string().optional(),
+          to: z.string().optional(),
+        })
+        .optional(),
+      cursor: auditLogCursorSchema,
+      pageSize: z.number().int().positive().optional(),
+    }),
+    responseSchema: z.object({
+      rows: z.array(auditLogRowSchema),
+      nextCursor: z
+        .object({
+          createdAt: z.string(),
+          id: z.number().int(),
+        })
+        .nullable(),
+    }),
+    description: "分页获取审计日志 (管理员)",
+    summary: "分页获取审计日志",
+    tags: ["审计日志"],
+    requiredRole: "admin",
+  }
+);
+app.openapi(getAuditLogsBatchRoute, getAuditLogsBatchHandler);
+
+const { route: getAuditLogDetailRoute, handler: getAuditLogDetailHandler } = createActionRoute(
+  "audit-logs",
+  "getAuditLogDetail",
+  auditLogActions.getAuditLogDetail,
+  {
+    requestSchema: z.object({
+      id: z.number().int().positive(),
+    }),
+    responseSchema: auditLogRowSchema.nullable(),
+    description: "获取审计日志详情 (管理员)",
+    summary: "获取审计日志详情",
+    tags: ["审计日志"],
+    requiredRole: "admin",
+    argsMapper: (body) => [body.id],
+  }
+);
+app.openapi(getAuditLogDetailRoute, getAuditLogDetailHandler);
 
 // ==================== 活跃 Session ====================
 
@@ -2157,14 +2265,28 @@ app.get(
   })
 );
 
-// 健康检查端点
-app.get("/health", (c) =>
-  c.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    version: "1.0.0",
-  })
-);
+// 健康检查端点 (保持旧格式兼容，详细探针请用 /api/health/ready)
+app.get("/health", async (c) => {
+  try {
+    const { checkReadiness, getAppVersion } = await import("@/lib/health/checker");
+    const health = await checkReadiness();
+    return c.json({
+      status: health.status === "unhealthy" ? "error" : "ok",
+      timestamp: health.timestamp,
+      version: getAppVersion(),
+      details: health,
+    });
+  } catch (error) {
+    logger.error("[api/actions] health route failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return c.json({
+      status: "error",
+      timestamp: new Date().toISOString(),
+      version: "unknown",
+    });
+  }
+});
 
 // 导出处理器 (Vercel Edge Functions 格式)
 export const GET = handle(app);

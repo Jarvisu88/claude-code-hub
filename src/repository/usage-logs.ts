@@ -7,6 +7,7 @@ import { TTLMap } from "@/lib/cache/ttl-map";
 import { isLedgerOnlyMode } from "@/lib/ledger-fallback";
 import { extractAnthropicEffortFromSpecialSettings } from "@/lib/utils/anthropic-effort";
 import { buildUnifiedSpecialSettings } from "@/lib/utils/special-settings";
+import type { StoredCostBreakdown } from "@/types/cost-breakdown";
 import type { ProviderChainItem } from "@/types/message";
 import type { SpecialSetting } from "@/types/special-settings";
 import { LEDGER_BILLING_CONDITION } from "./_shared/ledger-conditions";
@@ -57,6 +58,8 @@ export interface UsageLogRow {
   totalTokens: number;
   costUsd: string | null;
   costMultiplier: string | null; // 供应商倍率
+  groupCostMultiplier: string | null; // 分组倍率
+  costBreakdown: StoredCostBreakdown | null; // 费用明细
   durationMs: number | null;
   ttfbMs: number | null;
   errorMessage: string | null;
@@ -64,6 +67,7 @@ export interface UsageLogRow {
   blockedBy: string | null; // 拦截类型（如 'sensitive_word'）
   blockedReason: string | null; // 拦截原因（JSON 字符串）
   userAgent: string | null; // User-Agent（客户端信息）
+  clientIp: string | null; // 客户端 IP（IPv4/IPv6）
   messagesCount: number | null; // Messages 数量
   context1mApplied: boolean | null; // 是否应用了1M上下文窗口
   swapCacheTtlApplied: boolean | null; // 是否启用了swap cache TTL billing
@@ -135,6 +139,7 @@ export async function findUsageLogsBatch(
   filters: UsageLogBatchFilters
 ): Promise<UsageLogsBatchResult> {
   const { userId, keyId, providerId, cursor, limit = 50 } = filters;
+  const safeLimit = Math.min(100, Math.max(1, limit));
 
   // Build query conditions
   const conditions = [isNull(messageRequest.deletedAt)];
@@ -162,7 +167,7 @@ export async function findUsageLogsBatch(
   }
 
   // Fetch limit + 1 to determine if there are more records
-  const fetchLimit = limit + 1;
+  const fetchLimit = safeLimit + 1;
 
   const results = await db
     .select({
@@ -187,6 +192,8 @@ export async function findUsageLogsBatch(
       cacheTtlApplied: messageRequest.cacheTtlApplied,
       costUsd: messageRequest.costUsd,
       costMultiplier: messageRequest.costMultiplier,
+      groupCostMultiplier: messageRequest.groupCostMultiplier,
+      costBreakdown: messageRequest.costBreakdown,
       durationMs: messageRequest.durationMs,
       ttfbMs: messageRequest.ttfbMs,
       errorMessage: messageRequest.errorMessage,
@@ -194,6 +201,7 @@ export async function findUsageLogsBatch(
       blockedBy: messageRequest.blockedBy,
       blockedReason: messageRequest.blockedReason,
       userAgent: messageRequest.userAgent,
+      clientIp: messageRequest.clientIp,
       messagesCount: messageRequest.messagesCount,
       context1mApplied: messageRequest.context1mApplied,
       swapCacheTtlApplied: messageRequest.swapCacheTtlApplied,
@@ -208,8 +216,8 @@ export async function findUsageLogsBatch(
     .limit(fetchLimit);
 
   // Determine if there are more records
-  const hasMore = results.length > limit;
-  const logsToReturn = hasMore ? results.slice(0, limit) : results;
+  const hasMore = results.length > safeLimit;
+  const logsToReturn = hasMore ? results.slice(0, safeLimit) : results;
 
   // Calculate next cursor from the last record
   const lastLog = logsToReturn[logsToReturn.length - 1];
@@ -244,6 +252,8 @@ export async function findUsageLogsBatch(
       cacheCreation1hInputTokens: row.cacheCreation1hInputTokens,
       cacheTtlApplied: row.cacheTtlApplied,
       costUsd: row.costUsd?.toString() ?? null,
+      groupCostMultiplier: row.groupCostMultiplier?.toString() ?? null,
+      costBreakdown: (row.costBreakdown as StoredCostBreakdown) ?? null,
       providerChain: row.providerChain as ProviderChainItem[] | null,
       endpoint: row.endpoint,
       specialSettings: unifiedSpecialSettings,
@@ -336,8 +346,10 @@ export async function findUsageLogsBatch(
       cacheTtlApplied: usageLedger.cacheTtlApplied,
       costUsd: usageLedger.costUsd,
       costMultiplier: usageLedger.costMultiplier,
+      groupCostMultiplier: usageLedger.groupCostMultiplier,
       durationMs: usageLedger.durationMs,
       ttfbMs: usageLedger.ttfbMs,
+      clientIp: usageLedger.clientIp,
       context1mApplied: usageLedger.context1mApplied,
       swapCacheTtlApplied: usageLedger.swapCacheTtlApplied,
     })
@@ -387,6 +399,8 @@ export async function findUsageLogsBatch(
       totalTokens: totalRowTokens,
       costUsd: row.costUsd?.toString() ?? null,
       costMultiplier: row.costMultiplier?.toString() ?? null,
+      groupCostMultiplier: row.groupCostMultiplier?.toString() ?? null,
+      costBreakdown: null,
       durationMs: row.durationMs,
       ttfbMs: row.ttfbMs,
       errorMessage: null,
@@ -394,6 +408,7 @@ export async function findUsageLogsBatch(
       blockedBy: null,
       blockedReason: null,
       userAgent: null,
+      clientIp: row.clientIp ?? null,
       messagesCount: null,
       context1mApplied: row.context1mApplied ?? null,
       swapCacheTtlApplied: row.swapCacheTtlApplied ?? null,
@@ -990,6 +1005,8 @@ export async function findUsageLogsWithDetails(filters: UsageLogFilters): Promis
       cacheTtlApplied: messageRequest.cacheTtlApplied,
       costUsd: messageRequest.costUsd,
       costMultiplier: messageRequest.costMultiplier, // 供应商倍率
+      groupCostMultiplier: messageRequest.groupCostMultiplier, // 分组倍率
+      costBreakdown: messageRequest.costBreakdown, // 费用明细
       durationMs: messageRequest.durationMs,
       ttfbMs: messageRequest.ttfbMs,
       errorMessage: messageRequest.errorMessage,
@@ -997,6 +1014,7 @@ export async function findUsageLogsWithDetails(filters: UsageLogFilters): Promis
       blockedBy: messageRequest.blockedBy, // 拦截类型
       blockedReason: messageRequest.blockedReason, // 拦截原因
       userAgent: messageRequest.userAgent, // User-Agent
+      clientIp: messageRequest.clientIp, // 客户端 IP
       messagesCount: messageRequest.messagesCount, // Messages 数量
       context1mApplied: messageRequest.context1mApplied, // 1M上下文窗口
       swapCacheTtlApplied: messageRequest.swapCacheTtlApplied, // swap cache TTL billing
@@ -1052,6 +1070,8 @@ export async function findUsageLogsWithDetails(filters: UsageLogFilters): Promis
       cacheCreation1hInputTokens: row.cacheCreation1hInputTokens,
       cacheTtlApplied: row.cacheTtlApplied,
       costUsd: row.costUsd?.toString() ?? null,
+      groupCostMultiplier: row.groupCostMultiplier?.toString() ?? null,
+      costBreakdown: (row.costBreakdown as StoredCostBreakdown) ?? null,
       providerChain: row.providerChain as ProviderChainItem[] | null,
       endpoint: row.endpoint,
       specialSettings: unifiedSpecialSettings,

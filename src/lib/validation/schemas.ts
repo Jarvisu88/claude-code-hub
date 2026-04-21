@@ -60,7 +60,7 @@ const ANTHROPIC_THINKING_BUDGET_PREFERENCE = z.union([
 
 const ANTHROPIC_ADAPTIVE_THINKING_CONFIG = z
   .object({
-    effort: z.enum(["low", "medium", "high", "max"]),
+    effort: z.enum(["low", "medium", "high", "xhigh", "max"]),
     modelMatchMode: z.enum(["specific", "all"]),
     models: z.array(z.string().min(1).max(100)).max(50),
   })
@@ -76,6 +76,14 @@ const ANTHROPIC_ADAPTIVE_THINKING_CONFIG = z
 // - 'enabled': force inject googleSearch tool
 // - 'disabled': force remove googleSearch tool from request
 const GEMINI_GOOGLE_SEARCH_PREFERENCE = z.enum(["inherit", "enabled", "disabled"]);
+const XFF_PICK_SCHEMA = z.union([
+  z.literal("leftmost"),
+  z.literal("rightmost"),
+  z.object({
+    kind: z.literal("index"),
+    index: z.number().int().min(0),
+  }),
+]);
 
 const CLIENT_PATTERN_SCHEMA = z
   .string()
@@ -1003,6 +1011,23 @@ export const UpdateSystemSettingsSchema = z.object({
     .max(1, "Lease percent cannot exceed 1")
     .optional(),
   quotaLeaseCapUsd: z.coerce.number().min(0, "Lease cap cannot be negative").nullable().optional(),
+
+  // 客户端 IP 提取链（可选；null 表示使用内置默认）
+  ipExtractionConfig: z
+    .union([
+      z.null(),
+      z.object({
+        headers: z.array(
+          z.object({
+            name: z.string(),
+            pick: XFF_PICK_SCHEMA.optional(),
+          })
+        ),
+      }),
+    ])
+    .optional(),
+  // 是否启用 IP 归属地查询（可选）
+  ipGeoLookupEnabled: z.boolean().optional(),
 });
 
 // 导出类型推断
