@@ -1,0 +1,29 @@
+# Context Snapshot — Go Rewrite Functional Parity Auth Sprint
+
+- task statement: 使用 Go 语言重写 Claude Code Hub，按既有 PRD / test spec 推进功能等价；当前优先把已完成的 auth 第一刀接入 `/v1` 代理入口，并建立可持续的 parity 验证基线。
+- desired outcome: 在 `go-rewrite-main` 上完成一个最小但可验证的纵向切片：`/v1` Gin handler 已接入 API key 鉴权，中间件具备 Node 对齐的基础认证语义，且存在回归测试/契约测试作为后续 session、rate-limit、provider-selector 接入的基线。
+- known facts/evidence:
+  - 已存在计划文件：`.omx/plans/prd-go-rewrite-functional-parity.md`、`.omx/plans/test-spec-go-rewrite-functional-parity.md`
+  - 已存在 auth 服务与测试：`internal/service/auth/auth.go`、`internal/service/auth/auth_test.go`、`internal/service/auth/proxy_parity_test.go`
+  - Go HTTP 层已把 `/v1/messages|chat/completions|responses|models` 注册到 `internal/handler/v1/proxy.go`，且鉴权中间件已接入 `cmd/server/main.go`
+  - 当前 Git 未提交文件：`.omx/`、`docs/go-migration-notes.md`、`docs/go-parity-matrix.md`
+  - Node 是行为真相源，Go 当前仍处于“数据层 + 501 handler + auth 接线”阶段
+- constraints:
+  - 保持功能等价优先，不引入新依赖
+  - 保持 diff 小、可验证、可回退
+  - 避免陷入大而全重构，按最小执行单元推进
+  - 完成后需要 review、验证，并保留版本管理/提交
+- unknowns/open questions:
+  - 当前迭代除 auth 接线外，是否继续扩到 `/v1/models` 的最小可用实现
+  - provider group / endpoint / system settings 缺口是否会阻塞下一刀
+- decision boundaries:
+  - 本轮允许在不改变外部契约的前提下重构 Go 内部 handler 组织
+  - 本轮不启动大规模 admin API、session、rate-limit、provider selector 全量实现
+  - 本轮优先完成“auth 接线 + 可验证入口”，非目标是完整代理转发
+- likely codebase touchpoints:
+  - `cmd/server/main.go`
+  - `internal/handler/v1/proxy.go`
+  - `internal/handler/v1/proxy_test.go`
+  - `internal/service/auth/*`
+  - `tests/go-parity/fixtures/auth/*`
+  - Node 参考：`src/app/v1/_lib/models/available-models.ts`、`src/app/v1/_lib/proxy/*`

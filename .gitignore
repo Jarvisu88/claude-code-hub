@@ -24,3 +24,11 @@ coverage.html
 # Vendor directory (if not using go modules)
 # vendor/
 /node-version-snapshot/
+
+# Local build outputs
+/server
+
+# OMX runtime state
+/.omx/state/
+/.omx/notepad.md
+/.omx/tmux-hook.json
