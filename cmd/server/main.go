@@ -11,8 +11,11 @@ import (
 
 	"github.com/ding113/claude-code-hub/internal/config"
 	"github.com/ding113/claude-code-hub/internal/database"
+	v1handler "github.com/ding113/claude-code-hub/internal/handler/v1"
 	"github.com/ding113/claude-code-hub/internal/pkg/logger"
 	"github.com/ding113/claude-code-hub/internal/pkg/validator"
+	"github.com/ding113/claude-code-hub/internal/repository"
+	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/uptrace/bun"
 )
@@ -54,7 +57,7 @@ func main() {
 	if cfg.Log.Level != "debug" {
 		gin.SetMode(gin.ReleaseMode)
 	}
-	router := setupRouter(db, rdb)
+	router := setupRouter(cfg, db, rdb)
 
 	// 创建 HTTP 服务器
 	srv := &http.Server{
@@ -95,7 +98,7 @@ func main() {
 }
 
 // setupRouter 设置路由
-func setupRouter(db *bun.DB, rdb *database.RedisClient) *gin.Engine {
+func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin.Engine {
 	router := gin.New()
 
 	// 添加中间件
@@ -106,14 +109,9 @@ func setupRouter(db *bun.DB, rdb *database.RedisClient) *gin.Engine {
 	router.GET("/health", healthCheck(db, rdb))
 
 	// API v1 路由组 (代理 API)
-	v1 := router.Group("/v1")
-	{
-		// TODO: Phase 5 实现
-		v1.POST("/messages", notImplemented)
-		v1.POST("/chat/completions", notImplemented)
-		v1.POST("/responses", notImplemented)
-		v1.GET("/models", notImplemented)
-	}
+	repoFactory := repository.NewFactory(db)
+	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken)
+	v1handler.NewHandler(proxyAuthService).RegisterRoutes(router.Group("/v1"))
 
 	// 管理 API 路由组
 	api := router.Group("/api/actions")

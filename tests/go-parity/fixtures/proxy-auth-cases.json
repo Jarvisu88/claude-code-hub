@@ -1,0 +1,52 @@
+[
+  {
+    "name": "missing_credentials",
+    "method": "POST",
+    "path": "/v1/messages",
+    "expected_status": 401,
+    "expected_error_code": "token_required",
+    "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:104-145"
+  },
+  {
+    "name": "conflicting_credentials",
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "headers": {
+      "Authorization": "Bearer key-a",
+      "x-api-key": "key-b"
+    },
+    "expected_status": 401,
+    "expected_error_code": "invalid_credentials",
+    "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:147-165"
+  },
+  {
+    "name": "gemini_query_key_success",
+    "method": "GET",
+    "path": "/v1/models?key=gemini-key",
+    "expected_status": 501,
+    "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:95-103"
+  },
+  {
+    "name": "disabled_user",
+    "method": "POST",
+    "path": "/v1/responses",
+    "headers": {
+      "x-api-key": "disabled-user-key"
+    },
+    "expected_status": 401,
+    "expected_error_code": "user_disabled",
+    "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:182-205"
+  },
+  {
+    "name": "expired_user",
+    "method": "POST",
+    "path": "/v1/messages",
+    "headers": {
+      "x-api-key": "expired-user-key"
+    },
+    "expected_status": 401,
+    "expected_error_code": "user_expired",
+    "expected_message_contains": "2026-04-20",
+    "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:208-227"
+  }
+]
