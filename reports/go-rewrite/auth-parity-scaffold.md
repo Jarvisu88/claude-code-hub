@@ -27,11 +27,23 @@
    - 相同凭据跨头部复用成功
    - disabled key / expired key 错误码
    - admin token 缺失 / 未配置错误
+3. 跨 lane 接线验证
+   - `internal/handler/v1` 已能把 `auth.Service` 接入 Gin middleware
+   - middleware 成功把 `AuthResult` 写入 Gin context
+   - 无效 API key 会返回 401
 
 ## 当前已识别但未在 scaffold 中强制断言的差异
 
 1. Node `/v1` 401 响应的 `error.type`/`error.code` 往往使用同一字符串；Go 当前 `AppError` 采用 `type=authentication_error + 细粒度 code`。
 2. Node 过期用户提示包含具体日期（`YYYY-MM-DD`）；Go 当前文案只返回通用过期提示。
+
+## 验证记录
+
+- PASS `'/mnt/c/Program Files/Go/bin/go.exe' test ./internal/service/auth -v`
+- PASS `'/mnt/c/Program Files/Go/bin/go.exe' test ./internal/handler/v1 -v`
+- PASS `'/mnt/c/Program Files/Go/bin/go.exe' test ./...`
+- PASS `'/mnt/c/Program Files/Go/bin/go.exe' build ./cmd/server`
+- PASS `'/mnt/c/Program Files/Go/bin/gofmt.exe' -l internal/service/auth/proxy_parity_test.go`
 
 ## 目的
 
