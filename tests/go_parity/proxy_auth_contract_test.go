@@ -72,7 +72,11 @@ func TestProxyAuthParityCases(t *testing.T) {
 				t.Fatalf("node evidence %s: expected status %d, got %d, body=%s", tc.NodeEvidence, tc.ExpectedStatus, resp.Code, resp.Body.String())
 			}
 
-			if tc.ExpectedStatus == http.StatusNotImplemented {
+			if tc.ExpectedStatus == http.StatusOK || tc.ExpectedStatus == http.StatusNotImplemented {
+				var payload any
+				if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+					t.Fatalf("node evidence %s: expected JSON body, got decode error: %v; body=%s", tc.NodeEvidence, err, resp.Body.String())
+				}
 				return
 			}
 
@@ -141,9 +145,9 @@ func buildParityRouter(t *testing.T) *gin.Engine {
 		},
 	}}, parityUserRepo{}, "")
 
-	handler := v1.NewHandler(svc)
+	providers := &parityProviderRepo{}
 	router := gin.New()
-	handler.RegisterRoutes(router.Group("/v1"))
+	v1.NewHandler(svc, providers).RegisterRoutes(router.Group("/v1"))
 	return router
 }
 
@@ -164,4 +168,10 @@ func loadFixtures(t *testing.T) []fixtureCase {
 
 func contains(value, sub string) bool {
 	return strings.Contains(value, sub)
+}
+
+type parityProviderRepo struct{}
+
+func (parityProviderRepo) GetActiveProviders(_ context.Context) ([]*model.Provider, error) {
+	return []*model.Provider{}, nil
 }

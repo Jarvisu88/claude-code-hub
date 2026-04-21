@@ -1,9 +1,11 @@
 package v1
 
 import (
+	"context"
 	stderrors "errors"
 	"net/http"
 
+	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	"github.com/gin-gonic/gin"
@@ -11,14 +13,23 @@ import (
 
 const authResultContextKey = "proxy_auth_result"
 
+type activeProviderLister interface {
+	GetActiveProviders(ctx context.Context) ([]*model.Provider, error)
+}
+
 // Handler 承载 /v1 代理入口的最小可用接线。
 // 当前阶段先把鉴权链接入 Gin，后续再逐步替换 501 占位逻辑。
 type Handler struct {
-	auth *authsvc.Service
+	auth      *authsvc.Service
+	providers activeProviderLister
 }
 
-func NewHandler(auth *authsvc.Service) *Handler {
-	return &Handler{auth: auth}
+func NewHandler(auth *authsvc.Service, providers ...activeProviderLister) *Handler {
+	handler := &Handler{auth: auth}
+	if len(providers) > 0 {
+		handler.providers = providers[0]
+	}
+	return handler
 }
 
 func (h *Handler) RegisterRoutes(group *gin.RouterGroup) {
@@ -27,7 +38,7 @@ func (h *Handler) RegisterRoutes(group *gin.RouterGroup) {
 	protected.POST("/messages", h.notImplemented)
 	protected.POST("/chat/completions", h.notImplemented)
 	protected.POST("/responses", h.notImplemented)
-	protected.GET("/models", h.notImplemented)
+	protected.GET("/models", h.handleModels)
 }
 
 func (h *Handler) AuthMiddleware() gin.HandlerFunc {

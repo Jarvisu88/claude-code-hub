@@ -23,7 +23,7 @@
     "name": "gemini_query_key_success",
     "method": "GET",
     "path": "/v1/models?key=gemini-key",
-    "expected_status": 501,
+    "expected_status": 200,
     "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:95-103"
   },
   {

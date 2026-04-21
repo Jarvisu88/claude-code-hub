@@ -111,7 +111,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	// API v1 路由组 (代理 API)
 	repoFactory := repository.NewFactory(db)
 	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken)
-	v1handler.NewHandler(proxyAuthService).RegisterRoutes(router.Group("/v1"))
+	v1handler.NewHandler(proxyAuthService, repoFactory.Provider()).RegisterRoutes(router.Group("/v1"))
 
 	// 管理 API 路由组
 	api := router.Group("/api/actions")

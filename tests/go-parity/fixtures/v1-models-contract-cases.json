@@ -1,0 +1,59 @@
+[
+  {
+    "name": "missing_credentials",
+    "method": "GET",
+    "path": "/v1/models",
+    "expected_status": 401,
+    "expected_error_code": "token_required",
+    "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:104-145"
+  },
+  {
+    "name": "conflicting_credentials",
+    "method": "GET",
+    "path": "/v1/models",
+    "headers": {
+      "Authorization": "Bearer key-a",
+      "x-api-key": "key-b"
+    },
+    "expected_status": 401,
+    "expected_error_code": "invalid_credentials",
+    "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:147-165"
+  },
+  {
+    "name": "authorization_header_reaches_models_handler",
+    "method": "GET",
+    "path": "/v1/models",
+    "headers": {
+      "Authorization": "Bearer gemini-key"
+    },
+    "expect_auth_pass": true,
+    "node_evidence": "src/app/v1/_lib/models/available-models.ts:487-516"
+  },
+  {
+    "name": "x_api_key_reaches_models_handler",
+    "method": "GET",
+    "path": "/v1/models",
+    "headers": {
+      "x-api-key": "gemini-key"
+    },
+    "expect_auth_pass": true,
+    "node_evidence": "src/app/v1/_lib/models/available-models.ts:487-516"
+  },
+  {
+    "name": "x_goog_api_key_reaches_models_handler",
+    "method": "GET",
+    "path": "/v1/models",
+    "headers": {
+      "x-goog-api-key": "gemini-key"
+    },
+    "expect_auth_pass": true,
+    "node_evidence": "src/app/v1/_lib/models/available-models.ts:84-92,487-516"
+  },
+  {
+    "name": "gemini_query_key_reaches_models_handler",
+    "method": "GET",
+    "path": "/v1/models?key=gemini-key",
+    "expect_auth_pass": true,
+    "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:33,95-103 + src/app/v1/_lib/models/available-models.ts:84-92,487-516"
+  }
+]
