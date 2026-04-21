@@ -1,0 +1,75 @@
+{
+  "source": "../claude-code-hub plus/src/app/v1/_lib/proxy/auth-guard.ts",
+  "notes": [
+    "该 fixture 只覆盖代理鉴权输入归一化与凭据冲突判定，用作 Node->Go parity 脚手架。",
+    "已知差异暂不在该 fixture 直接断言：Node 401 响应会把 type/code 压成同一字符串；Go auth.Service 返回 AppError(type=authentication_error, code=更细粒度错误码)。",
+    "已知差异暂不在该 fixture 直接断言：Node 过期用户消息会带 YYYY-MM-DD 日期，Go 当前实现返回通用过期提示。"
+  ],
+  "cases": [
+    {
+      "name": "authorization bearer key",
+      "input": {
+        "authorization": "Bearer proxy-key"
+      },
+      "want_key": "proxy-key"
+    },
+    {
+      "name": "trimmed x-api-key header",
+      "input": {
+        "x_api_key": "  proxy-key  "
+      },
+      "want_key": "proxy-key"
+    },
+    {
+      "name": "gemini header preferred over query",
+      "input": {
+        "x_goog_api_key": "header-key",
+        "gemini_query_key": "query-key"
+      },
+      "want_key": "header-key"
+    },
+    {
+      "name": "gemini query key fallback",
+      "input": {
+        "gemini_query_key": "query-key"
+      },
+      "want_key": "query-key"
+    },
+    {
+      "name": "same key accepted across headers",
+      "input": {
+        "authorization": "Bearer shared-key",
+        "x_api_key": "shared-key",
+        "x_goog_api_key": "shared-key"
+      },
+      "want_key": "shared-key"
+    },
+    {
+      "name": "malformed authorization falls back to x-api-key",
+      "input": {
+        "authorization": "Token malformed",
+        "x_api_key": "header-key"
+      },
+      "want_key": "header-key"
+    },
+    {
+      "name": "missing credentials",
+      "input": {
+        "authorization": "   ",
+        "x_api_key": "",
+        "x_goog_api_key": "  "
+      },
+      "want_error_code": "token_required",
+      "want_error_message": "未提供认证凭据。请在 Authorization 头部、x-api-key 头部或 x-goog-api-key 头部中包含 API 密钥。"
+    },
+    {
+      "name": "conflicting credentials",
+      "input": {
+        "authorization": "Bearer key-a",
+        "x_api_key": "key-b"
+      },
+      "want_error_code": "invalid_credentials",
+      "want_error_message": "提供了多个冲突的 API 密钥。请仅使用一种认证方式。"
+    }
+  ]
+}
