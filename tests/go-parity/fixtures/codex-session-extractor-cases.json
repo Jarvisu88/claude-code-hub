@@ -1,0 +1,140 @@
+[
+  {
+    "name": "header_session_id_has_highest_priority",
+    "headers": {
+      "session_id": "sess_123456789012345678901",
+      "x-session-id": "sess_123456789012345678902"
+    },
+    "body": {
+      "prompt_cache_key": "019b82ff-08ff-75a3-a203-7e10274fdbd8",
+      "metadata": {
+        "session_id": "sess_123456789012345678903"
+      },
+      "previous_response_id": "resp_123456789012345678901"
+    },
+    "want_session_id": "sess_123456789012345678901",
+    "want_source": "header_session_id",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:46-55 + __tests__/session-extractor.test.ts:5-17,80-98"
+  },
+  {
+    "name": "header_x_session_id_is_second_priority",
+    "headers": {
+      "x-session-id": "sess_123456789012345678902"
+    },
+    "body": {
+      "prompt_cache_key": "019b82ff-08ff-75a3-a203-7e10274fdbd8",
+      "metadata": {
+        "session_id": "sess_123456789012345678903"
+      }
+    },
+    "want_session_id": "sess_123456789012345678902",
+    "want_source": "header_x_session_id",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:57-62 + __tests__/session-extractor.test.ts:19-31"
+  },
+  {
+    "name": "prompt_cache_key_precedes_metadata_session_id",
+    "headers": {},
+    "body": {
+      "prompt_cache_key": "019b82ff-08ff-75a3-a203-7e10274fdbd8",
+      "metadata": {
+        "session_id": "sess_123456789012345678903"
+      }
+    },
+    "want_session_id": "019b82ff-08ff-75a3-a203-7e10274fdbd8",
+    "want_source": "body_prompt_cache_key",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:64-71 + __tests__/session-extractor.test.ts:42-52"
+  },
+  {
+    "name": "invalid_prompt_cache_key_falls_back_to_metadata_session_id",
+    "headers": {},
+    "body": {
+      "prompt_cache_key": "short",
+      "metadata": {
+        "session_id": "sess_123456789012345678903"
+      }
+    },
+    "want_session_id": "sess_123456789012345678903",
+    "want_source": "body_metadata_session_id",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:64-79 + __tests__/session-extractor.test.ts:54-63"
+  },
+  {
+    "name": "previous_response_id_fallback_adds_prefix",
+    "headers": {},
+    "body": {
+      "previous_response_id": "resp_123456789012345678901"
+    },
+    "want_session_id": "codex_prev_resp_123456789012345678901",
+    "want_source": "body_previous_response_id",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:81-89 + __tests__/session-extractor.test.ts:65-73"
+  },
+  {
+    "name": "minimum_length_21_is_accepted_after_trim",
+    "headers": {
+      "session_id": "  aaaaaaaaaaaaaaaaaaaaa  "
+    },
+    "body": {},
+    "want_session_id": "aaaaaaaaaaaaaaaaaaaaa",
+    "want_source": "header_session_id",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:18-31 + __tests__/session-extractor.test.ts:100-114"
+  },
+  {
+    "name": "values_shorter_than_21_are_rejected",
+    "headers": {
+      "session_id": "short_id_12345"
+    },
+    "body": {},
+    "want_session_id": "",
+    "want_source": "",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:24 + __tests__/session-extractor.test.ts:100-107"
+  },
+  {
+    "name": "values_longer_than_256_are_rejected",
+    "headers": {
+      "session_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "body": {},
+    "want_session_id": "",
+    "want_source": "",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:25 + __tests__/session-extractor.test.ts:123-128"
+  },
+  {
+    "name": "invalid_characters_are_rejected",
+    "headers": {},
+    "body": {
+      "metadata": {
+        "session_id": "sess_123456789@#$%^&*()!"
+      }
+    },
+    "want_session_id": "",
+    "want_source": "",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:26 + __tests__/session-extractor.test.ts:130-137"
+  },
+  {
+    "name": "allowed_special_characters_are_accepted",
+    "headers": {
+      "session_id": "sess-123_456.789:abc012345"
+    },
+    "body": {},
+    "want_session_id": "sess-123_456.789:abc012345",
+    "want_source": "header_session_id",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:16 + __tests__/session-extractor.test.ts:139-144"
+  },
+  {
+    "name": "previous_response_id_rejected_when_prefix_pushes_past_256",
+    "headers": {},
+    "body": {
+      "previous_response_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "want_session_id": "",
+    "want_source": "",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:81-89 + __tests__/session-extractor.test.ts:75-78"
+  },
+  {
+    "name": "no_valid_value_returns_null_source",
+    "headers": {},
+    "body": {},
+    "want_session_id": "",
+    "want_source": "",
+    "node_evidence": "src/app/v1/_lib/codex/session-extractor.ts:91 + __tests__/session-extractor.test.ts:146-150"
+  }
+]
