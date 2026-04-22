@@ -202,6 +202,14 @@ type SessionConfig struct {
 	// TTL: 会话 TTL（秒）
 	TTL int `mapstructure:"ttl"`
 
+	// ShortContextThreshold: 短上下文阈值（按 messages 数量判断）
+	// - 默认 2，与 Node 版本保持一致
+	ShortContextThreshold int `mapstructure:"short_context_threshold"`
+
+	// EnableShortContextDetection: 是否启用短上下文并发检测
+	// - 默认 true，与 Node 版本保持一致
+	EnableShortContextDetection bool `mapstructure:"enable_short_context_detection"`
+
 	// StoreSessionMessages: 是否存储请求 messages 到 Redis
 	// - false (默认): 不存储
 	// - true: 存储（用于实时监控页面查看详情，会增加 Redis 内存使用）

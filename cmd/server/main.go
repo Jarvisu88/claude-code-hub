@@ -16,6 +16,7 @@ import (
 	"github.com/ding113/claude-code-hub/internal/pkg/validator"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
+	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
 	"github.com/gin-gonic/gin"
 	"github.com/uptrace/bun"
 )
@@ -111,7 +112,8 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	// API v1 路由组 (代理 API)
 	repoFactory := repository.NewFactory(db)
 	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken)
-	v1handler.NewHandler(proxyAuthService).RegisterRoutes(router.Group("/v1"))
+	proxySessionManager := sessionsvc.NewManager(cfg.Session, rdb)
+	v1handler.NewHandler(proxyAuthService, proxySessionManager).RegisterRoutes(router.Group("/v1"))
 
 	// 管理 API 路由组
 	api := router.Group("/api/actions")

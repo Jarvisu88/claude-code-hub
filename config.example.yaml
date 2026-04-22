@@ -38,3 +38,10 @@ log:
 # Auth configuration
 auth:
   admin_api_key: ""
+
+# Session configuration
+session:
+  ttl: 300
+  short_context_threshold: 2
+  enable_short_context_detection: true
+  store_session_messages: false

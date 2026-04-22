@@ -133,6 +133,8 @@ func setDefaults(v *viper.Viper) {
 
 	// Session defaults - 与 Node.js 版本一致
 	v.SetDefault("session.ttl", 300) // 300秒
+	v.SetDefault("session.short_context_threshold", 2)
+	v.SetDefault("session.enable_short_context_detection", true)
 	v.SetDefault("session.store_session_messages", false)
 
 	// SmartProbing defaults - 与 Node.js 版本一致
@@ -227,6 +229,8 @@ func bindEnvVariables(v *viper.Viper) {
 
 	// Session - 与 Node.js 版本保持一致
 	_ = v.BindEnv("session.ttl", "SESSION_TTL")
+	_ = v.BindEnv("session.short_context_threshold", "SHORT_CONTEXT_THRESHOLD")
+	_ = v.BindEnv("session.enable_short_context_detection", "ENABLE_SHORT_CONTEXT_DETECTION")
 	_ = v.BindEnv("session.store_session_messages", "STORE_SESSION_MESSAGES")
 
 	// SmartProbing - 与 Node.js 版本保持一致

@@ -1,0 +1,70 @@
+{
+  "source": [
+    "../claude-code-hub plus/src/lib/session-manager.ts",
+    "../claude-code-hub plus/src/lib/claude-code/metadata-user-id.ts",
+    "../claude-code-hub plus/src/app/v1/_lib/codex/session-extractor.ts"
+  ],
+  "cases": [
+    {
+      "name": "codex request prefers header session_id",
+      "headers": {
+        "session_id": "sess_header_priority_1234567890"
+      },
+      "body": {
+        "input": [
+          {
+            "role": "user",
+            "content": []
+          }
+        ]
+      },
+      "want_session_id": "sess_header_priority_1234567890",
+      "want_source": "header_session_id",
+      "node_evidence": "SessionManager.extractClientSessionId() -> extractCodexSessionId()"
+    },
+    {
+      "name": "claude metadata user_id json",
+      "headers": {},
+      "body": {
+        "metadata": {
+          "user_id": "{\"device_id\":\"dev-1\",\"account_uuid\":\"\",\"session_id\":\"sess_json_123\"}"
+        }
+      },
+      "want_session_id": "sess_json_123",
+      "want_source": "claude_metadata_user_id_json",
+      "node_evidence": "parseClaudeMetadataUserId(): json path"
+    },
+    {
+      "name": "claude metadata user_id legacy",
+      "headers": {},
+      "body": {
+        "metadata": {
+          "user_id": "user_device_hash_account__session_sess_legacy_123"
+        }
+      },
+      "want_session_id": "sess_legacy_123",
+      "want_source": "claude_metadata_user_id_legacy",
+      "node_evidence": "parseClaudeMetadataUserId(): legacy pattern path"
+    },
+    {
+      "name": "claude metadata session_id fallback",
+      "headers": {},
+      "body": {
+        "metadata": {
+          "session_id": "sess_metadata_direct"
+        }
+      },
+      "want_session_id": "sess_metadata_direct",
+      "want_source": "claude_metadata_session_id",
+      "node_evidence": "SessionManager.extractClientSessionId(): metadata.session_id fallback"
+    },
+    {
+      "name": "missing metadata returns empty",
+      "headers": {},
+      "body": {},
+      "want_session_id": "",
+      "want_source": "",
+      "node_evidence": "SessionManager.extractClientSessionId(): no metadata"
+    }
+  ]
+}
