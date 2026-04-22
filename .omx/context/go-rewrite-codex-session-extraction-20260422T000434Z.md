@@ -1,0 +1,22 @@
+# Context Snapshot — Go Rewrite Codex Session Extraction Slice
+
+- task statement: 基于当前 go-rewrite-main 状态，在已完成 auth 与 /v1/models 最小切片之后，继续推进下一个最小可行切片，优先补齐 Codex session ID 提取基线。
+- desired outcome: 在 Go 代码库中建立一个可复用、可测试、Node 语义对齐的 Codex session extractor，为后续 `/v1/responses`、session manager、rate-limit、message_request 落地提供稳定前置能力。
+- known facts/evidence:
+  - 已完成 auth 纵向切片：`internal/service/auth/*`、`internal/handler/v1/proxy.go`
+  - 已完成 `/v1/models` 最小切片：`internal/handler/v1/models.go`
+  - Go 当前仍缺失 session service：`internal/service/` 下只有 `auth`
+  - Go 已有承载字段：`internal/model/message_request.go` 包含 `SessionID` 与 `RequestSequence`
+  - Node 已有独立可移植基线：`src/app/v1/_lib/codex/session-extractor.ts` 及对应测试 `src/app/v1/_lib/codex/__tests__/session-extractor.test.ts`
+- constraints:
+  - 继续坚持最小切片，不扩到完整 session manager / Redis sequence / rate-limit
+  - 不引入新依赖
+  - 先锁纯逻辑与 parity 测试，再考虑 handler wiring
+- unknowns/open questions:
+  - 是否在本轮顺手暴露给 `/v1/responses` handler 预留输入结构
+  - parity fixture 放在 `tests/go-parity/fixtures/` 的哪一级最合适
+- likely touchpoints:
+  - `internal/service/session/*`
+  - `tests/go_parity/*`
+  - `tests/go-parity/fixtures/*`
+  - Node 参考：`src/app/v1/_lib/codex/session-extractor.ts`
