@@ -1,0 +1,23 @@
+# Context Snapshot — Go Rewrite Completion Roadmap
+
+- task statement: 基于当前 Go 重写进度，制定从现状到功能等价完成的执行路线，并按最小切片组织 team 协作推进。
+- desired outcome: 形成一份可执行的总路线图 + 当前下一切片计划，使后续每轮 team 执行都围绕最小可验证成果推进，而不是大爆炸式重写。
+- known facts/evidence:
+  - 当前工作区已有功能等价总 PRD / test spec：`.omx/plans/prd-go-rewrite-functional-parity.md`, `.omx/plans/test-spec-go-rewrite-functional-parity.md`
+  - 已完成 auth 最小切片：`internal/service/auth/*`, `internal/handler/v1/proxy.go`
+  - 当前工作区已完成到 `/v1` 鉴权接线，但尚未包含 `/v1/models` / Codex session extractor 的最新 Linux 线成果
+  - `docs/go-parity-matrix.md` 与 `docs/go-migration-notes.md` 已存在但未纳入干净执行流程
+  - 当前工作区 `.git` 已修复为 Linux 可识别路径，但 workspace 仍有大量未提交修改，且 Go 依赖拉取受网络/代理限制影响
+- constraints:
+  - 继续坚持 KISS / YAGNI / 小步提交
+  - 必须使用 team 做并行推进，但 team 默认 worktree 模式要求 leader workspace 干净
+  - 当前验证受 Go module 下载网络限制影响，需要先解决依赖获取
+- unknowns/open questions:
+  - 当前 dirty baseline 是否全部代表应保留的重写成果，还是还需进一步裁剪
+  - 下一切片应优先做 `/v1/responses` 最小接线，还是先把 `/v1/models` / Codex session extractor 最新成果补回此工作区
+- likely touchpoints:
+  - `.omx/plans/*`
+  - `internal/service/*`
+  - `internal/handler/v1/*`
+  - `tests/go_parity/*`
+  - `reports/go-rewrite/*`

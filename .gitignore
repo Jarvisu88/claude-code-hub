@@ -24,3 +24,20 @@ coverage.html
 # Vendor directory (if not using go modules)
 # vendor/
 /node-version-snapshot/
+
+# Local binary / editor artifacts
+server.exe
+.codex
+
+# Local Go cache
+.cache/
+
+# OMX runtime state (keep plans/context/docs trackable)
+.omx/logs/
+.omx/state/
+.omx/team/
+.omx/reports/
+.omx/tmux-hook.json
+.omx/metrics.json
+.omx/hud-config.json
+.omx/setup-scope.json
