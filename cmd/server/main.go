@@ -11,6 +11,7 @@ import (
 
 	"github.com/ding113/claude-code-hub/internal/config"
 	"github.com/ding113/claude-code-hub/internal/database"
+	apihandler "github.com/ding113/claude-code-hub/internal/handler/api"
 	v1handler "github.com/ding113/claude-code-hub/internal/handler/v1"
 	"github.com/ding113/claude-code-hub/internal/pkg/logger"
 	"github.com/ding113/claude-code-hub/internal/pkg/validator"
@@ -108,34 +109,35 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 
 	// 健康检查
 	router.GET("/health", healthCheck(db, rdb))
+	apihandler.NewPlatformHandler(
+		func(ctx context.Context) error { return db.PingContext(ctx) },
+		func(ctx context.Context) error {
+			if rdb == nil {
+				return nil
+			}
+			return rdb.Ping(ctx).Err()
+		},
+		"0.1.0",
+	).RegisterRoutes(router)
 
 	// API v1 路由组 (代理 API)
 	repoFactory := repository.NewFactory(db)
 	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken)
 	proxySessionManager := sessionsvc.NewManager(cfg.Session, rdb)
-	v1handler.NewHandler(proxyAuthService, proxySessionManager).RegisterRoutes(router.Group("/v1"))
+	proxyHTTPClient := &http.Client{Timeout: cfg.Proxy.FetchBodyTimeout}
+	v1handler.NewHandler(proxyAuthService, proxySessionManager, repoFactory.Provider(), repoFactory.MessageRequest(), proxyHTTPClient).RegisterRoutes(router.Group("/v1"))
 
 	// 管理 API 路由组
+	apihandler.NewSystemSettingsHandler(proxyAuthService, repoFactory.SystemSettings()).RegisterRoutes(router.Group("/api/system-settings"))
+	apihandler.NewModelPricesActionHandler(proxyAuthService, repoFactory.ModelPrice()).RegisterDirectRoutes(router.Group("/api/prices"))
+
 	api := router.Group("/api/actions")
 	{
-		// TODO: Phase 5 实现
-		api.GET("/users", notImplemented)
-		api.GET("/users/:id", notImplemented)
-		api.POST("/users", notImplemented)
-		api.PUT("/users/:id", notImplemented)
-		api.DELETE("/users/:id", notImplemented)
-
-		api.GET("/keys", notImplemented)
-		api.GET("/keys/:id", notImplemented)
-		api.POST("/keys", notImplemented)
-		api.PUT("/keys/:id", notImplemented)
-		api.DELETE("/keys/:id", notImplemented)
-
-		api.GET("/providers", notImplemented)
-		api.GET("/providers/:id", notImplemented)
-		api.POST("/providers", notImplemented)
-		api.PUT("/providers/:id", notImplemented)
-		api.DELETE("/providers/:id", notImplemented)
+		apihandler.NewHandler(proxyAuthService, repoFactory.User(), repoFactory.Key(), repoFactory.Provider()).RegisterRoutes(api)
+		apihandler.NewSystemSettingsActionHandler(proxyAuthService, repoFactory.SystemSettings()).RegisterRoutes(api)
+		apihandler.NewUsageLogsActionHandler(proxyAuthService, repoFactory.MessageRequest()).RegisterRoutes(api)
+		apihandler.NewSessionOriginChainActionHandler(proxyAuthService, repoFactory.MessageRequest()).RegisterRoutes(api)
+		apihandler.NewModelPricesActionHandler(proxyAuthService, repoFactory.ModelPrice()).RegisterActionRoutes(api)
 	}
 
 	return router

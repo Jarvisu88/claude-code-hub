@@ -1,0 +1,20 @@
+[
+  {
+    "name": "authorized chat completions request proxies upstream",
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "messages": [
+        {"role": "user", "content": "hello chat"}
+      ],
+      "model": "gpt-4o-mini"
+    },
+    "headers": {
+      "Authorization": "Bearer proxy-key",
+      "Content-Type": "application/json"
+    },
+    "expected_status": 200,
+    "expected_response_contains": "chatcmpl_123",
+    "node_evidence": "minimal /v1/chat/completions runnable loop should not return 501 once auth+session+provider+forwarding path is wired"
+  }
+]

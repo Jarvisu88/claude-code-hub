@@ -18,6 +18,10 @@ type Factory struct {
 	keyRepoOnce    sync.Once
 	providerRepo   ProviderRepository
 	providerOnce   sync.Once
+	systemRepo     SystemSettingsRepository
+	systemOnce     sync.Once
+	messageRepo    MessageRequestRepository
+	messageOnce    sync.Once
 	statisticsRepo StatisticsRepository
 	statsOnce      sync.Once
 	priceRepo      ModelPriceRepository
@@ -51,6 +55,22 @@ func (f *Factory) Provider() ProviderRepository {
 		f.providerRepo = NewProviderRepository(f.db)
 	})
 	return f.providerRepo
+}
+
+// SystemSettings 获取 SystemSettings Repository（并发安全）
+func (f *Factory) SystemSettings() SystemSettingsRepository {
+	f.systemOnce.Do(func() {
+		f.systemRepo = NewSystemSettingsRepository(f.db)
+	})
+	return f.systemRepo
+}
+
+// MessageRequest 获取 MessageRequest Repository（并发安全）
+func (f *Factory) MessageRequest() MessageRequestRepository {
+	f.messageOnce.Do(func() {
+		f.messageRepo = NewMessageRequestRepository(f.db)
+	})
+	return f.messageRepo
 }
 
 // Statistics 获取 Statistics Repository（并发安全）

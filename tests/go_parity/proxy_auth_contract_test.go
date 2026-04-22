@@ -141,7 +141,7 @@ func buildParityRouter(t *testing.T) *gin.Engine {
 		},
 	}}, parityUserRepo{}, "")
 
-	handler := v1.NewHandler(svc, nil)
+	handler := v1.NewHandler(svc, nil, nil, nil, nil)
 	router := gin.New()
 	handler.RegisterRoutes(router.Group("/v1"))
 	return router

@@ -1,0 +1,19 @@
+[
+  {
+    "name": "authorized messages count_tokens request proxies upstream",
+    "method": "POST",
+    "path": "/v1/messages/count_tokens",
+    "body": {
+      "messages": [
+        {"role": "user", "content": "hello"}
+      ]
+    },
+    "headers": {
+      "Authorization": "Bearer proxy-key",
+      "Content-Type": "application/json"
+    },
+    "expected_status": 200,
+    "expected_response_contains": "input_tokens",
+    "node_evidence": "minimal /v1/messages/count_tokens runnable loop should not return 501 once auth+provider+forwarding path is wired"
+  }
+]

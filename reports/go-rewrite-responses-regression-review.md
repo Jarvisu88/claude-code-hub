@@ -1,3 +1,5 @@
+> 注意：本报告对应较早的 team worktree 审查结论，当前主线状态已由 `reports/go-rewrite-responses-minimal-loop.md` 更新。
+
 # /v1/responses regression/contracts review
 
 更新时间：2026-04-22  
