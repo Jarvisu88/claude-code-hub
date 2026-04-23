@@ -12,19 +12,20 @@ import (
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	"github.com/gin-gonic/gin"
+	"github.com/quagmt/udecimal"
 )
 
 type fakeUsageLogsStore struct {
-	logs        []*model.MessageRequest
-	limit       int
-	model       string
-	endpoint    string
-	sessionID   string
-	status      *int
-	summary     repository.MessageRequestSummary
-	options     repository.MessageRequestFilterOptions
-	suggestions []string
-	term        string
+	logs             []*model.MessageRequest
+	limit            int
+	page             int
+	filters          repository.MessageRequestQueryFilters
+	summary          repository.MessageRequestSummary
+	overview         repository.MessageRequestOverviewMetrics
+	options          repository.MessageRequestFilterOptions
+	suggestions      []string
+	suggestionFilter repository.MessageRequestSessionIDSuggestionFilters
+	overviewLocation *time.Location
 }
 
 func (f *fakeUsageLogsStore) ListRecent(_ context.Context, limit int) ([]*model.MessageRequest, error) {
@@ -32,13 +33,22 @@ func (f *fakeUsageLogsStore) ListRecent(_ context.Context, limit int) ([]*model.
 	return f.logs, nil
 }
 
-func (f *fakeUsageLogsStore) ListFiltered(_ context.Context, limit int, modelName, endpoint, sessionID string, statusCode *int) ([]*model.MessageRequest, error) {
+func (f *fakeUsageLogsStore) ListFiltered(_ context.Context, limit int, filters repository.MessageRequestQueryFilters) ([]*model.MessageRequest, error) {
 	f.limit = limit
-	f.model = modelName
-	f.endpoint = endpoint
-	f.sessionID = sessionID
-	f.status = statusCode
+	f.filters = filters
 	return f.logs, nil
+}
+
+func (f *fakeUsageLogsStore) ListPaginatedFiltered(_ context.Context, page, pageSize int, filters repository.MessageRequestQueryFilters) (repository.MessageRequestListResult, error) {
+	f.page = page
+	f.limit = pageSize
+	f.filters = filters
+	return repository.MessageRequestListResult{
+		Logs:     f.logs,
+		Total:    len(f.logs),
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
 }
 
 func (f *fakeUsageLogsStore) GetByID(_ context.Context, id int) (*model.MessageRequest, error) {
@@ -50,20 +60,23 @@ func (f *fakeUsageLogsStore) GetByID(_ context.Context, id int) (*model.MessageR
 	return nil, nil
 }
 
-func (f *fakeUsageLogsStore) GetSummary(_ context.Context, modelName, endpoint string, statusCode *int) (repository.MessageRequestSummary, error) {
-	f.model = modelName
-	f.endpoint = endpoint
-	f.status = statusCode
+func (f *fakeUsageLogsStore) GetSummary(_ context.Context, filters repository.MessageRequestQueryFilters) (repository.MessageRequestSummary, error) {
+	f.filters = filters
 	return f.summary, nil
+}
+
+func (f *fakeUsageLogsStore) GetOverviewMetrics(_ context.Context, _ time.Time, loc *time.Location) (repository.MessageRequestOverviewMetrics, error) {
+	f.overviewLocation = loc
+	return f.overview, nil
 }
 
 func (f *fakeUsageLogsStore) GetFilterOptions(_ context.Context) (repository.MessageRequestFilterOptions, error) {
 	return f.options, nil
 }
 
-func (f *fakeUsageLogsStore) FindSessionIDSuggestions(_ context.Context, term string, limit int) ([]string, error) {
-	f.term = term
-	f.limit = limit
+func (f *fakeUsageLogsStore) FindSessionIDSuggestions(_ context.Context, filters repository.MessageRequestSessionIDSuggestionFilters) ([]string, error) {
+	f.suggestionFilter = filters
+	f.limit = filters.Limit
 	return f.suggestions, nil
 }
 
@@ -72,10 +85,19 @@ func TestUsageLogsActionReturnsRecentLogs(t *testing.T) {
 
 	enabled := true
 	store := &fakeUsageLogsStore{logs: []*model.MessageRequest{{
-		ID:        1,
-		Model:     "gpt-5.4",
-		Key:       "sk-123",
-		CreatedAt: time.Now(),
+		ID:                  1,
+		Model:               "gpt-5.4",
+		Key:                 "sk-123",
+		UserName:            stringPtr("alice"),
+		KeyName:             stringPtr("Key A"),
+		ProviderName:        stringPtr("provider-a"),
+		UserAgent:           stringPtr("Claude-Code/1.0"),
+		ClientIP:            stringPtr("192.0.2.1"),
+		CostMultiplier:      decimalPtr("1.2500"),
+		GroupCostMultiplier: decimalPtr("1.5000"),
+		SwapCacheTtlApplied: true,
+		CostBreakdown:       map[string]any{"total": "2.500000", "provider_multiplier": 1.25},
+		CreatedAt:           time.Now(),
 	}}}
 
 	router := gin.New()
@@ -100,7 +122,10 @@ func TestUsageLogsActionReturnsRecentLogs(t *testing.T) {
 	if store.limit != 10 {
 		t.Fatalf("expected limit 10, got %d", store.limit)
 	}
-	if !strings.Contains(resp.Body.String(), "\"ok\":true") || !strings.Contains(resp.Body.String(), "gpt-5.4") {
+	if !strings.Contains(resp.Body.String(), "\"page\":1") || !strings.Contains(resp.Body.String(), "\"pageSize\":10") {
+		t.Fatalf("expected paging metadata, got %s", resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "\"ok\":true") || !strings.Contains(resp.Body.String(), "gpt-5.4") || !strings.Contains(resp.Body.String(), "\"userName\":\"alice\"") || !strings.Contains(resp.Body.String(), "\"keyName\":\"Key A\"") || !strings.Contains(resp.Body.String(), "\"providerName\":\"provider-a\"") || !strings.Contains(resp.Body.String(), "\"userAgent\":\"Claude-Code/1.0\"") || !strings.Contains(resp.Body.String(), "\"clientIp\":\"192.0.2.1\"") || !strings.Contains(resp.Body.String(), "\"totalTokens\":0") || !strings.Contains(resp.Body.String(), "\"costMultiplier\":\"1.25\"") || !strings.Contains(resp.Body.String(), "\"groupCostMultiplier\":\"1.5\"") || !strings.Contains(resp.Body.String(), "\"swapCacheTtlApplied\":true") || !strings.Contains(resp.Body.String(), "\"costBreakdown\":{\"provider_multiplier\":1.25,\"total\":\"2.500000\"}") {
 		t.Fatalf("expected usage logs payload, got %s", resp.Body.String())
 	}
 }
@@ -154,11 +179,56 @@ func TestUsageLogsActionAcceptsFilters(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if store.limit != 5 || store.model != "gpt-5.4" || store.endpoint != "/v1/responses" || store.sessionID != "sess_123" {
+	if store.limit != 5 || store.filters.Model != "gpt-5.4" || store.filters.Endpoint != "/v1/responses" || store.filters.SessionID != "sess_123" {
 		t.Fatalf("unexpected captured filters: %+v", store)
 	}
-	if store.status == nil || *store.status != 201 {
-		t.Fatalf("expected status filter 201, got %+v", store.status)
+	if store.filters.StatusCode == nil || *store.filters.StatusCode != 201 {
+		t.Fatalf("expected status filter 201, got %+v", store.filters.StatusCode)
+	}
+	if !strings.Contains(resp.Body.String(), "\"total\":0") {
+		t.Fatalf("expected total field in payload, got %s", resp.Body.String())
+	}
+}
+
+func TestUsageLogsActionPostJSONAcceptsFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	store := &fakeUsageLogsStore{}
+	router := gin.New()
+	NewUsageLogsActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogs", strings.NewReader(`{"page":2,"pageSize":25,"userId":9,"keyId":11,"providerId":13,"model":"gpt-5.4","endpoint":"/v1/responses","sessionId":"sess_123","statusCode":201,"excludeStatusCode200":true,"startTime":1710000000000,"endTime":1710003600000}`))
+	req.Header.Set("Authorization", "Bearer admin-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if store.page != 2 || store.limit != 25 {
+		t.Fatalf("expected page/pageSize capture, got page=%d limit=%d", store.page, store.limit)
+	}
+	if store.filters.UserID == nil || *store.filters.UserID != 9 || store.filters.KeyID == nil || *store.filters.KeyID != 11 || store.filters.ProviderID == nil || *store.filters.ProviderID != 13 {
+		t.Fatalf("expected user/key/provider filters, got %+v", store.filters)
+	}
+	if store.filters.StatusCode == nil || *store.filters.StatusCode != 201 || !store.filters.ExcludeStatusCode200 {
+		t.Fatalf("expected status filters, got %+v", store.filters)
+	}
+	if store.filters.StartTime == nil || store.filters.EndTime == nil {
+		t.Fatalf("expected start/end time filters, got %+v", store.filters)
+	}
+	if !strings.Contains(resp.Body.String(), "\"userId\":9") || !strings.Contains(resp.Body.String(), "\"excludeStatusCode200\":true") {
+		t.Fatalf("expected response echo filters, got %s", resp.Body.String())
 	}
 }
 
@@ -192,10 +262,15 @@ func TestUsageLogsActionReturnsLogDetail(t *testing.T) {
 
 	enabled := true
 	store := &fakeUsageLogsStore{logs: []*model.MessageRequest{{
-		ID:        7,
-		Model:     "gpt-5.4",
-		Key:       "sk-123",
-		CreatedAt: time.Now(),
+		ID:           7,
+		Model:        "gpt-5.4",
+		Key:          "sk-123",
+		UserName:     stringPtr("alice"),
+		KeyName:      stringPtr("Key A"),
+		ProviderName: stringPtr("provider-a"),
+		UserAgent:    stringPtr("Claude-Code/1.0"),
+		ClientIP:     stringPtr("192.0.2.1"),
+		CreatedAt:    time.Now(),
 	}}}
 	router := gin.New()
 	NewUsageLogsActionHandler(
@@ -216,9 +291,50 @@ func TestUsageLogsActionReturnsLogDetail(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if !strings.Contains(resp.Body.String(), "\"id\":7") || !strings.Contains(resp.Body.String(), "gpt-5.4") {
+	if !strings.Contains(resp.Body.String(), "\"id\":7") || !strings.Contains(resp.Body.String(), "gpt-5.4") || !strings.Contains(resp.Body.String(), "\"userName\":\"alice\"") || !strings.Contains(resp.Body.String(), "\"keyName\":\"Key A\"") || !strings.Contains(resp.Body.String(), "\"providerName\":\"provider-a\"") || !strings.Contains(resp.Body.String(), "\"userAgent\":\"Claude-Code/1.0\"") || !strings.Contains(resp.Body.String(), "\"clientIp\":\"192.0.2.1\"") || !strings.Contains(resp.Body.String(), "\"totalTokens\":0") {
 		t.Fatalf("expected log detail payload, got %s", resp.Body.String())
 	}
+}
+
+func TestUsageLogsActionFallsBackNamesAndProviderNull(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	store := &fakeUsageLogsStore{logs: []*model.MessageRequest{{
+		ID:        8,
+		UserID:    42,
+		Key:       "sk-raw",
+		Model:     "gpt-5.4",
+		CreatedAt: time.Now(),
+	}}}
+	router := gin.New()
+	NewUsageLogsActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/actions/usage-logs/8", nil)
+	req.Header.Set("Authorization", "Bearer admin-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "\"userName\":\"User #42\"") || !strings.Contains(body, "\"keyName\":\"sk-raw\"") || !strings.Contains(body, "\"providerName\":null") {
+		t.Fatalf("expected fallback usage log fields, got %s", body)
+	}
+}
+
+func decimalPtr(value string) *udecimal.Decimal {
+	d := udecimal.MustParse(value)
+	return &d
 }
 
 func TestUsageLogsActionReturnsSummary(t *testing.T) {
@@ -227,7 +343,7 @@ func TestUsageLogsActionReturnsSummary(t *testing.T) {
 	enabled := true
 	store := &fakeUsageLogsStore{summary: repository.MessageRequestSummary{
 		TotalRequests:              3,
-		TotalCost:                  "1.25",
+		TotalCost:                  1.25,
 		TotalTokens:                120,
 		TotalInputTokens:           80,
 		TotalOutputTokens:          40,
@@ -255,14 +371,44 @@ func TestUsageLogsActionReturnsSummary(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if store.model != "gpt-5.4" || store.status == nil || *store.status != 201 {
+	if store.filters.Model != "gpt-5.4" || store.filters.StatusCode == nil || *store.filters.StatusCode != 201 {
 		t.Fatalf("unexpected summary filters: %+v", store)
 	}
 	if !strings.Contains(resp.Body.String(), "\"totalRequests\":3") ||
 		!strings.Contains(resp.Body.String(), "\"totalTokens\":120") ||
-		!strings.Contains(resp.Body.String(), "\"totalCost\":\"1.25\"") ||
+		!strings.Contains(resp.Body.String(), "\"totalCost\":1.25") ||
 		!strings.Contains(resp.Body.String(), "\"totalInputTokens\":80") {
 		t.Fatalf("expected summary payload, got %s", resp.Body.String())
+	}
+}
+
+func TestUsageLogsStatsActionAcceptsJSONFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	store := &fakeUsageLogsStore{summary: repository.MessageRequestSummary{TotalRequests: 1}}
+	router := gin.New()
+	NewUsageLogsActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogsStats", strings.NewReader(`{"providerId":7,"excludeStatusCode200":true}`))
+	req.Header.Set("Authorization", "Bearer admin-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if store.filters.ProviderID == nil || *store.filters.ProviderID != 7 || !store.filters.ExcludeStatusCode200 {
+		t.Fatalf("expected summary JSON filters, got %+v", store.filters)
 	}
 }
 
@@ -342,6 +488,7 @@ func TestUsageLogsActionReturnsConvenienceLists(t *testing.T) {
 		{path: "/api/actions/usage-logs/status-codes", method: http.MethodGet, wantContains: "502"},
 		{path: "/api/actions/usage-logs/getStatusCodeList", method: http.MethodPost, body: `{}`, wantContains: "502"},
 		{path: "/api/actions/usage-logs/endpoints", method: http.MethodGet, wantContains: "/v1/responses"},
+		{path: "/api/actions/usage-logs/getEndpointList", method: http.MethodPost, body: `{}`, wantContains: "/v1/responses"},
 		{path: "/api/actions/usage-logs/getUsageLogs", method: http.MethodPost, body: `{}`, wantContains: "gpt-5.4"},
 		{path: "/api/actions/usage-logs/getUsageLogsStats", method: http.MethodPost, body: `{}`, wantContains: "\"totalRequests\":2"},
 	}
@@ -389,20 +536,23 @@ func TestUsageLogsActionReturnsSessionIDSuggestions(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if store.term != "sess" || store.limit != 5 {
+	if store.suggestionFilter.Term != "sess" || store.limit != 5 {
 		t.Fatalf("unexpected suggestion query capture: %+v", store)
 	}
 	if !strings.Contains(resp.Body.String(), "sess_123") {
 		t.Fatalf("expected suggestion payload, got %s", resp.Body.String())
 	}
 
-	postReq := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogSessionIdSuggestions", strings.NewReader(`{"term":"sess","limit":5}`))
+	postReq := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogSessionIdSuggestions", strings.NewReader(`{"term":"sess","limit":5,"userId":1,"keyId":2,"providerId":3}`))
 	postReq.Header.Set("Authorization", "Bearer admin-token")
 	postReq.Header.Set("Content-Type", "application/json")
 	postResp := httptest.NewRecorder()
 	router.ServeHTTP(postResp, postReq)
 	if postResp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", postResp.Code, postResp.Body.String())
+	}
+	if store.suggestionFilter.UserID == nil || *store.suggestionFilter.UserID != 1 || store.suggestionFilter.KeyID == nil || *store.suggestionFilter.KeyID != 2 || store.suggestionFilter.ProviderID == nil || *store.suggestionFilter.ProviderID != 3 {
+		t.Fatalf("expected action-style suggestion filters, got %+v", store.suggestionFilter)
 	}
 	if !strings.Contains(postResp.Body.String(), "sess_123") {
 		t.Fatalf("expected action-style suggestion payload, got %s", postResp.Body.String())
@@ -433,7 +583,7 @@ func TestUsageLogsActionReturnsEmptySuggestionsForShortTerm(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if store.term != "" {
+	if store.suggestionFilter.Term != "" {
 		t.Fatalf("expected store not to be queried for short term, got %+v", store)
 	}
 	if !strings.Contains(resp.Body.String(), "\"data\":[]") {

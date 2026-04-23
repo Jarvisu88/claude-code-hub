@@ -1,6 +1,9 @@
 package model
 
 import (
+	"encoding/json"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/quagmt/udecimal"
@@ -30,9 +33,9 @@ type Provider struct {
 	PreserveClientIp bool   `bun:"preserve_client_ip,notnull,default:false" json:"preserveClientIp"`
 
 	// 模型重定向
-	ModelRedirects map[string]string `bun:"model_redirects,type:jsonb" json:"modelRedirects"`
-	AllowedModels  []string          `bun:"allowed_models,type:jsonb" json:"allowedModels"`
-	JoinClaudePool bool              `bun:"join_claude_pool,default:false" json:"joinClaudePool"`
+	ModelRedirects ProviderModelRedirectRules `bun:"model_redirects,type:jsonb" json:"modelRedirects"`
+	AllowedModels  AllowedModelRules          `bun:"allowed_models,type:jsonb" json:"allowedModels"`
+	JoinClaudePool bool                       `bun:"join_claude_pool,default:false" json:"joinClaudePool"`
 
 	// Codex instructions 策略（已废弃但保留兼容）
 	CodexInstructionsStrategy *string `bun:"codex_instructions_strategy,default:'auto'" json:"codexInstructionsStrategy"` // auto, force_official, keep_original
@@ -94,26 +97,194 @@ type Provider struct {
 	DeletedAt *time.Time `bun:"deleted_at,soft_delete,nullzero" json:"deletedAt,omitempty"`
 }
 
-// SupportsModel 检查供应商是否支持指定模型
-func (p *Provider) SupportsModel(model string) bool {
-	// 如果没有配置允许的模型列表，则支持所有模型
-	if len(p.AllowedModels) == 0 {
+type AllowedModelRule struct {
+	MatchType string `json:"matchType"`
+	Pattern   string `json:"pattern"`
+}
+
+type AllowedModelRules []AllowedModelRule
+
+type ProviderModelRedirectRule struct {
+	MatchType string `json:"matchType"`
+	Source    string `json:"source"`
+	Target    string `json:"target"`
+}
+
+type ProviderModelRedirectRules []ProviderModelRedirectRule
+
+func ExactAllowedModelRules(models ...string) AllowedModelRules {
+	rules := make(AllowedModelRules, 0, len(models))
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		rules = append(rules, AllowedModelRule{
+			MatchType: "exact",
+			Pattern:   model,
+		})
+	}
+	return rules
+}
+
+func (r *AllowedModelRules) UnmarshalJSON(data []byte) error {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	rules := make(AllowedModelRules, 0, len(raw))
+	for _, item := range raw {
+		if len(item) == 0 {
+			continue
+		}
+		var exact string
+		if err := json.Unmarshal(item, &exact); err == nil {
+			exact = strings.TrimSpace(exact)
+			if exact != "" {
+				rules = append(rules, AllowedModelRule{MatchType: "exact", Pattern: exact})
+			}
+			continue
+		}
+		var rule AllowedModelRule
+		if err := json.Unmarshal(item, &rule); err != nil {
+			return err
+		}
+		rule.MatchType = strings.TrimSpace(rule.MatchType)
+		rule.Pattern = strings.TrimSpace(rule.Pattern)
+		if rule.MatchType == "" {
+			rule.MatchType = "exact"
+		}
+		if rule.Pattern == "" {
+			continue
+		}
+		rules = append(rules, rule)
+	}
+	*r = rules
+	return nil
+}
+
+func (r AllowedModelRules) Match(model string) bool {
+	if len(r) == 0 {
 		return true
 	}
-	for _, m := range p.AllowedModels {
-		if m == model {
+	for _, rule := range r {
+		if rule.matches(model) {
 			return true
 		}
 	}
 	return false
 }
 
+func (r AllowedModelRules) ExactModelNames() []string {
+	models := make([]string, 0, len(r))
+	for _, rule := range r {
+		if strings.EqualFold(rule.MatchType, "exact") && strings.TrimSpace(rule.Pattern) != "" {
+			models = append(models, strings.TrimSpace(rule.Pattern))
+		}
+	}
+	return models
+}
+
+func (r AllowedModelRule) matches(model string) bool {
+	return matchModelPattern(model, r.MatchType, r.Pattern)
+}
+
+func (r *ProviderModelRedirectRules) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*r = nil
+		return nil
+	}
+	var legacyMap map[string]string
+	if err := json.Unmarshal(data, &legacyMap); err == nil && legacyMap != nil {
+		rules := make(ProviderModelRedirectRules, 0, len(legacyMap))
+		for source, target := range legacyMap {
+			source = strings.TrimSpace(source)
+			target = strings.TrimSpace(target)
+			if source == "" || target == "" {
+				continue
+			}
+			rules = append(rules, ProviderModelRedirectRule{
+				MatchType: "exact",
+				Source:    source,
+				Target:    target,
+			})
+		}
+		*r = rules
+		return nil
+	}
+
+	var raw []ProviderModelRedirectRule
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	rules := make(ProviderModelRedirectRules, 0, len(raw))
+	for _, rule := range raw {
+		rule.MatchType = strings.TrimSpace(rule.MatchType)
+		rule.Source = strings.TrimSpace(rule.Source)
+		rule.Target = strings.TrimSpace(rule.Target)
+		if rule.MatchType == "" {
+			rule.MatchType = "exact"
+		}
+		if rule.Source == "" || rule.Target == "" {
+			continue
+		}
+		rules = append(rules, rule)
+	}
+	*r = rules
+	return nil
+}
+
+func (r ProviderModelRedirectRules) Match(model string) (string, bool) {
+	for _, rule := range r {
+		if rule.matches(model) {
+			return rule.Target, true
+		}
+	}
+	return "", false
+}
+
+func (r ProviderModelRedirectRule) matches(model string) bool {
+	return matchModelPattern(model, r.MatchType, r.Source)
+}
+
+func matchModelPattern(model string, matchType string, pattern string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(matchType)) {
+	case "", "exact":
+		return model == pattern
+	case "prefix":
+		return strings.HasPrefix(model, pattern)
+	case "suffix":
+		return strings.HasSuffix(model, pattern)
+	case "contains":
+		return strings.Contains(model, pattern)
+	case "regex":
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return false
+		}
+		return re.MatchString(model)
+	default:
+		return false
+	}
+}
+
+// SupportsModel 检查供应商是否支持指定模型
+func (p *Provider) SupportsModel(model string) bool {
+	// 如果没有配置允许的模型列表，则支持所有模型
+	if len(p.AllowedModels) == 0 {
+		return true
+	}
+	return p.AllowedModels.Match(model)
+}
+
 // GetRedirectedModel 获取重定向后的模型名称
 func (p *Provider) GetRedirectedModel(model string) string {
-	if p.ModelRedirects != nil {
-		if redirected, ok := p.ModelRedirects[model]; ok {
-			return redirected
-		}
+	if redirected, ok := p.ModelRedirects.Match(model); ok {
+		return redirected
 	}
 	return model
 }

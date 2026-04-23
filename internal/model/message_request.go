@@ -9,8 +9,18 @@ import (
 
 // ProviderChainItem 供应商链项
 type ProviderChainItem struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
+	ID              int      `json:"id"`
+	Name            string   `json:"name"`
+	ProviderType    *string  `json:"providerType,omitempty"`
+	EndpointURL     *string  `json:"endpointUrl,omitempty"`
+	Reason          *string  `json:"reason,omitempty"`
+	SelectionMethod *string  `json:"selectionMethod,omitempty"`
+	Priority        *int     `json:"priority,omitempty"`
+	Weight          *int     `json:"weight,omitempty"`
+	CostMultiplier  *float64 `json:"costMultiplier,omitempty"`
+	Timestamp       *int64   `json:"timestamp,omitempty"`
+	StatusCode      *int     `json:"statusCode,omitempty"`
+	ErrorMessage    *string  `json:"errorMessage,omitempty"`
 }
 
 // SpecialSettingChangeValue 特殊设置变更值
@@ -54,6 +64,9 @@ type MessageRequest struct {
 	// 供应商倍率 (precision: 10, scale: 4)
 	CostMultiplier *udecimal.Decimal `bun:"cost_multiplier,type:numeric(10,4)" json:"costMultiplier"`
 
+	// 分组倍率 (precision: 10, scale: 4)
+	GroupCostMultiplier *udecimal.Decimal `bun:"group_cost_multiplier,type:numeric(10,4)" json:"groupCostMultiplier"`
+
 	// Session ID
 	SessionID *string `bun:"session_id" json:"sessionId"`
 
@@ -91,6 +104,12 @@ type MessageRequest struct {
 	// 特殊设置
 	SpecialSettings []SpecialSetting `bun:"special_settings,type:jsonb" json:"specialSettings"`
 
+	// Swap Cache TTL Billing 应用状态
+	SwapCacheTtlApplied bool `bun:"swap_cache_ttl_applied,default:false" json:"swapCacheTtlApplied"`
+
+	// 费用明细
+	CostBreakdown map[string]any `bun:"cost_breakdown,type:jsonb" json:"costBreakdown"`
+
 	// 错误信息
 	ErrorMessage *string `bun:"error_message" json:"errorMessage"`
 	ErrorStack   *string `bun:"error_stack" json:"errorStack"`
@@ -103,8 +122,16 @@ type MessageRequest struct {
 	// User-Agent
 	UserAgent *string `bun:"user_agent" json:"userAgent"`
 
+	// Client IP
+	ClientIP *string `bun:"client_ip" json:"clientIp"`
+
 	// Messages 数量
 	MessagesCount *int `bun:"messages_count" json:"messagesCount"`
+
+	// 只读投影字段
+	UserName     *string `bun:"user_name,scanonly" json:"userName,omitempty"`
+	KeyName      *string `bun:"key_name,scanonly" json:"keyName,omitempty"`
+	ProviderName *string `bun:"provider_name,scanonly" json:"providerName,omitempty"`
 
 	CreatedAt time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"createdAt"`
 	UpdatedAt time.Time  `bun:"updated_at,notnull,default:current_timestamp" json:"updatedAt"`

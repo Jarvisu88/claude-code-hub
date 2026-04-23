@@ -353,6 +353,7 @@ func (r *providerRepository) GetActiveProviders(ctx context.Context) ([]*model.P
 		Model(&providers).
 		Where("is_enabled = ?", true).
 		Where("deleted_at IS NULL").
+		Order("priority ASC", "id ASC").
 		Scan(ctx)
 
 	if err != nil {

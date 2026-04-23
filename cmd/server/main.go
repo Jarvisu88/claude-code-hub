@@ -126,6 +126,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	proxySessionManager := sessionsvc.NewManager(cfg.Session, rdb)
 	proxyHTTPClient := &http.Client{Timeout: cfg.Proxy.FetchBodyTimeout}
 	v1handler.NewHandler(proxyAuthService, proxySessionManager, repoFactory.Provider(), repoFactory.MessageRequest(), proxyHTTPClient).RegisterRoutes(router.Group("/v1"))
+	apihandler.NewProxyStatusHandler(proxyAuthService, repoFactory.User(), repoFactory.MessageRequest()).RegisterDirectRoutes(router)
 
 	// 管理 API 路由组
 	apihandler.NewSystemSettingsHandler(proxyAuthService, repoFactory.SystemSettings()).RegisterRoutes(router.Group("/api/system-settings"))
@@ -138,6 +139,11 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 		apihandler.NewUsageLogsActionHandler(proxyAuthService, repoFactory.MessageRequest()).RegisterRoutes(api)
 		apihandler.NewSessionOriginChainActionHandler(proxyAuthService, repoFactory.MessageRequest()).RegisterRoutes(api)
 		apihandler.NewModelPricesActionHandler(proxyAuthService, repoFactory.ModelPrice()).RegisterActionRoutes(api)
+		apihandler.NewStatisticsActionHandler(proxyAuthService, repoFactory.Statistics()).RegisterRoutes(api)
+		apihandler.NewOverviewActionHandler(proxyAuthService, repoFactory.User(), repoFactory.Key(), repoFactory.Provider(), repoFactory.MessageRequest()).RegisterRoutes(api)
+		apihandler.NewProxyStatusHandler(proxyAuthService, repoFactory.User(), repoFactory.MessageRequest()).RegisterActionRoutes(api)
+		apihandler.NewProviderSlotsActionHandler(proxyAuthService, repoFactory.Provider(), repoFactory.MessageRequest()).RegisterRoutes(api)
+		apihandler.NewDashboardRealtimeActionHandler(proxyAuthService, repoFactory.MessageRequest(), repoFactory.Statistics(), repoFactory.Provider()).RegisterRoutes(api)
 	}
 
 	return router

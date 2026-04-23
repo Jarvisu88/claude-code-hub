@@ -12,9 +12,11 @@ import (
 
 	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
+	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
 	"github.com/gin-gonic/gin"
+	"github.com/quagmt/udecimal"
 )
 
 type testKeyRepo struct {
@@ -56,10 +58,8 @@ type fakeProviderRepo struct {
 type fakeMessageRequestRepo struct {
 	created []*model.MessageRequest
 	updated []struct {
-		id          int
-		statusCode  int
-		durationMs  int
-		errorString *string
+		id     int
+		update repository.MessageRequestTerminalUpdate
 	}
 	err error
 }
@@ -94,16 +94,14 @@ func (f *fakeMessageRequestRepo) Create(_ context.Context, messageRequest *model
 	return messageRequest, nil
 }
 
-func (f *fakeMessageRequestRepo) UpdateTerminal(_ context.Context, id int, statusCode int, durationMs int, errorMessage *string) error {
+func (f *fakeMessageRequestRepo) UpdateTerminal(_ context.Context, id int, update repository.MessageRequestTerminalUpdate) error {
 	if f.err != nil {
 		return f.err
 	}
 	f.updated = append(f.updated, struct {
-		id          int
-		statusCode  int
-		durationMs  int
-		errorString *string
-	}{id: id, statusCode: statusCode, durationMs: durationMs, errorString: errorMessage})
+		id     int
+		update repository.MessageRequestTerminalUpdate
+	}{id: id, update: update})
 	return nil
 }
 
@@ -514,6 +512,7 @@ func TestResponsesHandlerProxiesRequestToFirstAvailableProvider(t *testing.T) {
 	defer upstream.Close()
 
 	enabled := true
+	costMultiplier := udecimal.MustParse("1.2500")
 	requestLogs := &fakeMessageRequestRepo{}
 	sessionManager := &fakeSessionManager{
 		extractedSessionID: "sess_client_123",
@@ -538,12 +537,13 @@ func TestResponsesHandlerProxiesRequestToFirstAvailableProvider(t *testing.T) {
 		sessionManager,
 		&fakeProviderRepo{providers: []*model.Provider{
 			{
-				ID:           99,
-				Name:         "codex-upstream",
-				URL:          upstream.URL,
-				Key:          "provider-secret",
-				ProviderType: string(model.ProviderTypeCodex),
-				IsEnabled:    &enabled,
+				ID:             99,
+				Name:           "codex-upstream",
+				URL:            upstream.URL,
+				Key:            "provider-secret",
+				CostMultiplier: &costMultiplier,
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
 			},
 		}},
 		requestLogs,
@@ -557,6 +557,7 @@ func TestResponsesHandlerProxiesRequestToFirstAvailableProvider(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(reqBody))
 	req.Header.Set("Authorization", "Bearer proxy-key")
 	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "192.0.2.1:12345"
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
@@ -587,14 +588,105 @@ func TestResponsesHandlerProxiesRequestToFirstAvailableProvider(t *testing.T) {
 	if requestLogs.created[0].RequestSequence != 1 {
 		t.Fatalf("expected request sequence 1, got %d", requestLogs.created[0].RequestSequence)
 	}
+	if requestLogs.created[0].CostMultiplier == nil || requestLogs.created[0].CostMultiplier.String() != "1.25" {
+		t.Fatalf("expected provider cost multiplier to be persisted, got %+v", requestLogs.created[0].CostMultiplier)
+	}
+	if requestLogs.created[0].ClientIP == nil || *requestLogs.created[0].ClientIP != "192.0.2.1" {
+		t.Fatalf("expected client ip to be persisted, got %+v", requestLogs.created[0].ClientIP)
+	}
 	if len(requestLogs.created[0].ProviderChain) != 1 || requestLogs.created[0].ProviderChain[0].ID != 99 || requestLogs.created[0].ProviderChain[0].Name != "codex-upstream" {
 		t.Fatalf("expected provider chain to capture chosen provider, got %+v", requestLogs.created[0].ProviderChain)
+	}
+	if requestLogs.created[0].ProviderChain[0].Reason == nil || *requestLogs.created[0].ProviderChain[0].Reason != "initial_selection" {
+		t.Fatalf("expected provider chain reason initial_selection, got %+v", requestLogs.created[0].ProviderChain[0])
+	}
+	if requestLogs.created[0].ProviderChain[0].ProviderType == nil || *requestLogs.created[0].ProviderChain[0].ProviderType != string(model.ProviderTypeCodex) {
+		t.Fatalf("expected provider chain providerType codex, got %+v", requestLogs.created[0].ProviderChain[0])
+	}
+	if requestLogs.created[0].ProviderChain[0].EndpointURL == nil || *requestLogs.created[0].ProviderChain[0].EndpointURL != upstream.URL {
+		t.Fatalf("expected provider chain endpointUrl %q, got %+v", upstream.URL, requestLogs.created[0].ProviderChain[0].EndpointURL)
+	}
+	if requestLogs.created[0].ProviderChain[0].Timestamp == nil || *requestLogs.created[0].ProviderChain[0].Timestamp <= 0 {
+		t.Fatalf("expected provider chain timestamp to be recorded, got %+v", requestLogs.created[0].ProviderChain[0].Timestamp)
 	}
 	if len(requestLogs.updated) != 1 {
 		t.Fatalf("expected one terminal update, got %d", len(requestLogs.updated))
 	}
-	if requestLogs.updated[0].statusCode != http.StatusCreated {
-		t.Fatalf("expected terminal status 201, got %d", requestLogs.updated[0].statusCode)
+	if requestLogs.updated[0].update.StatusCode != http.StatusCreated {
+		t.Fatalf("expected terminal status 201, got %d", requestLogs.updated[0].update.StatusCode)
+	}
+	if len(requestLogs.updated[0].update.ProviderChain) != 1 || requestLogs.updated[0].update.ProviderChain[0].StatusCode == nil || *requestLogs.updated[0].update.ProviderChain[0].StatusCode != http.StatusCreated {
+		t.Fatalf("expected terminal provider chain status update, got %+v", requestLogs.updated[0].update.ProviderChain)
+	}
+}
+
+func TestResponsesHandlerAppliesModelRedirectBeforeForwarding(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var capturedBody string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"resp_123","status":"completed"}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{
+				ID:           99,
+				Name:         "codex-upstream",
+				URL:          upstream.URL,
+				Key:          "provider-secret",
+				ProviderType: string(model.ProviderTypeCodex),
+				IsEnabled:    &enabled,
+				ModelRedirects: model.ProviderModelRedirectRules{
+					{MatchType: "prefix", Source: "gpt-5", Target: "gpt-4.1"},
+				},
+			},
+		}},
+		requestLogs,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(capturedBody, `"model":"gpt-4.1"`) {
+		t.Fatalf("expected redirected upstream body, got %s", capturedBody)
+	}
+	if len(requestLogs.created) != 1 {
+		t.Fatalf("expected one persisted request log, got %d", len(requestLogs.created))
+	}
+	if requestLogs.created[0].Model != "gpt-4.1" {
+		t.Fatalf("expected persisted effective model gpt-4.1, got %+v", requestLogs.created[0].Model)
+	}
+	if requestLogs.created[0].OriginalModel == nil || *requestLogs.created[0].OriginalModel != "gpt-5.4" {
+		t.Fatalf("expected persisted original model gpt-5.4, got %+v", requestLogs.created[0].OriginalModel)
 	}
 }
 
@@ -658,6 +750,460 @@ func TestResponsesHandlerUsesBaseURLWithExistingResponsesPath(t *testing.T) {
 	}
 }
 
+func TestResponsesHandlerPersistsUsageFromUpstreamResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"resp_123","usage":{"input_tokens":120,"output_tokens":45,"input_tokens_details":{"cached_tokens":30}}}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           99,
+			Name:         "codex-upstream",
+			URL:          upstream.URL,
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeCodex),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(requestLogs.updated) != 1 {
+		t.Fatalf("expected one terminal update, got %d", len(requestLogs.updated))
+	}
+	if requestLogs.updated[0].update.InputTokens == nil || *requestLogs.updated[0].update.InputTokens != 120 {
+		t.Fatalf("expected input tokens 120, got %+v", requestLogs.updated[0].update)
+	}
+	if requestLogs.updated[0].update.OutputTokens == nil || *requestLogs.updated[0].update.OutputTokens != 45 {
+		t.Fatalf("expected output tokens 45, got %+v", requestLogs.updated[0].update)
+	}
+	if requestLogs.updated[0].update.CacheReadInputTokens == nil || *requestLogs.updated[0].update.CacheReadInputTokens != 30 {
+		t.Fatalf("expected cached tokens 30, got %+v", requestLogs.updated[0].update)
+	}
+}
+
+func TestMessagesHandlerPersistsAnthropicUsageFromUpstreamResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"msg_123","usage":{"input_tokens":80,"output_tokens":20,"cache_creation_input_tokens":7,"cache_read_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":3,"ephemeral_1h_input_tokens":4}}}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           200,
+			Name:         "claude-upstream",
+			URL:          upstream.URL,
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeClaude),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(`{"messages":[{"role":"user","content":"hello claude"}],"model":"claude-sonnet-4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	update := requestLogs.updated[0].update
+	if update.InputTokens == nil || *update.InputTokens != 80 || update.OutputTokens == nil || *update.OutputTokens != 20 {
+		t.Fatalf("expected anthropic usage tokens, got %+v", update)
+	}
+	if update.CacheCreationInputTokens == nil || *update.CacheCreationInputTokens != 7 || update.CacheReadInputTokens == nil || *update.CacheReadInputTokens != 5 {
+		t.Fatalf("expected anthropic cache usage, got %+v", update)
+	}
+	if update.CacheCreation5mInputTokens == nil || *update.CacheCreation5mInputTokens != 3 || update.CacheCreation1hInputTokens == nil || *update.CacheCreation1hInputTokens != 4 {
+		t.Fatalf("expected anthropic cache split tokens, got %+v", update)
+	}
+}
+
+func TestChatCompletionsHandlerPersistsUsageFromUpstreamResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"chatcmpl_123","usage":{"prompt_tokens":70,"completion_tokens":15,"prompt_tokens_details":{"cached_tokens":9}}}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           100,
+			Name:         "openai-compatible",
+			URL:          upstream.URL,
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeOpenAICompatible),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"messages":[{"role":"user","content":"hello chat"}],"model":"gpt-4o-mini"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	update := requestLogs.updated[0].update
+	if update.InputTokens == nil || *update.InputTokens != 70 || update.OutputTokens == nil || *update.OutputTokens != 15 {
+		t.Fatalf("expected chat completions usage, got %+v", update)
+	}
+	if update.CacheReadInputTokens == nil || *update.CacheReadInputTokens != 9 {
+		t.Fatalf("expected cached prompt tokens 9, got %+v", update)
+	}
+}
+
+func TestResponsesHandlerPersistsErrorMessageFromUpstreamJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           99,
+			Name:         "codex-upstream",
+			URL:          upstream.URL,
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeCodex),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected status 429, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.ErrorMessage == nil || *requestLogs.updated[0].update.ErrorMessage != "rate limited" {
+		t.Fatalf("expected persisted upstream json error message, got %+v", requestLogs.updated)
+	}
+}
+
+func TestResponsesHandlerMapsFake200JSONErrorTo429(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           99,
+			Name:         "codex-upstream",
+			URL:          upstream.URL,
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeCodex),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected fake 200 to be remapped to 429, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected persisted 429 terminal update, got %+v", requestLogs.updated)
+	}
+	if requestLogs.updated[0].update.ErrorMessage == nil || *requestLogs.updated[0].update.ErrorMessage != "rate limited" {
+		t.Fatalf("expected persisted error message, got %+v", requestLogs.updated[0].update)
+	}
+}
+
+func TestResponsesHandlerMapsFake200HTMLTo502(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`<!doctype html><html><body>gateway error</body></html>`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           99,
+			Name:         "codex-upstream",
+			URL:          upstream.URL,
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeCodex),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadGateway {
+		t.Fatalf("expected fake 200 html to be remapped to 502, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.StatusCode != http.StatusBadGateway {
+		t.Fatalf("expected persisted 502 terminal update, got %+v", requestLogs.updated)
+	}
+	if requestLogs.updated[0].update.ErrorMessage == nil || !strings.Contains(*requestLogs.updated[0].update.ErrorMessage, "HTML") {
+		t.Fatalf("expected persisted html error message, got %+v", requestLogs.updated[0].update)
+	}
+}
+
+func TestResponsesHandlerMapsFake200PlainTextTo401(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`Unauthorized: invalid api key`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           99,
+			Name:         "codex-upstream",
+			URL:          upstream.URL,
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeCodex),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected fake 200 plain text to be remapped to 401, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected persisted 401 terminal update, got %+v", requestLogs.updated)
+	}
+	if requestLogs.updated[0].update.ErrorMessage == nil || *requestLogs.updated[0].update.ErrorMessage != "Unauthorized: invalid api key" {
+		t.Fatalf("expected persisted plain text error message, got %+v", requestLogs.updated[0].update)
+	}
+}
+
+func TestMessagesCountTokensHandlerPersistsInputTokensFromUpstreamResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"input_tokens":42}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           202,
+			Name:         "claude-upstream",
+			URL:          upstream.URL,
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeClaude),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewBufferString(`{"messages":[{"role":"user","content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	update := requestLogs.updated[0].update
+	if update.InputTokens == nil || *update.InputTokens != 42 {
+		t.Fatalf("expected persisted input tokens 42, got %+v", update)
+	}
+}
+
 func TestResponsesHandlerReturns503WhenNoProviderAvailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -695,6 +1241,80 @@ func TestResponsesHandlerReturns503WhenNoProviderAvailable(t *testing.T) {
 
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected status 503, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestResponsesHandlerPrefersLowerCostMultiplierWithinSamePriority(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var capturedAuthHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	priority := 10
+	lowWeight := 1
+	highWeight := 100
+	cheapCost := udecimal.MustParse("0.8")
+	expensiveCost := udecimal.MustParse("1.5")
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{
+				ID:             1,
+				Name:           "expensive-heavy",
+				URL:            upstream.URL,
+				Key:            "expensive-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				Weight:         &highWeight,
+				CostMultiplier: &expensiveCost,
+			},
+			{
+				ID:             2,
+				Name:           "cheap-light",
+				URL:            upstream.URL,
+				Key:            "cheap-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				Weight:         &lowWeight,
+				CostMultiplier: &cheapCost,
+			},
+		}},
+		nil,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedAuthHeader != "Bearer cheap-secret" {
+		t.Fatalf("expected lower-cost provider to win within same priority, got auth header %q", capturedAuthHeader)
 	}
 }
 
@@ -794,11 +1414,11 @@ func TestResponsesHandlerReturns504ForUpstreamTimeout(t *testing.T) {
 	if len(requestLogs.created) != 1 {
 		t.Fatalf("expected one persisted timeout request log, got %d", len(requestLogs.created))
 	}
-	if len(requestLogs.updated) != 1 || requestLogs.updated[0].statusCode != http.StatusGatewayTimeout {
+	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.StatusCode != http.StatusGatewayTimeout {
 		t.Fatalf("expected persisted 504 terminal update, got %+v", requestLogs.updated)
 	}
-	if requestLogs.updated[0].errorString == nil || !strings.Contains(*requestLogs.updated[0].errorString, "请求超时") {
-		t.Fatalf("expected timeout error message, got %+v", requestLogs.updated[0].errorString)
+	if requestLogs.updated[0].update.ErrorMessage == nil || !strings.Contains(*requestLogs.updated[0].update.ErrorMessage, "请求超时") {
+		t.Fatalf("expected timeout error message, got %+v", requestLogs.updated[0].update.ErrorMessage)
 	}
 }
 
@@ -849,11 +1469,11 @@ func TestResponsesHandlerReturns502ForGenericUpstreamError(t *testing.T) {
 	if len(requestLogs.created) != 1 {
 		t.Fatalf("expected one persisted upstream error request log, got %d", len(requestLogs.created))
 	}
-	if len(requestLogs.updated) != 1 || requestLogs.updated[0].statusCode != http.StatusBadGateway {
+	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.StatusCode != http.StatusBadGateway {
 		t.Fatalf("expected persisted 502 terminal update, got %+v", requestLogs.updated)
 	}
-	if requestLogs.updated[0].errorString == nil || !strings.Contains(*requestLogs.updated[0].errorString, "上游 Responses 供应商请求失败") {
-		t.Fatalf("expected upstream error message, got %+v", requestLogs.updated[0].errorString)
+	if requestLogs.updated[0].update.ErrorMessage == nil || !strings.Contains(*requestLogs.updated[0].update.ErrorMessage, "上游 Responses 供应商请求失败") {
+		t.Fatalf("expected upstream error message, got %+v", requestLogs.updated[0].update.ErrorMessage)
 	}
 }
 
@@ -935,6 +1555,116 @@ func TestChatCompletionsHandlerProxiesRequestToOpenAICompatibleProvider(t *testi
 	}
 	if capturedBody != reqBody {
 		t.Fatalf("expected upstream request body %q, got %q", reqBody, capturedBody)
+	}
+}
+
+func TestResponsesModelsExcludeGeminiProviders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{ID: 1, Name: "gemini", ProviderType: string(model.ProviderTypeGemini), IsEnabled: &enabled, AllowedModels: model.ExactAllowedModelRules("gemini-2.5-pro")},
+			{ID: 2, Name: "gemini-cli", ProviderType: string(model.ProviderTypeGeminiCli), IsEnabled: &enabled, AllowedModels: model.ExactAllowedModelRules("gemini-cli-model")},
+		}},
+		nil,
+		http.DefaultClient,
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/responses/models", nil)
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if strings.Contains(resp.Body.String(), "gemini-2.5-pro") || strings.Contains(resp.Body.String(), "gemini-cli-model") {
+		t.Fatalf("expected gemini models to be excluded from responses catalog, got %s", resp.Body.String())
+	}
+}
+
+func TestChatCompletionsModelsExcludeGeminiProviders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{ID: 1, Name: "gemini", ProviderType: string(model.ProviderTypeGemini), IsEnabled: &enabled, AllowedModels: model.ExactAllowedModelRules("gemini-2.5-pro")},
+			{ID: 2, Name: "gemini-cli", ProviderType: string(model.ProviderTypeGeminiCli), IsEnabled: &enabled, AllowedModels: model.ExactAllowedModelRules("gemini-cli-model")},
+		}},
+		nil,
+		http.DefaultClient,
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/chat/completions/models", nil)
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if strings.Contains(resp.Body.String(), "gemini-2.5-pro") || strings.Contains(resp.Body.String(), "gemini-cli-model") {
+		t.Fatalf("expected gemini models to be excluded from chat completions catalog, got %s", resp.Body.String())
+	}
+}
+
+func TestApplyProviderAuthHeadersUsesXGoogAPIKeyForGeminiProvider(t *testing.T) {
+	headers := make(http.Header)
+	applyProviderAuthHeaders(headers, &model.Provider{
+		Key:          "gemini-secret",
+		ProviderType: string(model.ProviderTypeGemini),
+	}, proxyEndpointResponses)
+
+	if headers.Get("Authorization") != "" {
+		t.Fatalf("expected Authorization to be cleared for gemini provider, got %q", headers.Get("Authorization"))
+	}
+	if headers.Get("x-goog-api-key") != "gemini-secret" {
+		t.Fatalf("expected x-goog-api-key gemini-secret, got %q", headers.Get("x-goog-api-key"))
+	}
+}
+
+func TestApplyProviderAuthHeadersUsesXGoogAPIKeyForGeminiCLIProvider(t *testing.T) {
+	headers := make(http.Header)
+	applyProviderAuthHeaders(headers, &model.Provider{
+		Key:          "gemini-cli-secret",
+		ProviderType: string(model.ProviderTypeGeminiCli),
+	}, proxyEndpointChatCompletions)
+
+	if headers.Get("Authorization") != "" {
+		t.Fatalf("expected Authorization to be cleared for gemini-cli provider, got %q", headers.Get("Authorization"))
+	}
+	if headers.Get("x-goog-api-key") != "gemini-cli-secret" {
+		t.Fatalf("expected x-goog-api-key gemini-cli-secret, got %q", headers.Get("x-goog-api-key"))
 	}
 }
 
@@ -1132,7 +1862,7 @@ func TestMessagesHandlerPersistsMessageRequestBestEffort(t *testing.T) {
 	if requestLogs.created[0].ApiType == nil || *requestLogs.created[0].ApiType != "claude" {
 		t.Fatalf("expected claude api type, got %+v", requestLogs.created[0].ApiType)
 	}
-	if len(requestLogs.updated) != 1 || requestLogs.updated[0].statusCode != http.StatusOK {
+	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.StatusCode != http.StatusOK {
 		t.Fatalf("expected one terminal update for messages path, got %+v", requestLogs.updated)
 	}
 }
@@ -1274,9 +2004,9 @@ func TestModelsHandlerAggregatesFilteredModels(t *testing.T) {
 		}, testUserRepo{}, ""),
 		&fakeSessionManager{},
 		&fakeProviderRepo{providers: []*model.Provider{
-			{ID: 1, Name: "claude", ProviderType: string(model.ProviderTypeClaude), IsEnabled: &enabled, AllowedModels: []string{"claude-sonnet-4", "claude-opus-4"}},
-			{ID: 2, Name: "codex", ProviderType: string(model.ProviderTypeCodex), IsEnabled: &enabled, AllowedModels: []string{"gpt-5.4", "claude-sonnet-4"}},
-			{ID: 3, Name: "openai", ProviderType: string(model.ProviderTypeOpenAICompatible), IsEnabled: &enabled, AllowedModels: []string{"gpt-4o-mini"}},
+			{ID: 1, Name: "claude", ProviderType: string(model.ProviderTypeClaude), IsEnabled: &enabled, AllowedModels: model.ExactAllowedModelRules("claude-sonnet-4", "claude-opus-4")},
+			{ID: 2, Name: "codex", ProviderType: string(model.ProviderTypeCodex), IsEnabled: &enabled, AllowedModels: model.ExactAllowedModelRules("gpt-5.4", "claude-sonnet-4")},
+			{ID: 3, Name: "openai", ProviderType: string(model.ProviderTypeOpenAICompatible), IsEnabled: &enabled, AllowedModels: model.ExactAllowedModelRules("gpt-4o-mini")},
 		}},
 		nil,
 		http.DefaultClient,
@@ -1291,8 +2021,8 @@ func TestModelsHandlerAggregatesFilteredModels(t *testing.T) {
 		wantNot      []string
 	}{
 		{path: "/v1/models", wantContains: []string{"claude-sonnet-4", "claude-opus-4", "gpt-5.4", "gpt-4o-mini"}},
-		{path: "/v1/responses/models", wantContains: []string{"gpt-5.4", "claude-sonnet-4", "gpt-4o-mini"}, wantNot: []string{"claude-opus-4"}},
-		{path: "/v1/chat/completions/models", wantContains: []string{"gpt-4o-mini"}, wantNot: []string{"gpt-5.4", "claude-opus-4"}},
+		{path: "/v1/responses/models", wantContains: []string{"gpt-5.4", "claude-sonnet-4"}, wantNot: []string{"claude-opus-4", "gpt-4o-mini"}},
+		{path: "/v1/chat/completions/models", wantContains: []string{"gpt-4o-mini"}, wantNot: []string{"gpt-5.4", "claude-opus-4", "claude-sonnet-4"}},
 		{path: "/v1/chat/models", wantContains: []string{"gpt-4o-mini"}, wantNot: []string{"gpt-5.4", "claude-opus-4"}},
 	}
 

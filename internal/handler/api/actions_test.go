@@ -263,6 +263,11 @@ func TestOpenAPIListsImplementedActionPaths(t *testing.T) {
 		"/api/actions/usage-logs/filter-options",
 		"/api/actions/usage-logs/session-id-suggestions",
 		"/api/actions/session-origin-chain",
+		"/api/actions/provider-slots/getProviderSlots",
+		"/api/actions/dashboard-realtime/getDashboardRealtimeData",
+		"/api/actions/statistics/getUserStatistics",
+		"/api/actions/overview/getOverviewData",
+		"/api/actions/proxy-status/getProxyStatus",
 	}
 	for _, want := range wantPaths {
 		if !strings.Contains(resp.Body.String(), want) {

@@ -105,6 +105,18 @@ func TestModelPricesActionAndDirectRoutes(t *testing.T) {
 		t.Fatalf("expected available models payload, got %d: %s", availableResp.Code, availableResp.Body.String())
 	}
 
+	paginatedReq := httptest.NewRequest(http.MethodPost, "/api/actions/model-prices/getModelPricesPaginated", strings.NewReader(`{"page":2,"pageSize":20,"search":"gpt"}`))
+	paginatedReq.Header.Set("Authorization", "Bearer admin-token")
+	paginatedReq.Header.Set("Content-Type", "application/json")
+	paginatedResp := httptest.NewRecorder()
+	router.ServeHTTP(paginatedResp, paginatedReq)
+	if paginatedResp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", paginatedResp.Code, paginatedResp.Body.String())
+	}
+	if store.page != 2 || store.pageSize != 20 || store.search != "gpt" {
+		t.Fatalf("expected action paginated request to capture page/pageSize/search, got %+v", store)
+	}
+
 	directReq := httptest.NewRequest(http.MethodGet, "/api/prices?page=2&pageSize=20&search=gpt", nil)
 	directReq.Header.Set("Authorization", "Bearer admin-token")
 	directResp := httptest.NewRecorder()

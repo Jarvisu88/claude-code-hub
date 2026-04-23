@@ -27,9 +27,9 @@ func TestProxyModelsMinimalParity(t *testing.T) {
 	}}, parityUserRepo{}, "")
 
 	handler := v1.NewHandler(svc, paritySessionManager{}, &parityProviderRepo{providers: []*model.Provider{
-		{ID: 1, Name: "claude", ProviderType: string(model.ProviderTypeClaude), IsEnabled: &enabled, AllowedModels: []string{"claude-sonnet-4"}},
-		{ID: 2, Name: "codex", ProviderType: string(model.ProviderTypeCodex), IsEnabled: &enabled, AllowedModels: []string{"gpt-5.4"}},
-		{ID: 3, Name: "openai", ProviderType: string(model.ProviderTypeOpenAICompatible), IsEnabled: &enabled, AllowedModels: []string{"gpt-4o-mini"}},
+		{ID: 1, Name: "claude", ProviderType: string(model.ProviderTypeClaude), IsEnabled: &enabled, AllowedModels: model.ExactAllowedModelRules("claude-sonnet-4")},
+		{ID: 2, Name: "codex", ProviderType: string(model.ProviderTypeCodex), IsEnabled: &enabled, AllowedModels: model.ExactAllowedModelRules("gpt-5.4")},
+		{ID: 3, Name: "openai", ProviderType: string(model.ProviderTypeOpenAICompatible), IsEnabled: &enabled, AllowedModels: model.ExactAllowedModelRules("gpt-4o-mini")},
 	}}, nil, http.DefaultClient)
 
 	router := gin.New()
@@ -42,7 +42,7 @@ func TestProxyModelsMinimalParity(t *testing.T) {
 		notModels  []string
 	}{
 		{name: "all models", path: "/v1/models", wantModels: []string{"claude-sonnet-4", "gpt-5.4", "gpt-4o-mini"}},
-		{name: "responses models", path: "/v1/responses/models", wantModels: []string{"gpt-5.4", "gpt-4o-mini"}, notModels: []string{"claude-sonnet-4"}},
+		{name: "responses models", path: "/v1/responses/models", wantModels: []string{"gpt-5.4"}, notModels: []string{"claude-sonnet-4", "gpt-4o-mini"}},
 		{name: "chat completions models", path: "/v1/chat/completions/models", wantModels: []string{"gpt-4o-mini"}, notModels: []string{"gpt-5.4", "claude-sonnet-4"}},
 	}
 

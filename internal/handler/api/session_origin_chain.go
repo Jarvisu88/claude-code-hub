@@ -11,7 +11,7 @@ import (
 )
 
 type sessionOriginStore interface {
-	FindLatestBySessionID(ctx context.Context, sessionID string) (*model.MessageRequest, error)
+	FindSessionOriginChain(ctx context.Context, sessionID string) (*model.MessageRequest, error)
 }
 
 type SessionOriginChainActionHandler struct {
@@ -40,7 +40,7 @@ func (h *SessionOriginChainActionHandler) get(c *gin.Context) {
 		writeAdminError(c, appErrors.NewInvalidRequest("sessionId 不能为空"))
 		return
 	}
-	log, err := h.store.FindLatestBySessionID(c.Request.Context(), sessionID)
+	log, err := h.store.FindSessionOriginChain(c.Request.Context(), sessionID)
 	if err != nil {
 		writeAdminError(c, err)
 		return

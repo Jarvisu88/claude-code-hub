@@ -17,7 +17,7 @@ type fakeSessionOriginStore struct {
 	log       *model.MessageRequest
 }
 
-func (f *fakeSessionOriginStore) FindLatestBySessionID(_ context.Context, sessionID string) (*model.MessageRequest, error) {
+func (f *fakeSessionOriginStore) FindSessionOriginChain(_ context.Context, sessionID string) (*model.MessageRequest, error) {
 	f.sessionID = sessionID
 	return f.log, nil
 }
@@ -65,6 +65,35 @@ func TestSessionOriginChainActionReturnsProviderChain(t *testing.T) {
 	}
 	if !strings.Contains(postResp.Body.String(), "provider-a") {
 		t.Fatalf("expected action-style provider chain payload, got %s", postResp.Body.String())
+	}
+}
+
+func TestSessionOriginChainActionReturnsNullWhenChainEmpty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	store := &fakeSessionOriginStore{log: &model.MessageRequest{ProviderChain: nil}}
+	router := gin.New()
+	NewSessionOriginChainActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/actions/session-origin-chain?sessionId=sess_123", nil)
+	req.Header.Set("Authorization", "Bearer admin-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "\"data\":null") {
+		t.Fatalf("expected null payload for empty provider chain, got %s", resp.Body.String())
 	}
 }
 

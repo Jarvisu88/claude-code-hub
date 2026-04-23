@@ -16,6 +16,7 @@ import (
 
 	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
+	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
 	"github.com/gin-gonic/gin"
@@ -38,7 +39,7 @@ type providerRepository interface {
 
 type messageRequestRepository interface {
 	Create(ctx context.Context, messageRequest *model.MessageRequest) (*model.MessageRequest, error)
-	UpdateTerminal(ctx context.Context, id int, statusCode int, durationMs int, errorMessage *string) error
+	UpdateTerminal(ctx context.Context, id int, update repository.MessageRequestTerminalUpdate) error
 }
 
 type httpDoer interface {
@@ -212,7 +213,7 @@ func (h *Handler) models(endpointKind proxyEndpointKind) gin.HandlerFunc {
 			if endpointKind != "" && !supportsEndpointKind(provider.ProviderType, endpointKind) {
 				continue
 			}
-			for _, modelName := range provider.AllowedModels {
+			for _, modelName := range provider.AllowedModels.ExactModelNames() {
 				modelName = strings.TrimSpace(modelName)
 				if modelName == "" {
 					continue
@@ -262,10 +263,28 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 		return
 	}
 
-	provider, err := h.selectProviderForEndpoint(c.Request.Context(), endpointKind, requestStringValue(requestBody["model"]))
+	originalModel := requestStringValue(requestBody["model"])
+	provider, err := h.selectProviderForEndpoint(c.Request.Context(), endpointKind, originalModel)
 	if err != nil {
 		writeAppError(c, err)
 		return
+	}
+	baseProviderChain := buildInitialProviderChain(provider)
+	effectiveModel := originalModel
+	if redirectedModel := provider.GetRedirectedModel(originalModel); redirectedModel != "" && redirectedModel != originalModel {
+		requestBody["model"] = redirectedModel
+		requestBodyBytes, err = json.Marshal(requestBody)
+		if err != nil {
+			errorMessage := "重写上游模型请求失败"
+			h.finalizeMessageRequest(c, 0, repository.MessageRequestTerminalUpdate{
+				StatusCode:   http.StatusInternalServerError,
+				DurationMs:   0,
+				ErrorMessage: &errorMessage,
+			})
+			writeAppError(c, appErrors.NewInternalError("重写上游模型请求失败").WithError(err))
+			return
+		}
+		effectiveModel = redirectedModel
 	}
 
 	sessionID, _ := GetProxySessionID(c)
@@ -274,12 +293,17 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 		requestSequence = h.sessions.GetNextRequestSequence(c.Request.Context(), sessionID)
 	}
 	startedAt := time.Now()
-	messageRequestID := h.createMessageRequest(c, authResult, provider, requestBody, sessionID, requestSequence)
+	messageRequestID := h.createMessageRequest(c, authResult, provider, baseProviderChain, requestBody, originalModel, effectiveModel, sessionID, requestSequence)
 
 	upstreamURL, err := buildProxyURL(provider.URL, c.Request.URL)
 	if err != nil {
 		errorMessage := "构建上游代理地址失败"
-		h.finalizeMessageRequest(c, messageRequestID, http.StatusInternalServerError, time.Since(startedAt), &errorMessage)
+		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+			StatusCode:    http.StatusInternalServerError,
+			DurationMs:    int(time.Since(startedAt).Milliseconds()),
+			ErrorMessage:  &errorMessage,
+			ProviderChain: finalizeProviderChain(baseProviderChain, http.StatusInternalServerError, &errorMessage),
+		})
 		writeAppError(c, appErrors.NewInternalError("构建上游代理地址失败").WithError(err))
 		return
 	}
@@ -287,7 +311,12 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 	upstreamReq, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, upstreamURL, bytes.NewReader(requestBodyBytes))
 	if err != nil {
 		errorMessage := "构建上游请求失败"
-		h.finalizeMessageRequest(c, messageRequestID, http.StatusInternalServerError, time.Since(startedAt), &errorMessage)
+		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+			StatusCode:    http.StatusInternalServerError,
+			DurationMs:    int(time.Since(startedAt).Milliseconds()),
+			ErrorMessage:  &errorMessage,
+			ProviderChain: finalizeProviderChain(baseProviderChain, http.StatusInternalServerError, &errorMessage),
+		})
 		writeAppError(c, appErrors.NewInternalError("构建上游请求失败").WithError(err))
 		return
 	}
@@ -309,7 +338,12 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 		}
 		if isTimeoutError(err) {
 			timeoutMessage := errMsg + "：请求超时"
-			h.finalizeMessageRequest(c, messageRequestID, http.StatusGatewayTimeout, time.Since(startedAt), &timeoutMessage)
+			h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+				StatusCode:    http.StatusGatewayTimeout,
+				DurationMs:    int(time.Since(startedAt).Milliseconds()),
+				ErrorMessage:  &timeoutMessage,
+				ProviderChain: finalizeProviderChain(baseProviderChain, http.StatusGatewayTimeout, &timeoutMessage),
+			})
 			writeAppError(c, (&appErrors.AppError{
 				Type:       appErrors.ErrorTypeProviderError,
 				Message:    timeoutMessage,
@@ -318,19 +352,54 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 			}).WithError(err))
 			return
 		}
-		h.finalizeMessageRequest(c, messageRequestID, http.StatusBadGateway, time.Since(startedAt), &errMsg)
+		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+			StatusCode:    http.StatusBadGateway,
+			DurationMs:    int(time.Since(startedAt).Milliseconds()),
+			ErrorMessage:  &errMsg,
+			ProviderChain: finalizeProviderChain(baseProviderChain, http.StatusBadGateway, &errMsg),
+		})
 		writeAppError(c, appErrors.NewProviderError(errMsg, appErrors.CodeProviderError).WithError(err))
 		return
 	}
 	defer upstreamResp.Body.Close()
 
 	copyProxyResponseHeaders(c.Writer.Header(), upstreamResp.Header)
-	c.Status(upstreamResp.StatusCode)
-	if _, err := io.Copy(c.Writer, upstreamResp.Body); err != nil {
-		c.Error(err)
+	if isStreamingResponse(upstreamResp.Header) {
+		c.Status(upstreamResp.StatusCode)
+		if _, err := io.Copy(c.Writer, upstreamResp.Body); err != nil {
+			c.Error(err)
+		}
+		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+			StatusCode:    upstreamResp.StatusCode,
+			DurationMs:    int(time.Since(startedAt).Milliseconds()),
+			ProviderChain: finalizeProviderChain(baseProviderChain, upstreamResp.StatusCode, nil),
+		})
+		return
 	}
 
-	h.finalizeMessageRequest(c, messageRequestID, upstreamResp.StatusCode, time.Since(startedAt), nil)
+	responseBody, err := io.ReadAll(upstreamResp.Body)
+	if err != nil {
+		errorMessage := "读取上游响应失败"
+		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+			StatusCode:    http.StatusBadGateway,
+			DurationMs:    int(time.Since(startedAt).Milliseconds()),
+			ErrorMessage:  &errorMessage,
+			ProviderChain: finalizeProviderChain(baseProviderChain, http.StatusBadGateway, &errorMessage),
+		})
+		writeAppError(c, appErrors.NewProviderError(errorMessage, appErrors.CodeProviderError).WithError(err))
+		return
+	}
+	terminalUpdate := buildTerminalUpdate(endpointKind, upstreamResp.StatusCode, time.Since(startedAt), responseBody)
+	terminalUpdate.ProviderChain = finalizeProviderChain(baseProviderChain, terminalUpdate.StatusCode, terminalUpdate.ErrorMessage)
+	finalStatusCode := terminalUpdate.StatusCode
+	c.Status(finalStatusCode)
+	if finalStatusCode != upstreamResp.StatusCode {
+		c.Writer.Header().Del("Content-Length")
+	}
+	if _, err := c.Writer.Write(responseBody); err != nil {
+		c.Error(err)
+	}
+	h.finalizeMessageRequest(c, messageRequestID, terminalUpdate)
 }
 
 func writeAppError(c *gin.Context, err error) {
@@ -439,6 +508,18 @@ func (h *Handler) selectProviderForEndpoint(ctx context.Context, endpointKind pr
 			return leftPriority < rightPriority
 		}
 
+		leftCostMultiplier := 1.0
+		if candidates[i].CostMultiplier != nil {
+			leftCostMultiplier = candidates[i].CostMultiplier.InexactFloat64()
+		}
+		rightCostMultiplier := 1.0
+		if candidates[j].CostMultiplier != nil {
+			rightCostMultiplier = candidates[j].CostMultiplier.InexactFloat64()
+		}
+		if leftCostMultiplier != rightCostMultiplier {
+			return leftCostMultiplier < rightCostMultiplier
+		}
+
 		leftWeight := 1
 		if candidates[i].Weight != nil {
 			leftWeight = *candidates[i].Weight
@@ -520,7 +601,7 @@ func supportsEndpointKind(providerType string, endpointKind proxyEndpointKind) b
 	case proxyEndpointMessagesCount:
 		return providerType == string(model.ProviderTypeClaude) || providerType == string(model.ProviderTypeClaudeAuth)
 	case proxyEndpointResponses:
-		return providerType == string(model.ProviderTypeCodex) || providerType == string(model.ProviderTypeOpenAICompatible)
+		return providerType == string(model.ProviderTypeCodex)
 	case proxyEndpointChatCompletions:
 		return providerType == string(model.ProviderTypeOpenAICompatible)
 	default:
@@ -545,6 +626,11 @@ func applyProviderAuthHeaders(dst http.Header, provider *model.Provider, endpoin
 			dst.Del("x-api-key")
 		}
 	default:
+		if provider.ProviderType == string(model.ProviderTypeGemini) || provider.ProviderType == string(model.ProviderTypeGeminiCli) {
+			dst.Del("Authorization")
+			dst.Set("x-goog-api-key", provider.Key)
+			return
+		}
 		dst.Set("Authorization", "Bearer "+provider.Key)
 	}
 }
@@ -572,11 +658,21 @@ func copyProxyResponseHeaders(dst http.Header, src http.Header) {
 	}
 }
 
+func isStreamingResponse(headers http.Header) bool {
+	if headers == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(headers.Get("Content-Type")), "text/event-stream")
+}
+
 func (h *Handler) createMessageRequest(
 	c *gin.Context,
 	authResult *authsvc.AuthResult,
 	provider *model.Provider,
+	providerChain []model.ProviderChainItem,
 	requestBody map[string]any,
+	originalModel string,
+	effectiveModel string,
 	sessionID string,
 	requestSequence int,
 ) int {
@@ -584,9 +680,9 @@ func (h *Handler) createMessageRequest(
 		return 0
 	}
 
-	modelName := requestStringValue(requestBody["model"])
 	endpoint := ""
 	userAgent := ""
+	clientIP := ""
 	messagesCount := countRequestPayloadItems(extractRequestMessages(requestBody))
 	if c != nil {
 		if c.FullPath() != "" {
@@ -594,6 +690,7 @@ func (h *Handler) createMessageRequest(
 		}
 		if c.Request != nil {
 			userAgent = c.Request.UserAgent()
+			clientIP = c.ClientIP()
 		}
 	}
 
@@ -601,20 +698,17 @@ func (h *Handler) createMessageRequest(
 		ProviderID:      provider.ID,
 		UserID:          authResult.User.ID,
 		Key:             authResult.Key.Key,
-		Model:           modelName,
+		Model:           effectiveModel,
+		CostMultiplier:  provider.CostMultiplier,
 		SessionID:       stringPointer(sessionID),
 		RequestSequence: requestSequence,
 		ApiType:         stringPointer(string(resolveAPIType(endpoint))),
 		Endpoint:        stringPointer(endpoint),
-		OriginalModel:   stringPointer(modelName),
-		ProviderChain: []model.ProviderChainItem{
-			{
-				ID:   provider.ID,
-				Name: provider.Name,
-			},
-		},
-		UserAgent:     stringPointer(userAgent),
-		MessagesCount: intPointer(messagesCount),
+		OriginalModel:   stringPointer(originalModel),
+		ProviderChain:   providerChain,
+		UserAgent:       stringPointer(userAgent),
+		ClientIP:        stringPointer(clientIP),
+		MessagesCount:   intPointer(messagesCount),
 	}
 
 	if _, err := h.requestLogs.Create(c.Request.Context(), messageRequest); err != nil {
@@ -624,7 +718,304 @@ func (h *Handler) createMessageRequest(
 	return messageRequest.ID
 }
 
-func (h *Handler) finalizeMessageRequest(c *gin.Context, id int, statusCode int, duration time.Duration, errorMessage *string) {
+func providerCostMultiplier(provider *model.Provider) *float64 {
+	if provider == nil || provider.CostMultiplier == nil {
+		return nil
+	}
+	value := provider.CostMultiplier.InexactFloat64()
+	return &value
+}
+
+func buildInitialProviderChain(provider *model.Provider) []model.ProviderChainItem {
+	if provider == nil {
+		return nil
+	}
+	return []model.ProviderChainItem{{
+		ID:              provider.ID,
+		Name:            provider.Name,
+		ProviderType:    stringPointer(provider.ProviderType),
+		EndpointURL:     stringPointer(provider.URL),
+		Reason:          stringPointer("initial_selection"),
+		SelectionMethod: stringPointer("weighted_random"),
+		Priority:        provider.Priority,
+		Weight:          provider.Weight,
+		CostMultiplier:  providerCostMultiplier(provider),
+		Timestamp:       int64Pointer(time.Now().UnixMilli()),
+	}}
+}
+
+func finalizeProviderChain(base []model.ProviderChainItem, statusCode int, errorMessage *string) []model.ProviderChainItem {
+	if len(base) == 0 {
+		return nil
+	}
+	finalized := make([]model.ProviderChainItem, len(base))
+	copy(finalized, base)
+	finalized[len(finalized)-1].StatusCode = intPointer(statusCode)
+	finalized[len(finalized)-1].ErrorMessage = errorMessage
+	return finalized
+}
+
+func buildTerminalUpdate(endpointKind proxyEndpointKind, statusCode int, duration time.Duration, responseBody []byte) repository.MessageRequestTerminalUpdate {
+	update := repository.MessageRequestTerminalUpdate{
+		StatusCode: statusCode,
+		DurationMs: int(duration.Milliseconds()),
+	}
+
+	if len(bytes.TrimSpace(responseBody)) == 0 {
+		return update
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(responseBody, &payload); err != nil {
+		if fakeStatusCode, fakeErrorMessage, ok := detectFake200HTMLResponse(statusCode, responseBody); ok {
+			update.StatusCode = fakeStatusCode
+			update.ErrorMessage = &fakeErrorMessage
+		} else if fakeStatusCode, fakeErrorMessage, ok := detectFake200PlainTextResponse(statusCode, responseBody); ok {
+			update.StatusCode = fakeStatusCode
+			update.ErrorMessage = &fakeErrorMessage
+		}
+		return update
+	}
+	if fakeStatusCode, fakeErrorMessage, ok := detectFake200JSONResponse(statusCode, payload, responseBody); ok {
+		update.StatusCode = fakeStatusCode
+		update.ErrorMessage = &fakeErrorMessage
+		return update
+	}
+
+	if statusCode >= http.StatusBadRequest {
+		if errorMessage := extractErrorMessage(payload); errorMessage != "" {
+			update.ErrorMessage = &errorMessage
+		}
+		return update
+	}
+
+	switch endpointKind {
+	case proxyEndpointMessages:
+		populateAnthropicUsageUpdate(&update, payload)
+	case proxyEndpointMessagesCount:
+		if inputTokens, ok := lookupInt(payload, "input_tokens"); ok {
+			update.InputTokens = &inputTokens
+		}
+	case proxyEndpointResponses:
+		populateResponsesUsageUpdate(&update, payload)
+	case proxyEndpointChatCompletions:
+		populateChatCompletionsUsageUpdate(&update, payload)
+	}
+
+	return update
+}
+
+func detectFake200HTMLResponse(statusCode int, responseBody []byte) (int, string, bool) {
+	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+		return 0, "", false
+	}
+	trimmed := strings.TrimSpace(string(responseBody))
+	if trimmed == "" {
+		return 0, "", false
+	}
+	lowerTrimmed := strings.ToLower(trimmed)
+	if strings.HasPrefix(lowerTrimmed, "<!doctype html") || strings.HasPrefix(lowerTrimmed, "<html") {
+		return http.StatusBadGateway, "上游返回了 HTML 错误页", true
+	}
+	return 0, "", false
+}
+
+func detectFake200PlainTextResponse(statusCode int, responseBody []byte) (int, string, bool) {
+	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+		return 0, "", false
+	}
+	trimmed := strings.TrimSpace(string(responseBody))
+	if trimmed == "" {
+		return 0, "", false
+	}
+	if !isLikelyUpstreamErrorMessage(trimmed) {
+		return 0, "", false
+	}
+	return inferUpstreamErrorStatusCode(trimmed, responseBody), trimmed, true
+}
+
+func detectFake200JSONResponse(statusCode int, payload map[string]any, responseBody []byte) (int, string, bool) {
+	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+		return 0, "", false
+	}
+	if payload == nil {
+		return 0, "", false
+	}
+	errorMessage := extractErrorMessage(payload)
+	if errorMessage != "" {
+		return inferUpstreamErrorStatusCode(errorMessage, responseBody), errorMessage, true
+	}
+	if message, ok := payload["message"].(string); ok && isLikelyUpstreamErrorMessage(message) {
+		message = strings.TrimSpace(message)
+		return inferUpstreamErrorStatusCode(message, responseBody), message, true
+	}
+	return 0, "", false
+}
+
+func isLikelyUpstreamErrorMessage(message string) bool {
+	lowerMessage := strings.ToLower(strings.TrimSpace(message))
+	if lowerMessage == "" {
+		return false
+	}
+	keywords := []string{
+		"error",
+		"rate limit",
+		"too many requests",
+		"forbidden",
+		"unauthorized",
+		"not found",
+		"invalid",
+		"timeout",
+		"timed out",
+		"service unavailable",
+		"overloaded",
+		"限流",
+		"未授权",
+		"无权限",
+		"超时",
+		"不可用",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(lowerMessage, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func inferUpstreamErrorStatusCode(message string, responseBody []byte) int {
+	lowerText := strings.ToLower(strings.TrimSpace(message + "\n" + string(responseBody)))
+	matchers := []struct {
+		statusCode int
+		keywords   []string
+	}{
+		{statusCode: http.StatusTooManyRequests, keywords: []string{"too many requests", "rate limit", "rate limited", "thrott", "resource_exhausted", "限流", "请求过于频繁"}},
+		{statusCode: http.StatusUnauthorized, keywords: []string{"unauthorized", "unauthenticated", "invalid api key", "invalid token", "expired token", "未授权", "鉴权失败", "密钥无效"}},
+		{statusCode: http.StatusForbidden, keywords: []string{"forbidden", "permission denied", "access denied", "无权限", "权限不足", "禁止访问"}},
+		{statusCode: http.StatusNotFound, keywords: []string{"not found", "unknown model", "does not exist", "未找到", "不存在", "模型不存在"}},
+		{statusCode: http.StatusBadRequest, keywords: []string{"bad request", "invalid json", "json parse", "invalid argument", "无效请求", "格式错误"}},
+		{statusCode: http.StatusServiceUnavailable, keywords: []string{"service unavailable", "server is busy", "temporarily unavailable", "maintenance", "overloaded", "服务不可用", "系统繁忙", "维护中"}},
+		{statusCode: http.StatusGatewayTimeout, keywords: []string{"gateway timeout", "timed out", "deadline exceeded", "网关超时", "上游超时"}},
+	}
+	for _, matcher := range matchers {
+		for _, keyword := range matcher.keywords {
+			if strings.Contains(lowerText, keyword) {
+				return matcher.statusCode
+			}
+		}
+	}
+	return http.StatusBadGateway
+}
+
+func extractErrorMessage(payload map[string]any) string {
+	if payload == nil {
+		return ""
+	}
+	if errorValue, ok := payload["error"]; ok {
+		switch value := errorValue.(type) {
+		case string:
+			return strings.TrimSpace(value)
+		case map[string]any:
+			if message, ok := value["message"].(string); ok {
+				return strings.TrimSpace(message)
+			}
+			if code, ok := value["code"].(string); ok && strings.TrimSpace(code) != "" {
+				return strings.TrimSpace(code)
+			}
+		}
+	}
+	if message, ok := payload["message"].(string); ok {
+		return strings.TrimSpace(message)
+	}
+	return ""
+}
+
+func populateAnthropicUsageUpdate(update *repository.MessageRequestTerminalUpdate, payload map[string]any) {
+	usage, ok := payload["usage"].(map[string]any)
+	if !ok {
+		return
+	}
+	if inputTokens, ok := lookupInt(usage, "input_tokens"); ok {
+		update.InputTokens = &inputTokens
+	}
+	if outputTokens, ok := lookupInt(usage, "output_tokens"); ok {
+		update.OutputTokens = &outputTokens
+	}
+	if cacheCreationInputTokens, ok := lookupInt(usage, "cache_creation_input_tokens"); ok {
+		update.CacheCreationInputTokens = &cacheCreationInputTokens
+	}
+	if cacheReadInputTokens, ok := lookupInt(usage, "cache_read_input_tokens"); ok {
+		update.CacheReadInputTokens = &cacheReadInputTokens
+	}
+	if cacheCreationDetails, ok := usage["cache_creation"].(map[string]any); ok {
+		if cacheCreation5mInputTokens, ok := lookupInt(cacheCreationDetails, "ephemeral_5m_input_tokens"); ok {
+			update.CacheCreation5mInputTokens = &cacheCreation5mInputTokens
+		}
+		if cacheCreation1hInputTokens, ok := lookupInt(cacheCreationDetails, "ephemeral_1h_input_tokens"); ok {
+			update.CacheCreation1hInputTokens = &cacheCreation1hInputTokens
+		}
+	}
+}
+
+func populateResponsesUsageUpdate(update *repository.MessageRequestTerminalUpdate, payload map[string]any) {
+	usage, ok := payload["usage"].(map[string]any)
+	if !ok {
+		return
+	}
+	if inputTokens, ok := lookupInt(usage, "input_tokens"); ok {
+		update.InputTokens = &inputTokens
+	}
+	if outputTokens, ok := lookupInt(usage, "output_tokens"); ok {
+		update.OutputTokens = &outputTokens
+	}
+	if inputTokensDetails, ok := usage["input_tokens_details"].(map[string]any); ok {
+		if cacheReadInputTokens, ok := lookupInt(inputTokensDetails, "cached_tokens"); ok {
+			update.CacheReadInputTokens = &cacheReadInputTokens
+		}
+	}
+}
+
+func populateChatCompletionsUsageUpdate(update *repository.MessageRequestTerminalUpdate, payload map[string]any) {
+	usage, ok := payload["usage"].(map[string]any)
+	if !ok {
+		return
+	}
+	if inputTokens, ok := lookupInt(usage, "prompt_tokens"); ok {
+		update.InputTokens = &inputTokens
+	}
+	if outputTokens, ok := lookupInt(usage, "completion_tokens"); ok {
+		update.OutputTokens = &outputTokens
+	}
+	if promptTokensDetails, ok := usage["prompt_tokens_details"].(map[string]any); ok {
+		if cacheReadInputTokens, ok := lookupInt(promptTokensDetails, "cached_tokens"); ok {
+			update.CacheReadInputTokens = &cacheReadInputTokens
+		}
+	}
+}
+
+func lookupInt(payload map[string]any, key string) (int, bool) {
+	if payload == nil {
+		return 0, false
+	}
+	value, ok := payload[key]
+	if !ok {
+		return 0, false
+	}
+	switch number := value.(type) {
+	case float64:
+		return int(number), true
+	case int:
+		return number, true
+	case int32:
+		return int(number), true
+	case int64:
+		return int(number), true
+	default:
+		return 0, false
+	}
+}
+
+func (h *Handler) finalizeMessageRequest(c *gin.Context, id int, update repository.MessageRequestTerminalUpdate) {
 	if h == nil || h.requestLogs == nil || id <= 0 {
 		return
 	}
@@ -632,7 +1023,7 @@ func (h *Handler) finalizeMessageRequest(c *gin.Context, id int, statusCode int,
 	if c != nil && c.Request != nil {
 		reqCtx = c.Request.Context()
 	}
-	_ = h.requestLogs.UpdateTerminal(reqCtx, id, statusCode, int(duration.Milliseconds()), errorMessage)
+	_ = h.requestLogs.UpdateTerminal(reqCtx, id, update)
 }
 
 type proxyAPIType string
@@ -673,5 +1064,9 @@ func stringPointer(value string) *string {
 }
 
 func intPointer(value int) *int {
+	return &value
+}
+
+func int64Pointer(value int64) *int64 {
 	return &value
 }
