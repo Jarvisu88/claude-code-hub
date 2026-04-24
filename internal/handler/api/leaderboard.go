@@ -45,22 +45,22 @@ func (h *LeaderboardHandler) getLeaderboard(c *gin.Context) {
 		writeAdminError(c, appErrors.NewPermissionDenied("权限不足", appErrors.CodePermissionDenied))
 		return
 	}
-	scope, startTime, endTime, err := decodeLeaderboardQuery(c, h.now())
+	options, err := decodeLeaderboardQuery(c, h.now())
 	if err != nil {
 		writeAdminError(c, err)
 		return
 	}
-	rows, err := h.logs.ListLeaderboardRows(c.Request.Context(), startTime, endTime)
+	rows, err := h.logs.ListLeaderboardRows(c.Request.Context(), options.startTime, options.endTime)
 	if err != nil {
 		writeAdminError(c, err)
 		return
 	}
 
-	switch scope {
+	switch options.scope {
 	case "user":
-		c.JSON(http.StatusOK, buildUserLeaderboard(rows))
+		c.JSON(http.StatusOK, buildUserLeaderboard(rows, options.includeUserModelStats))
 	case "provider":
-		c.JSON(http.StatusOK, buildProviderLeaderboard(rows))
+		c.JSON(http.StatusOK, buildProviderLeaderboard(rows, options.providerTypeFilter, options.includeModelStats))
 	case "model":
 		c.JSON(http.StatusOK, buildModelLeaderboard(rows))
 	default:
@@ -68,10 +68,19 @@ func (h *LeaderboardHandler) getLeaderboard(c *gin.Context) {
 	}
 }
 
-func decodeLeaderboardQuery(c *gin.Context, now time.Time) (scope string, startTime, endTime time.Time, err error) {
-	scope = strings.TrimSpace(c.DefaultQuery("scope", "user"))
-	if scope != "user" && scope != "provider" && scope != "model" {
-		return "", time.Time{}, time.Time{}, appErrors.NewInvalidRequest("scope 仅支持 user/provider/model")
+type leaderboardQueryOptions struct {
+	scope                 string
+	startTime             time.Time
+	endTime               time.Time
+	includeModelStats     bool
+	includeUserModelStats bool
+	providerTypeFilter    string
+}
+
+func decodeLeaderboardQuery(c *gin.Context, now time.Time) (options leaderboardQueryOptions, err error) {
+	options.scope = strings.TrimSpace(c.DefaultQuery("scope", "user"))
+	if options.scope != "user" && options.scope != "provider" && options.scope != "model" {
+		return options, appErrors.NewInvalidRequest("scope 仅支持 user/provider/model")
 	}
 	period := strings.TrimSpace(c.DefaultQuery("period", "daily"))
 	location, locErr := time.LoadLocation(repository.DefaultTimezone)
@@ -81,44 +90,59 @@ func decodeLeaderboardQuery(c *gin.Context, now time.Time) (scope string, startT
 	localNow := now.In(location)
 	switch period {
 	case "daily":
-		startTime = time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
-		endTime = startTime.Add(24 * time.Hour)
+		options.startTime = time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
+		options.endTime = options.startTime.Add(24 * time.Hour)
 	case "weekly":
 		weekday := int(localNow.Weekday())
 		if weekday == 0 {
 			weekday = 7
 		}
-		startTime = time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location).AddDate(0, 0, -(weekday - 1))
-		endTime = startTime.AddDate(0, 0, 7)
+		options.startTime = time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location).AddDate(0, 0, -(weekday - 1))
+		options.endTime = options.startTime.AddDate(0, 0, 7)
 	case "monthly":
-		startTime = time.Date(localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, location)
-		endTime = startTime.AddDate(0, 1, 0)
+		options.startTime = time.Date(localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, location)
+		options.endTime = options.startTime.AddDate(0, 1, 0)
 	case "allTime":
-		startTime = time.Unix(0, 0).In(location)
-		endTime = localNow.Add(24 * time.Hour)
+		options.startTime = time.Unix(0, 0).In(location)
+		options.endTime = localNow.Add(24 * time.Hour)
 	case "custom":
 		startDate := strings.TrimSpace(c.Query("startDate"))
 		endDate := strings.TrimSpace(c.Query("endDate"))
 		if startDate == "" || endDate == "" {
-			return "", time.Time{}, time.Time{}, appErrors.NewInvalidRequest("custom period 需要 startDate 和 endDate")
+			return options, appErrors.NewInvalidRequest("custom period 需要 startDate 和 endDate")
 		}
 		startParsed, parseErr := time.ParseInLocation("2006-01-02", startDate, location)
 		if parseErr != nil {
-			return "", time.Time{}, time.Time{}, appErrors.NewInvalidRequest("startDate 格式必须为 YYYY-MM-DD")
+			return options, appErrors.NewInvalidRequest("startDate 格式必须为 YYYY-MM-DD")
 		}
 		endParsed, parseErr := time.ParseInLocation("2006-01-02", endDate, location)
 		if parseErr != nil {
-			return "", time.Time{}, time.Time{}, appErrors.NewInvalidRequest("endDate 格式必须为 YYYY-MM-DD")
+			return options, appErrors.NewInvalidRequest("endDate 格式必须为 YYYY-MM-DD")
 		}
 		if endParsed.Before(startParsed) {
-			return "", time.Time{}, time.Time{}, appErrors.NewInvalidRequest("startDate 不能晚于 endDate")
+			return options, appErrors.NewInvalidRequest("startDate 不能晚于 endDate")
 		}
-		startTime = startParsed
-		endTime = endParsed.Add(24 * time.Hour)
+		options.startTime = startParsed
+		options.endTime = endParsed.Add(24 * time.Hour)
 	default:
-		return "", time.Time{}, time.Time{}, appErrors.NewInvalidRequest("period 不支持")
+		return options, appErrors.NewInvalidRequest("period 不支持")
 	}
-	return scope, startTime, endTime, nil
+	if options.scope == "provider" {
+		options.includeModelStats = parseTruthyQuery(c.Query("includeModelStats"))
+		providerType := strings.TrimSpace(c.Query("providerType"))
+		if providerType != "" && providerType != "all" {
+			switch providerType {
+			case "claude", "claude-auth", "codex", "gemini", "gemini-cli", "openai-compatible":
+				options.providerTypeFilter = providerType
+			default:
+				return options, appErrors.NewInvalidRequest("providerType 不支持")
+			}
+		}
+	}
+	if options.scope == "user" {
+		options.includeUserModelStats = parseTruthyQuery(c.Query("includeUserModelStats"))
+	}
+	return options, nil
 }
 
 func leaderboardTotalTokens(row repository.LeaderboardRequestRow) int {
@@ -138,34 +162,68 @@ func leaderboardTotalTokens(row repository.LeaderboardRequestRow) int {
 	return total
 }
 
-func buildUserLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {
+func buildUserLeaderboard(rows []repository.LeaderboardRequestRow, includeModelStats bool) []gin.H {
 	type aggregate struct {
 		userID        int
 		userName      string
 		totalRequests int
 		totalCost     float64
 		totalTokens   int
+		modelStats    map[string]*aggregate
 	}
 	aggregates := map[int]*aggregate{}
 	for _, row := range rows {
 		entry := aggregates[row.UserID]
 		if entry == nil {
-			entry = &aggregate{userID: row.UserID, userName: row.UserName}
+			entry = &aggregate{userID: row.UserID, userName: row.UserName, modelStats: map[string]*aggregate{}}
 			aggregates[row.UserID] = entry
 		}
 		entry.totalRequests++
 		entry.totalCost += row.CostUSD.InexactFloat64()
 		entry.totalTokens += leaderboardTotalTokens(row)
+		if includeModelStats {
+			modelName := strings.TrimSpace(row.Model)
+			if modelName == "" {
+				modelName = "Unknown"
+			}
+			modelEntry := entry.modelStats[modelName]
+			if modelEntry == nil {
+				modelEntry = &aggregate{userName: modelName}
+				entry.modelStats[modelName] = modelEntry
+			}
+			modelEntry.totalRequests++
+			modelEntry.totalCost += row.CostUSD.InexactFloat64()
+			modelEntry.totalTokens += leaderboardTotalTokens(row)
+		}
 	}
 	result := make([]gin.H, 0, len(aggregates))
 	for _, entry := range aggregates {
-		result = append(result, gin.H{
+		row := gin.H{
 			"userId":        entry.userID,
 			"userName":      entry.userName,
 			"totalRequests": entry.totalRequests,
 			"totalCost":     leaderboardRound6(entry.totalCost),
 			"totalTokens":   entry.totalTokens,
-		})
+		}
+		if includeModelStats {
+			modelStats := make([]gin.H, 0, len(entry.modelStats))
+			for modelName, modelEntry := range entry.modelStats {
+				modelStats = append(modelStats, gin.H{
+					"model":         modelName,
+					"totalRequests": modelEntry.totalRequests,
+					"totalCost":     leaderboardRound6(modelEntry.totalCost),
+					"totalTokens":   modelEntry.totalTokens,
+				})
+			}
+			sort.Slice(modelStats, func(i, j int) bool {
+				if modelStats[i]["totalCost"].(float64) != modelStats[j]["totalCost"].(float64) {
+					return modelStats[i]["totalCost"].(float64) > modelStats[j]["totalCost"].(float64)
+				}
+				return modelStats[i]["totalRequests"].(int) > modelStats[j]["totalRequests"].(int)
+			})
+			row["modelStats"] = modelStats
+		}
+		result = append(result, row)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i]["totalCost"].(float64) != result[j]["totalCost"].(float64) {
@@ -176,7 +234,7 @@ func buildUserLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {
 	return result
 }
 
-func buildProviderLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {
+func buildProviderLeaderboard(rows []repository.LeaderboardRequestRow, providerTypeFilter string, includeModelStats bool) []gin.H {
 	type aggregate struct {
 		providerID    int
 		providerName  string
@@ -188,15 +246,19 @@ func buildProviderLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {
 		ttfbCount     int
 		tpsTotal      float64
 		tpsCount      int
+		modelStats    map[string]*aggregate
 	}
 	aggregates := map[int]*aggregate{}
 	for _, row := range rows {
 		if row.ProviderID <= 0 {
 			continue
 		}
+		if providerTypeFilter != "" && row.ProviderType != providerTypeFilter {
+			continue
+		}
 		entry := aggregates[row.ProviderID]
 		if entry == nil {
-			entry = &aggregate{providerID: row.ProviderID, providerName: row.ProviderName}
+			entry = &aggregate{providerID: row.ProviderID, providerName: row.ProviderName, modelStats: map[string]*aggregate{}}
 			aggregates[row.ProviderID] = entry
 		}
 		totalTokens := leaderboardTotalTokens(row)
@@ -213,6 +275,31 @@ func buildProviderLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {
 		if row.DurationMs != nil && *row.DurationMs > 0 && totalTokens > 0 {
 			entry.tpsTotal += float64(totalTokens) / (float64(*row.DurationMs) / 1000.0)
 			entry.tpsCount++
+		}
+		if includeModelStats {
+			modelName := strings.TrimSpace(row.Model)
+			if modelName == "" {
+				modelName = "Unknown"
+			}
+			modelEntry := entry.modelStats[modelName]
+			if modelEntry == nil {
+				modelEntry = &aggregate{providerName: modelName}
+				entry.modelStats[modelName] = modelEntry
+			}
+			modelEntry.totalRequests++
+			modelEntry.totalCost += row.CostUSD.InexactFloat64()
+			modelEntry.totalTokens += totalTokens
+			if row.StatusCode >= 200 && row.StatusCode < 300 {
+				modelEntry.successCount++
+			}
+			if row.TtfbMs != nil {
+				modelEntry.ttfbTotal += *row.TtfbMs
+				modelEntry.ttfbCount++
+			}
+			if row.DurationMs != nil && *row.DurationMs > 0 && totalTokens > 0 {
+				modelEntry.tpsTotal += float64(totalTokens) / (float64(*row.DurationMs) / 1000.0)
+				modelEntry.tpsCount++
+			}
 		}
 	}
 	result := make([]gin.H, 0, len(aggregates))
@@ -235,7 +322,7 @@ func buildProviderLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {
 		if entry.totalTokens > 0 {
 			avgCostPerMillion = leaderboardRound6(entry.totalCost * 1_000_000 / float64(entry.totalTokens))
 		}
-		result = append(result, gin.H{
+		row := gin.H{
 			"providerId":              entry.providerID,
 			"providerName":            entry.providerName,
 			"totalRequests":           entry.totalRequests,
@@ -246,7 +333,49 @@ func buildProviderLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {
 			"avgTokensPerSecond":      avgTps,
 			"avgCostPerRequest":       avgCostPerRequest,
 			"avgCostPerMillionTokens": avgCostPerMillion,
-		})
+		}
+		if includeModelStats {
+			modelStats := make([]gin.H, 0, len(entry.modelStats))
+			for modelName, modelEntry := range entry.modelStats {
+				modelSuccess := 0.0
+				modelAvgTtfb := 0
+				modelAvgTps := 0.0
+				var modelAvgCostPerRequest any = nil
+				var modelAvgCostPerMillion any = nil
+				if modelEntry.totalRequests > 0 {
+					modelSuccess = float64(modelEntry.successCount) / float64(modelEntry.totalRequests)
+					modelAvgCostPerRequest = leaderboardRound6(modelEntry.totalCost / float64(modelEntry.totalRequests))
+				}
+				if modelEntry.ttfbCount > 0 {
+					modelAvgTtfb = modelEntry.ttfbTotal / modelEntry.ttfbCount
+				}
+				if modelEntry.tpsCount > 0 {
+					modelAvgTps = leaderboardRound6(modelEntry.tpsTotal / float64(modelEntry.tpsCount))
+				}
+				if modelEntry.totalTokens > 0 {
+					modelAvgCostPerMillion = leaderboardRound6(modelEntry.totalCost * 1_000_000 / float64(modelEntry.totalTokens))
+				}
+				modelStats = append(modelStats, gin.H{
+					"model":                   modelName,
+					"totalRequests":           modelEntry.totalRequests,
+					"totalCost":               leaderboardRound6(modelEntry.totalCost),
+					"totalTokens":             modelEntry.totalTokens,
+					"successRate":             modelSuccess,
+					"avgTtfbMs":               modelAvgTtfb,
+					"avgTokensPerSecond":      modelAvgTps,
+					"avgCostPerRequest":       modelAvgCostPerRequest,
+					"avgCostPerMillionTokens": modelAvgCostPerMillion,
+				})
+			}
+			sort.Slice(modelStats, func(i, j int) bool {
+				if modelStats[i]["totalCost"].(float64) != modelStats[j]["totalCost"].(float64) {
+					return modelStats[i]["totalCost"].(float64) > modelStats[j]["totalCost"].(float64)
+				}
+				return modelStats[i]["totalRequests"].(int) > modelStats[j]["totalRequests"].(int)
+			})
+			row["modelStats"] = modelStats
+		}
+		result = append(result, row)
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i]["totalCost"].(float64) != result[j]["totalCost"].(float64) {
@@ -255,6 +384,11 @@ func buildProviderLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {
 		return result[i]["totalRequests"].(int) > result[j]["totalRequests"].(int)
 	})
 	return result
+}
+
+func parseTruthyQuery(value string) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	return trimmed == "1" || trimmed == "true" || trimmed == "yes"
 }
 
 func buildModelLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {

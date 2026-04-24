@@ -113,6 +113,7 @@ type LeaderboardRequestRow struct {
 	UserName                 string           `json:"userName"`
 	ProviderID               int              `json:"providerId"`
 	ProviderName             string           `json:"providerName"`
+	ProviderType             string           `json:"providerType"`
 	Model                    string           `json:"model"`
 	StatusCode               int              `json:"statusCode"`
 	CostUSD                  udecimal.Decimal `json:"costUsd"`
@@ -842,6 +843,7 @@ func (r *messageRequestRepository) ListLeaderboardRows(ctx context.Context, star
 		ColumnExpr("COALESCE(u.name, CONCAT('User #', mr.user_id::text)) AS user_name").
 		ColumnExpr("mr.provider_id").
 		ColumnExpr("COALESCE(p.name, 'unknown') AS provider_name").
+		ColumnExpr("COALESCE(p.provider_type, '') AS provider_type").
 		ColumnExpr("COALESCE(NULLIF(mr.original_model, ''), NULLIF(mr.model, ''), 'Unknown') AS model").
 		ColumnExpr("mr.status_code").
 		ColumnExpr("mr.cost_usd").
