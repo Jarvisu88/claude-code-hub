@@ -110,6 +110,9 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	router.Use(gin.Recovery())
 	router.Use(requestLogger())
 
+	repoFactory := repository.NewFactory(db)
+	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken)
+
 	// 健康检查
 	router.GET("/health", healthCheck(db, rdb))
 	apihandler.NewPlatformHandler(
@@ -122,10 +125,9 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 		},
 		"0.1.0",
 	).RegisterRoutes(router)
+	apihandler.NewCurrentAvailabilityHandler(proxyAuthService, repoFactory.Provider(), repoFactory.MessageRequest()).RegisterRoutes(router)
 
 	// API v1 路由组 (代理 API)
-	repoFactory := repository.NewFactory(db)
-	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken)
 	proxySessionManager := sessionsvc.NewManager(cfg.Session, rdb)
 	livechainsvc.Configure(rdb, time.Duration(cfg.Session.TTL)*time.Second)
 	providertrackersvc.Configure(rdb)

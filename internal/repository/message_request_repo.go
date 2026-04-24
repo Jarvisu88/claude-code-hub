@@ -53,6 +53,9 @@ type MessageRequestRepository interface {
 	// GetOverviewMetrics 获取概览面板指标
 	GetOverviewMetrics(ctx context.Context, now time.Time, location *time.Location) (MessageRequestOverviewMetrics, error)
 
+	// GetCurrentProviderStatus 获取 provider 当前可用性窗口聚合
+	GetCurrentProviderStatus(ctx context.Context, providerIDs []int, now time.Time, window time.Duration) (map[int]ProviderCurrentStatus, error)
+
 	// GetFilterOptions 获取最小筛选选项
 	GetFilterOptions(ctx context.Context) (MessageRequestFilterOptions, error)
 
@@ -83,6 +86,13 @@ type MessageRequestOverviewMetrics struct {
 	YesterdaySamePeriodAvgResponseTime int     `json:"yesterdaySamePeriodAvgResponseTime"`
 	RecentMinuteRequests               int     `json:"recentMinuteRequests"`
 	ConcurrentSessions                 int     `json:"concurrentSessions"`
+}
+
+type ProviderCurrentStatus struct {
+	ProviderID    int        `json:"providerId"`
+	GreenCount    int        `json:"greenCount"`
+	RedCount      int        `json:"redCount"`
+	LastRequestAt *time.Time `json:"lastRequestAt,omitempty"`
 }
 
 type MessageRequestTerminalUpdate struct {
@@ -716,6 +726,55 @@ func (r *messageRequestRepository) GetOverviewMetrics(ctx context.Context, now t
 		RecentMinuteRequests:               recentMinute.RequestCount,
 		ConcurrentSessions:                 concurrent.SessionCount,
 	}, nil
+}
+
+func (r *messageRequestRepository) GetCurrentProviderStatus(ctx context.Context, providerIDs []int, now time.Time, window time.Duration) (map[int]ProviderCurrentStatus, error) {
+	filteredIDs := make([]int, 0, len(providerIDs))
+	for _, providerID := range providerIDs {
+		if providerID > 0 {
+			filteredIDs = append(filteredIDs, providerID)
+		}
+	}
+	if len(filteredIDs) == 0 {
+		return map[int]ProviderCurrentStatus{}, nil
+	}
+	if window <= 0 {
+		window = 15 * time.Minute
+	}
+	windowStart := now.Add(-window)
+
+	var rows []struct {
+		ProviderID    int        `bun:"provider_id"`
+		GreenCount    int        `bun:"green_count"`
+		RedCount      int        `bun:"red_count"`
+		LastRequestAt *time.Time `bun:"last_request_at"`
+	}
+	query := r.db.NewSelect().
+		Table("message_request AS mr").
+		ColumnExpr("mr.provider_id").
+		ColumnExpr("COUNT(*) FILTER (WHERE mr.status_code >= 200 AND mr.status_code < 400) AS green_count").
+		ColumnExpr("COUNT(*) FILTER (WHERE mr.status_code < 200 OR mr.status_code >= 400) AS red_count").
+		ColumnExpr("MAX(mr.created_at) AS last_request_at").
+		Where("mr.deleted_at IS NULL").
+		Where("mr.provider_id IN (?)", bun.In(filteredIDs)).
+		Where("mr.created_at >= ?", windowStart).
+		Where("mr.created_at <= ?", now).
+		Where("mr.status_code IS NOT NULL").
+		Group("mr.provider_id")
+	if err := query.Scan(ctx, &rows); err != nil {
+		return nil, errors.NewDatabaseError(err)
+	}
+
+	results := make(map[int]ProviderCurrentStatus, len(filteredIDs))
+	for _, row := range rows {
+		results[row.ProviderID] = ProviderCurrentStatus{
+			ProviderID:    row.ProviderID,
+			GreenCount:    row.GreenCount,
+			RedCount:      row.RedCount,
+			LastRequestAt: row.LastRequestAt,
+		}
+	}
+	return results, nil
 }
 
 func roundCost6(value float64) float64 {
