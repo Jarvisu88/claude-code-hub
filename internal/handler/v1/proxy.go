@@ -18,6 +18,7 @@ import (
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
+	livechainsvc "github.com/ding113/claude-code-hub/internal/service/livechain"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
 	"github.com/gin-gonic/gin"
 )
@@ -291,6 +292,10 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 	requestSequence := 1
 	if sessionID != "" && h.sessions != nil {
 		requestSequence = h.sessions.GetNextRequestSequence(c.Request.Context(), sessionID)
+	}
+	if sessionID != "" {
+		_ = livechainsvc.Write(c.Request.Context(), sessionID, requestSequence, baseProviderChain)
+		defer livechainsvc.Delete(context.Background(), sessionID, requestSequence)
 	}
 	startedAt := time.Now()
 	messageRequestID := h.createMessageRequest(c, authResult, provider, baseProviderChain, requestBody, originalModel, effectiveModel, sessionID, requestSequence)

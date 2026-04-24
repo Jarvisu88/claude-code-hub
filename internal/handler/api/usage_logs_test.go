@@ -12,6 +12,7 @@ import (
 	"github.com/ding113/claude-code-hub/internal/model"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
+	livechainsvc "github.com/ding113/claude-code-hub/internal/service/livechain"
 	"github.com/gin-gonic/gin"
 	"github.com/quagmt/udecimal"
 )
@@ -644,6 +645,59 @@ func TestUsageLogsBatchActionAcceptsCursorFilters(t *testing.T) {
 	body := resp.Body.String()
 	if !strings.Contains(body, "\"hasMore\":true") || !strings.Contains(body, "\"nextCursor\":{\"createdAt\":\"2026-04-24T09:59:00Z\",\"id\":9}") || !strings.Contains(body, "\"id\":10") {
 		t.Fatalf("expected batch payload, got %s", body)
+	}
+}
+
+func TestUsageLogsBatchActionIncludesLiveChainForUnfinalizedRows(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	livechainsvc.ResetForTest()
+	defer livechainsvc.ResetForTest()
+
+	enabled := true
+	store := &fakeUsageLogsStore{
+		batchResult: repository.MessageRequestBatchResult{
+			Logs: []*model.MessageRequest{{
+				ID:              12,
+				UserID:          7,
+				Key:             "sk-123",
+				Model:           "gpt-5.4",
+				SessionID:       stringPtr("sess_live"),
+				RequestSequence: 3,
+				CreatedAt:       time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+			}},
+		},
+	}
+	if err := livechainsvc.Write(context.Background(), "sess_live", 3, []model.ProviderChainItem{{
+		ID:     9,
+		Name:   "provider-live",
+		Reason: stringPtr("retry_failed"),
+	}}); err != nil {
+		t.Fatalf("failed to seed live chain: %v", err)
+	}
+
+	router := gin.New()
+	NewUsageLogsActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogsBatch", strings.NewReader(`{"limit":10}`))
+	req.Header.Set("Authorization", "Bearer admin-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "\"_liveChain\":{\"chain\":[{\"id\":9,\"name\":\"provider-live\"") || !strings.Contains(body, "\"phase\":\"retrying\"") {
+		t.Fatalf("expected live chain in batch payload, got %s", body)
 	}
 }
 

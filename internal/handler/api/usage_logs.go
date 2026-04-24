@@ -13,6 +13,7 @@ import (
 	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
+	livechainsvc "github.com/ding113/claude-code-hub/internal/service/livechain"
 	"github.com/gin-gonic/gin"
 	"github.com/quagmt/udecimal"
 )
@@ -222,9 +223,31 @@ func (h *UsageLogsActionHandler) batch(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	liveSnapshots := map[string]livechainsvc.Snapshot{}
+	keys := make([]livechainsvc.Key, 0, len(result.Logs))
+	for _, log := range result.Logs {
+		if log == nil || log.SessionID == nil || *log.SessionID == "" || log.RequestSequence <= 0 {
+			continue
+		}
+		if log.DurationMs != nil || log.StatusCode != nil {
+			continue
+		}
+		keys = append(keys, livechainsvc.Key{SessionID: *log.SessionID, RequestSequence: log.RequestSequence})
+	}
+	if len(keys) > 0 {
+		if snapshots, snapshotErr := livechainsvc.ReadBatch(c.Request.Context(), keys); snapshotErr == nil {
+			liveSnapshots = snapshots
+		}
+	}
 	logs := make([]gin.H, 0, len(result.Logs))
 	for _, log := range result.Logs {
-		logs = append(logs, buildUsageLogResponse(log))
+		payload := buildUsageLogResponse(log)
+		if log != nil && log.SessionID != nil && *log.SessionID != "" && log.RequestSequence > 0 {
+			if snapshot, ok := liveSnapshots[*log.SessionID+":"+strconv.Itoa(log.RequestSequence)]; ok {
+				payload["_liveChain"] = snapshot
+			}
+		}
+		logs = append(logs, payload)
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{
 		"logs":       logs,
