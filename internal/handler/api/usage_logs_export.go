@@ -53,6 +53,19 @@ func (s *usageLogsExportStore) save(record usageLogsExportRecord) {
 	s.items[record.status.JobID] = record
 }
 
+func (s *usageLogsExportStore) update(jobID string, mutate func(*usageLogsExportRecord)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cleanupLocked()
+	record, ok := s.items[jobID]
+	if !ok {
+		return
+	}
+	mutate(&record)
+	record.expiresAt = usageLogsExportNow().Add(usageLogsExportJobTTL)
+	s.items[jobID] = record
+}
+
 func (s *usageLogsExportStore) get(jobID string) (usageLogsExportRecord, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -104,15 +117,13 @@ func (h *UsageLogsActionHandler) startExport(c *gin.Context) {
 
 	initialStatus := usageLogsExportStatus{
 		JobID:           jobID,
-		Status:          "running",
+		Status:          "queued",
 		ProcessedRows:   0,
 		TotalRows:       0,
 		ProgressPercent: 0,
 	}
 	defaultUsageLogsExportStore.save(newUsageLogsExportRecord(initialStatus, ""))
-
-	csv, finalStatus := h.buildUsageLogsExport(c.Request.Context(), jobID, input.toRepositoryFilters())
-	defaultUsageLogsExportStore.save(newUsageLogsExportRecord(finalStatus, csv))
+	go h.runUsageLogsExportJob(jobID, input.toRepositoryFilters())
 
 	c.JSON(200, gin.H{"ok": true, "data": gin.H{"jobId": jobID}})
 }
@@ -166,7 +177,26 @@ func extractUsageLogsExportJobID(c *gin.Context) string {
 	return ""
 }
 
-func (h *UsageLogsActionHandler) buildUsageLogsExport(ctx context.Context, jobID string, filters repository.MessageRequestQueryFilters) (string, usageLogsExportStatus) {
+func (h *UsageLogsActionHandler) runUsageLogsExportJob(jobID string, filters repository.MessageRequestQueryFilters) {
+	defaultUsageLogsExportStore.update(jobID, func(record *usageLogsExportRecord) {
+		record.status.Status = "running"
+		record.status.Error = ""
+		record.status.ProgressPercent = 0
+		record.csv = ""
+	})
+
+	csv, finalStatus := h.buildUsageLogsExport(context.Background(), jobID, filters, func(progress usageLogsExportStatus) {
+		defaultUsageLogsExportStore.update(jobID, func(record *usageLogsExportRecord) {
+			record.status = progress
+		})
+	})
+	defaultUsageLogsExportStore.update(jobID, func(record *usageLogsExportRecord) {
+		record.status = finalStatus
+		record.csv = csv
+	})
+}
+
+func (h *UsageLogsActionHandler) buildUsageLogsExport(ctx context.Context, jobID string, filters repository.MessageRequestQueryFilters, onProgress func(usageLogsExportStatus)) (string, usageLogsExportStatus) {
 	summary, err := h.store.GetSummary(ctx, filters)
 	if err != nil {
 		return "", usageLogsExportStatus{
@@ -209,6 +239,15 @@ func (h *UsageLogsActionHandler) buildUsageLogsExport(ctx context.Context, jobID
 			lines = append(lines, buildUsageLogCSVRow(log))
 		}
 		processedRows += len(batch.Logs)
+		if onProgress != nil {
+			onProgress(usageLogsExportStatus{
+				JobID:           jobID,
+				Status:          "running",
+				ProcessedRows:   processedRows,
+				TotalRows:       maxInt(totalRows, processedRows),
+				ProgressPercent: usageLogsExportProgress(processedRows, totalRows, batch.HasMore),
+			})
+		}
 		if !batch.HasMore || batch.NextCursor == nil {
 			break
 		}

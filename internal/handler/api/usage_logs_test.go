@@ -740,6 +740,11 @@ func TestUsageLogsExportFlow(t *testing.T) {
 		t.Fatalf("expected export job id, got %s", startResp.Body.String())
 	}
 	if len(store.batchCalls) != 2 {
+		for i := 0; i < 50 && len(store.batchCalls) < 2; i++ {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if len(store.batchCalls) != 2 {
 		t.Fatalf("expected two batch calls for export, got %d", len(store.batchCalls))
 	}
 	if store.batchCalls[0].MinRetryCount == nil || *store.batchCalls[0].MinRetryCount != 1 {
@@ -749,17 +754,25 @@ func TestUsageLogsExportFlow(t *testing.T) {
 		t.Fatalf("expected next cursor on second batch call, got %+v", store.batchCalls[1].Cursor)
 	}
 
-	statusReq := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogsExportStatus", strings.NewReader(`{"jobId":"`+startPayload.Data.JobID+`"}`))
-	statusReq.Header.Set("Authorization", "Bearer admin-token")
-	statusReq.Header.Set("Content-Type", "application/json")
-	statusResp := httptest.NewRecorder()
-	router.ServeHTTP(statusResp, statusReq)
+	var statusBody string
+	for i := 0; i < 50; i++ {
+		statusReq := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogsExportStatus", strings.NewReader(`{"jobId":"`+startPayload.Data.JobID+`"}`))
+		statusReq.Header.Set("Authorization", "Bearer admin-token")
+		statusReq.Header.Set("Content-Type", "application/json")
+		statusResp := httptest.NewRecorder()
+		router.ServeHTTP(statusResp, statusReq)
 
-	if statusResp.Code != http.StatusOK {
-		t.Fatalf("expected export status 200, got %d: %s", statusResp.Code, statusResp.Body.String())
+		if statusResp.Code != http.StatusOK {
+			t.Fatalf("expected export status 200, got %d: %s", statusResp.Code, statusResp.Body.String())
+		}
+		statusBody = statusResp.Body.String()
+		if strings.Contains(statusBody, `"status":"completed"`) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if !strings.Contains(statusResp.Body.String(), `"status":"completed"`) || !strings.Contains(statusResp.Body.String(), `"processedRows":2`) || !strings.Contains(statusResp.Body.String(), `"progressPercent":100`) {
-		t.Fatalf("expected completed export status, got %s", statusResp.Body.String())
+	if !strings.Contains(statusBody, `"status":"completed"`) || !strings.Contains(statusBody, `"processedRows":2`) || !strings.Contains(statusBody, `"progressPercent":100`) {
+		t.Fatalf("expected completed export status, got %s", statusBody)
 	}
 
 	downloadReq := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/downloadUsageLogsExport", strings.NewReader(`{"jobId":"`+startPayload.Data.JobID+`"}`))
