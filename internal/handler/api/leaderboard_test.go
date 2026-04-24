@@ -147,8 +147,8 @@ func TestLeaderboardRouteSupportsCacheHitScopes(t *testing.T) {
 	router := gin.New()
 	store := &fakeLeaderboardLogStore{
 		rows: []repository.LeaderboardRequestRow{
-			{UserID: 1, UserName: "alice", ProviderID: 7, ProviderName: "provider-a", ProviderType: "claude", Model: "gpt-5.4", StatusCode: 200, CostUSD: udecimal.MustParse("1.5"), InputTokens: intPtr(100), CacheReadInputTokens: intPtr(50), CacheCreationInputTokens: intPtr(20)},
-			{UserID: 2, UserName: "bob", ProviderID: 8, ProviderName: "provider-b", ProviderType: "gemini", Model: "gemini-2.5-pro", StatusCode: 200, CostUSD: udecimal.MustParse("2.0"), InputTokens: intPtr(100), CacheReadInputTokens: intPtr(10)},
+			{UserID: 1, UserName: "alice", UserTags: []string{"vip"}, UserProviderGroup: stringPtr("alpha, beta"), ProviderID: 7, ProviderName: "provider-a", ProviderType: "claude", Model: "gpt-5.4", StatusCode: 200, CostUSD: udecimal.MustParse("1.5"), InputTokens: intPtr(100), CacheReadInputTokens: intPtr(50), CacheCreationInputTokens: intPtr(20)},
+			{UserID: 2, UserName: "bob", UserTags: []string{"free"}, UserProviderGroup: stringPtr("gamma"), ProviderID: 8, ProviderName: "provider-b", ProviderType: "gemini", Model: "gemini-2.5-pro", StatusCode: 200, CostUSD: udecimal.MustParse("2.0"), InputTokens: intPtr(100), CacheReadInputTokens: intPtr(10)},
 		},
 	}
 	handler := NewLeaderboardHandler(
@@ -176,6 +176,14 @@ func TestLeaderboardRouteSupportsCacheHitScopes(t *testing.T) {
 	router.ServeHTTP(providerResp, providerReq)
 	if providerResp.Code != http.StatusOK || strings.Contains(providerResp.Body.String(), "\"providerId\":8") || !strings.Contains(providerResp.Body.String(), "\"providerId\":7") || !strings.Contains(providerResp.Body.String(), "\"modelStats\":[") {
 		t.Fatalf("expected provider cache-hit leaderboard payload, got %d: %s", providerResp.Code, providerResp.Body.String())
+	}
+
+	filteredUserReq := httptest.NewRequest(http.MethodGet, "/api/leaderboard?period=daily&scope=userCacheHitRate&userTags=vip&userGroups=alpha", nil)
+	filteredUserReq.Header.Set("Authorization", "Bearer admin-token")
+	filteredUserResp := httptest.NewRecorder()
+	router.ServeHTTP(filteredUserResp, filteredUserReq)
+	if filteredUserResp.Code != http.StatusOK || strings.Contains(filteredUserResp.Body.String(), "\"userId\":2") || !strings.Contains(filteredUserResp.Body.String(), "\"userId\":1") {
+		t.Fatalf("expected filtered user cache-hit leaderboard payload, got %d: %s", filteredUserResp.Code, filteredUserResp.Body.String())
 	}
 }
 

@@ -55,6 +55,9 @@ func (h *LeaderboardHandler) getLeaderboard(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	if options.scope == "user" || options.scope == "userCacheHitRate" {
+		rows = filterLeaderboardRowsByUser(rows, options.userTagFilters, options.userGroupFilters)
+	}
 
 	switch options.scope {
 	case "user":
@@ -79,6 +82,8 @@ type leaderboardQueryOptions struct {
 	includeModelStats     bool
 	includeUserModelStats bool
 	providerTypeFilter    string
+	userTagFilters        []string
+	userGroupFilters      []string
 }
 
 func decodeLeaderboardQuery(c *gin.Context, now time.Time) (options leaderboardQueryOptions, err error) {
@@ -145,6 +150,8 @@ func decodeLeaderboardQuery(c *gin.Context, now time.Time) (options leaderboardQ
 	}
 	if options.scope == "user" || options.scope == "userCacheHitRate" {
 		options.includeUserModelStats = parseTruthyQuery(c.Query("includeUserModelStats"))
+		options.userTagFilters = parseCSVFilter(c.Query("userTags"))
+		options.userGroupFilters = parseCSVFilter(c.Query("userGroups"))
 	}
 	return options, nil
 }
@@ -393,6 +400,64 @@ func buildProviderLeaderboard(rows []repository.LeaderboardRequestRow, providerT
 func parseTruthyQuery(value string) bool {
 	trimmed := strings.TrimSpace(strings.ToLower(value))
 	return trimmed == "1" || trimmed == "true" || trimmed == "yes"
+}
+
+func parseCSVFilter(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, part := range parts {
+		cleaned := strings.TrimSpace(part)
+		if cleaned == "" {
+			continue
+		}
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		result = append(result, cleaned)
+	}
+	return result
+}
+
+func filterLeaderboardRowsByUser(rows []repository.LeaderboardRequestRow, tagFilters, groupFilters []string) []repository.LeaderboardRequestRow {
+	if len(tagFilters) == 0 && len(groupFilters) == 0 {
+		return rows
+	}
+	tagSet := map[string]struct{}{}
+	for _, tag := range tagFilters {
+		tagSet[tag] = struct{}{}
+	}
+	groupSet := map[string]struct{}{}
+	for _, group := range groupFilters {
+		groupSet[group] = struct{}{}
+	}
+	filtered := make([]repository.LeaderboardRequestRow, 0, len(rows))
+	for _, row := range rows {
+		tagMatch := len(tagSet) == 0
+		for _, tag := range row.UserTags {
+			if _, ok := tagSet[strings.TrimSpace(tag)]; ok {
+				tagMatch = true
+				break
+			}
+		}
+		groupMatch := len(groupSet) == 0
+		if row.UserProviderGroup != nil {
+			for _, part := range strings.Split(*row.UserProviderGroup, ",") {
+				if _, ok := groupSet[strings.TrimSpace(part)]; ok {
+					groupMatch = true
+					break
+				}
+			}
+		}
+		if tagMatch && groupMatch {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
 }
 
 func buildModelLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {

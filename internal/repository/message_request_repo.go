@@ -111,6 +111,8 @@ type AvailabilityRequestRow struct {
 type LeaderboardRequestRow struct {
 	UserID                   int              `json:"userId"`
 	UserName                 string           `json:"userName"`
+	UserTags                 []string         `json:"userTags"`
+	UserProviderGroup        *string          `json:"userProviderGroup,omitempty"`
 	ProviderID               int              `json:"providerId"`
 	ProviderName             string           `json:"providerName"`
 	ProviderType             string           `json:"providerType"`
@@ -841,6 +843,8 @@ func (r *messageRequestRepository) ListLeaderboardRows(ctx context.Context, star
 		Table("message_request AS mr").
 		ColumnExpr("mr.user_id").
 		ColumnExpr("COALESCE(u.name, CONCAT('User #', mr.user_id::text)) AS user_name").
+		ColumnExpr("COALESCE(u.tags, '[]'::jsonb) AS user_tags").
+		ColumnExpr("u.provider_group AS user_provider_group").
 		ColumnExpr("mr.provider_id").
 		ColumnExpr("COALESCE(p.name, 'unknown') AS provider_name").
 		ColumnExpr("COALESCE(p.provider_type, '') AS provider_type").
