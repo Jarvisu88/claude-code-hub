@@ -150,7 +150,7 @@ func TestDashboardRealtimeActionReturnsBaselinePayload(t *testing.T) {
 	if !strings.Contains(body, "\"concurrentSessions\":2") || !strings.Contains(body, "\"id\":\"sess_123\"") || !strings.Contains(body, "\"user\":\"alice\"") {
 		t.Fatalf("expected metrics/activity stream data, got %s", body)
 	}
-	if !strings.Contains(body, "\"id\":\"sess_active\"") || !strings.Contains(body, "\"status\":0") || !strings.Contains(body, "\"provider\":\"\"") {
+	if !strings.Contains(body, "\"id\":\"sess_active\"") || !strings.Contains(body, "\"status\":0") || !strings.Contains(body, "\"provider\":\"\"") || !strings.Contains(body, "\"latency\":9600000") {
 		t.Fatalf("expected active activity stream item semantics, got %s", body)
 	}
 	if !strings.Contains(body, "\"provider\":\"Unknown\"") {

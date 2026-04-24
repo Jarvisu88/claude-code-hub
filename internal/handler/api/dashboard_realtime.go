@@ -109,7 +109,7 @@ func (h *DashboardRealtimeActionHandler) getDashboardRealtimeData(c *gin.Context
 }
 
 func buildDashboardActivityStream(logs []*model.MessageRequest) []gin.H {
-	now := time.Now()
+	now := dashboardRealtimeNow()
 	unique := map[string]gin.H{}
 	for _, log := range logs {
 		if log == nil || isWarmupProxyStatusRequest(log) {
