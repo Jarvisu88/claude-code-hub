@@ -7,6 +7,7 @@ import (
 
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
+	sessiontrackersvc "github.com/ding113/claude-code-hub/internal/service/sessiontracker"
 	"github.com/gin-gonic/gin"
 )
 
@@ -65,6 +66,9 @@ func (h *OverviewActionHandler) getOverviewData(c *gin.Context) {
 	if err != nil {
 		writeAdminError(c, err)
 		return
+	}
+	if activeSessionIDs, trackerErr := sessiontrackersvc.ActiveSessionIDs(c.Request.Context(), 0); trackerErr == nil {
+		metrics.ConcurrentSessions = len(activeSessionIDs)
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{
 		"totalUsers":                         userCount,

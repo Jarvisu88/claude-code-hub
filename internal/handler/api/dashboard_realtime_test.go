@@ -31,6 +31,8 @@ func (f fakeDashboardProviderStore) GetActiveProviders(_ context.Context) ([]*mo
 
 func TestDashboardRealtimeActionReturnsBaselinePayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	sessiontrackersvc.SetIDsForTest([]string{"sess_123", "sess_active", "sess_extra"})
+	defer sessiontrackersvc.ResetForTest()
 	origNow := dashboardRealtimeNow
 	dashboardRealtimeNow = func() time.Time { return time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC) }
 	defer func() { dashboardRealtimeNow = origNow }()
@@ -153,7 +155,7 @@ func TestDashboardRealtimeActionReturnsBaselinePayload(t *testing.T) {
 	if !strings.Contains(body, "\"metrics\"") || !strings.Contains(body, "\"activityStream\"") || !strings.Contains(body, "\"trendData\"") {
 		t.Fatalf("expected dashboard realtime payload sections, got %s", body)
 	}
-	if !strings.Contains(body, "\"concurrentSessions\":2") || !strings.Contains(body, "\"id\":\"sess_123\"") || !strings.Contains(body, "\"user\":\"alice\"") {
+	if !strings.Contains(body, "\"concurrentSessions\":3") || !strings.Contains(body, "\"id\":\"sess_123\"") || !strings.Contains(body, "\"user\":\"alice\"") {
 		t.Fatalf("expected metrics/activity stream data, got %s", body)
 	}
 	if !strings.Contains(body, "\"id\":\"sess_active\"") || !strings.Contains(body, "\"status\":0") || !strings.Contains(body, "\"provider\":\"\"") || !strings.Contains(body, "\"latency\":9600000") {

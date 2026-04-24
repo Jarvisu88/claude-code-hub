@@ -10,6 +10,7 @@ import (
 	"github.com/ding113/claude-code-hub/internal/model"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
+	sessiontrackersvc "github.com/ding113/claude-code-hub/internal/service/sessiontracker"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,6 +20,8 @@ func (f fakeCountStore) Count(_ context.Context, _ bool) (int, error) { return f
 
 func TestOverviewActionReturnsOverviewData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	sessiontrackersvc.SetIDsForTest([]string{"sess_a", "sess_b", "sess_c"})
+	defer sessiontrackersvc.ResetForTest()
 	enabled := true
 	store := &fakeUsageLogsStore{
 		summary:  repository.MessageRequestSummary{TotalRequests: 5, TotalCost: 1.5},
@@ -43,7 +46,7 @@ func TestOverviewActionReturnsOverviewData(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
-	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "\"totalUsers\":2") || !strings.Contains(resp.Body.String(), "\"totalRequests\":5") || !strings.Contains(resp.Body.String(), "\"todayRequests\":3") || !strings.Contains(resp.Body.String(), "\"avgResponseTime\":120") || !strings.Contains(resp.Body.String(), "\"concurrentSessions\":2") {
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "\"totalUsers\":2") || !strings.Contains(resp.Body.String(), "\"totalRequests\":5") || !strings.Contains(resp.Body.String(), "\"todayRequests\":3") || !strings.Contains(resp.Body.String(), "\"avgResponseTime\":120") || !strings.Contains(resp.Body.String(), "\"concurrentSessions\":3") {
 		t.Fatalf("expected overview payload, got %d: %s", resp.Code, resp.Body.String())
 	}
 	if store.overviewLocation == nil || store.overviewLocation.String() != repository.DefaultTimezone {

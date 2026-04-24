@@ -60,6 +60,9 @@ func (h *DashboardRealtimeActionHandler) getDashboardRealtimeData(c *gin.Context
 		writeAdminError(c, err)
 		return
 	}
+	if activeSessionIDs, trackerErr := sessiontrackersvc.ActiveSessionIDs(c.Request.Context(), 0); trackerErr == nil {
+		metrics.ConcurrentSessions = len(activeSessionIDs)
+	}
 
 	activeSessionIDs, err := sessiontrackersvc.ActiveSessionIDs(c.Request.Context(), 20)
 	if err != nil {
