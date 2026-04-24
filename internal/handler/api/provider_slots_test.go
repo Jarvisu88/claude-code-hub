@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -87,5 +88,40 @@ func TestProviderSlotsActionReturnsAllProvidersInStableOrder(t *testing.T) {
 	}
 	if strings.Index(body, "\"providerId\":1") > strings.Index(body, "\"providerId\":2") || strings.Index(body, "\"providerId\":2") > strings.Index(body, "\"providerId\":3") {
 		t.Fatalf("expected stable provider ordering, got %s", body)
+	}
+}
+
+func TestProviderSlotsActionToleratesRecentLogFailures(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enabled := true
+	router := gin.New()
+
+	handler := NewProviderSlotsActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		fakeDashboardProviderStore{providers: []*model.Provider{
+			{ID: 1, Name: "provider-a", LimitConcurrentSessions: intPtr(5), IsEnabled: &enabled},
+			{ID: 2, Name: "provider-b", LimitConcurrentSessions: intPtr(2), IsEnabled: &enabled},
+		}},
+		&fakeUsageLogsStore{recentErr: errors.New("recent logs unavailable")},
+	)
+	handler.RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/provider-slots/getProviderSlots", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer admin-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 when recent logs fail, got %d: %s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "\"providerId\":1") || !strings.Contains(body, "\"usedSlots\":0") || !strings.Contains(body, "\"providerId\":2") {
+		t.Fatalf("expected zero-used provider slots fallback, got %s", body)
 	}
 }

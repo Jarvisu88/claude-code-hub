@@ -41,8 +41,7 @@ func (h *ProviderSlotsActionHandler) getProviderSlots(c *gin.Context) {
 	}
 	recentLogs, err := h.logs.ListRecent(c.Request.Context(), 200)
 	if err != nil {
-		writeAdminError(c, err)
-		return
+		recentLogs = nil
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": buildProviderSlotsActionData(recentLogs, providers)})
 }
