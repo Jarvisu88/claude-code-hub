@@ -9,6 +9,7 @@ import (
 	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
+	sessiontrackersvc "github.com/ding113/claude-code-hub/internal/service/sessiontracker"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,6 +19,7 @@ type proxyStatusUserStore interface {
 
 type proxyStatusLogStore interface {
 	ListRecent(ctx context.Context, limit int) ([]*model.MessageRequest, error)
+	FindLatestBySessionIDs(ctx context.Context, sessionIDs []string, limit int) ([]*model.MessageRequest, error)
 }
 
 type ProxyStatusHandler struct {
@@ -115,6 +117,12 @@ func (h *ProxyStatusHandler) buildStatus(ctx context.Context) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
+	activeSessionIDs, err := sessiontrackersvc.ActiveSessionIDs(ctx, 50)
+	if err == nil {
+		if activeLogs, activeErr := h.logs.FindLatestBySessionIDs(ctx, activeSessionIDs, 50); activeErr == nil {
+			logs = mergeProxyStatusLogs(activeLogs, logs)
+		}
+	}
 
 	lastByUser := map[int]*proxyStatusRequest{}
 	lastRequestAtByUser := map[int]time.Time{}
@@ -161,6 +169,26 @@ func (h *ProxyStatusHandler) buildStatus(ctx context.Context) (gin.H, error) {
 	}
 
 	return gin.H{"users": responseUsers}, nil
+}
+
+func mergeProxyStatusLogs(primary []*model.MessageRequest, secondary []*model.MessageRequest) []*model.MessageRequest {
+	merged := make([]*model.MessageRequest, 0, len(primary)+len(secondary))
+	seen := map[int]struct{}{}
+	appendLogs := func(items []*model.MessageRequest) {
+		for _, log := range items {
+			if log == nil {
+				continue
+			}
+			if _, ok := seen[log.ID]; ok {
+				continue
+			}
+			seen[log.ID] = struct{}{}
+			merged = append(merged, log)
+		}
+	}
+	appendLogs(primary)
+	appendLogs(secondary)
+	return merged
 }
 
 func proxyStatusLastRequestAt(log *model.MessageRequest) time.Time {

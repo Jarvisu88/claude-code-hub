@@ -155,7 +155,7 @@ func TestActionStyleAnalyticsRoutes(t *testing.T) {
 
 	NewStatisticsActionHandler(adminAuth, statsStore).RegisterRoutes(router.Group("/api/actions"))
 	NewOverviewActionHandler(adminAuth, fakeCountStore{count: 2}, fakeCountStore{count: 3}, fakeCountStore{count: 4}, logsStore).RegisterRoutes(router.Group("/api/actions"))
-	NewProxyStatusHandler(adminAuth, fakeProxyStatusUserStore{users: []*model.User{{ID: 1, Name: "alice"}}}, fakeProxyStatusLogStore{}).RegisterActionRoutes(router.Group("/api/actions"))
+	NewProxyStatusHandler(adminAuth, fakeProxyStatusUserStore{users: []*model.User{{ID: 1, Name: "alice"}}}, &fakeProxyStatusLogStore{}).RegisterActionRoutes(router.Group("/api/actions"))
 
 	tests := []struct {
 		path         string
