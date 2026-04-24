@@ -6,6 +6,7 @@ import (
 
 	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
+	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	"github.com/gin-gonic/gin"
 )
 
@@ -43,10 +44,14 @@ func (h *ProviderSlotsActionHandler) getProviderSlots(c *gin.Context) {
 	if err != nil {
 		recentLogs = nil
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "data": buildProviderSlotsActionData(recentLogs, providers)})
+	liveCounts, err := providertrackersvc.Count(c.Request.Context())
+	if err != nil {
+		liveCounts = nil
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "data": buildProviderSlotsActionData(recentLogs, providers, liveCounts)})
 }
 
-func buildProviderSlotsActionData(logs []*model.MessageRequest, providers []*model.Provider) []gin.H {
+func buildProviderSlotsActionData(logs []*model.MessageRequest, providers []*model.Provider, liveCounts map[int]int) []gin.H {
 	activeSessionsByProvider := map[int]map[string]struct{}{}
 	for _, log := range logs {
 		if log == nil || isWarmupProxyStatusRequest(log) || log.DurationMs != nil {
@@ -72,10 +77,14 @@ func buildProviderSlotsActionData(logs []*model.MessageRequest, providers []*mod
 		if provider.LimitConcurrentSessions != nil {
 			totalSlots = *provider.LimitConcurrentSessions
 		}
+		usedSlots := len(activeSessionsByProvider[provider.ID])
+		if liveCounts != nil {
+			usedSlots = liveCounts[provider.ID]
+		}
 		slots = append(slots, gin.H{
 			"providerId":  provider.ID,
 			"name":        provider.Name,
-			"usedSlots":   len(activeSessionsByProvider[provider.ID]),
+			"usedSlots":   usedSlots,
 			"totalSlots":  totalSlots,
 			"totalVolume": 0,
 		})

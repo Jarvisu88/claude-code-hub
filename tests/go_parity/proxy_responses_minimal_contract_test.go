@@ -50,6 +50,7 @@ func (paritySessionManager) GetOrCreateSessionID(_ context.Context, _ int, _ any
 }
 
 func (paritySessionManager) GetNextRequestSequence(_ context.Context, _ string) int { return 1 }
+func (paritySessionManager) BindProvider(_ context.Context, _ string, _ int)        {}
 func (paritySessionManager) IncrementConcurrentCount(_ context.Context, _ string)   {}
 func (paritySessionManager) DecrementConcurrentCount(_ context.Context, _ string)   {}
 

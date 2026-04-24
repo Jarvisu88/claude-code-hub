@@ -322,6 +322,15 @@ func (m *Manager) GetOrCreateSessionID(ctx context.Context, keyID int, messages 
 	return newSessionID
 }
 
+func (m *Manager) BindProvider(ctx context.Context, sessionID string, providerID int) {
+	if m.store == nil || strings.TrimSpace(sessionID) == "" || providerID <= 0 {
+		return
+	}
+	if err := m.store.SetEX(ctx, sessionKeyPrefix+sessionID+sessionKeySuffixProvider, strconv.Itoa(providerID), m.ttl); err != nil {
+		logger.Warn().Err(err).Str("sessionId", sessionID).Int("providerId", providerID).Msg("SessionManager: failed to bind provider")
+	}
+}
+
 func (m *Manager) GetNextRequestSequence(ctx context.Context, sessionID string) int {
 	if strings.TrimSpace(sessionID) == "" {
 		return m.fallbackSequence("")

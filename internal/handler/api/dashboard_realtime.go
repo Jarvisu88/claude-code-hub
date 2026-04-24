@@ -11,6 +11,7 @@ import (
 	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
+	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	"github.com/gin-gonic/gin"
 )
 
@@ -98,7 +99,7 @@ func (h *DashboardRealtimeActionHandler) getDashboardRealtimeData(c *gin.Context
 		"activityStream":    buildDashboardActivityStream(recentLogs),
 		"userRankings":      limitDashboardRows(userRankings, 5),
 		"providerRankings":  limitDashboardRows(providerRankings, 5),
-		"providerSlots":     buildDashboardProviderSlots(recentLogs, activeProviders, providerRankings),
+		"providerSlots":     buildDashboardProviderSlots(c.Request.Context(), recentLogs, activeProviders, providerRankings),
 		"modelDistribution": limitDashboardRows(modelDistribution, 10),
 		"trendData":         trendData,
 	}})
@@ -450,7 +451,7 @@ func dashboardMaybeRound6(value any) any {
 	return value
 }
 
-func buildDashboardProviderSlots(logs []*model.MessageRequest, providers []*model.Provider, providerRankings []gin.H) []gin.H {
+func buildDashboardProviderSlots(ctx context.Context, logs []*model.MessageRequest, providers []*model.Provider, providerRankings []gin.H) []gin.H {
 	activeSessionsByProvider := map[int]map[string]struct{}{}
 	for _, log := range logs {
 		if log == nil || isWarmupProxyStatusRequest(log) || log.DurationMs != nil {
@@ -495,6 +496,13 @@ func buildDashboardProviderSlots(logs []*model.MessageRequest, providers []*mode
 			"totalSlots":  totalSlots,
 			"totalVolume": volumeByProvider[provider.ID],
 		})
+	}
+	liveCounts, err := providertrackersvc.Count(ctx)
+	if err == nil {
+		for _, slot := range slots {
+			providerID, _ := slot["providerId"].(int)
+			slot["usedSlots"] = liveCounts[providerID]
+		}
 	}
 	sort.Slice(slots, func(i, j int) bool {
 		leftUsage := float64(slots[i]["usedSlots"].(int)) / float64(slots[i]["totalSlots"].(int))

@@ -123,6 +123,8 @@ func (f *fakeSessionManager) GetNextRequestSequence(_ context.Context, _ string)
 	return 1
 }
 
+func (f *fakeSessionManager) BindProvider(_ context.Context, _ string, _ int) {}
+
 func (f *fakeSessionManager) IncrementConcurrentCount(_ context.Context, sessionID string) {
 	f.incrementCalls = append(f.incrementCalls, sessionID)
 }

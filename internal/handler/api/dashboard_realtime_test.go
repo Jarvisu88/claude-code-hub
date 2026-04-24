@@ -14,6 +14,7 @@ import (
 	"github.com/ding113/claude-code-hub/internal/model"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
+	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	"github.com/gin-gonic/gin"
 	"github.com/quagmt/udecimal"
 )
@@ -378,6 +379,64 @@ func TestDashboardRealtimeProviderSlotsSortedAndLimitedToTopThree(t *testing.T) 
 	}
 	if !strings.Contains(body, "\"providerId\":3") || !strings.Contains(body, "\"providerId\":2") || !strings.Contains(body, "\"providerId\":1") {
 		t.Fatalf("expected top 3 provider slots by usage, got %s", body)
+	}
+}
+
+func TestDashboardRealtimeProviderSlotsPreferTrackerCounts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	providertrackersvc.SetCountsForTest(map[int]int{1: 1, 2: 4, 3: 2})
+	defer providertrackersvc.ResetForTest()
+
+	origNow := dashboardRealtimeNow
+	dashboardRealtimeNow = func() time.Time { return time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC) }
+	defer func() { dashboardRealtimeNow = origNow }()
+
+	enabled := true
+	router := gin.New()
+
+	logs := []*model.MessageRequest{
+		{ID: 1, ProviderID: 1, SessionID: stringPtr("sess-1"), CreatedAt: time.Now(), DurationMs: intPtr(10), StatusCode: intPtr(200), ProviderName: stringPtr("provider-a"), UserName: stringPtr("alice")},
+		{ID: 2, ProviderID: 2, SessionID: stringPtr("sess-2"), CreatedAt: time.Now(), DurationMs: intPtr(10), StatusCode: intPtr(200), ProviderName: stringPtr("provider-b"), UserName: stringPtr("alice")},
+		{ID: 3, ProviderID: 3, SessionID: stringPtr("sess-3"), CreatedAt: time.Now(), DurationMs: intPtr(10), StatusCode: intPtr(200), ProviderName: stringPtr("provider-c"), UserName: stringPtr("alice")},
+	}
+
+	NewDashboardRealtimeActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		&fakeUsageLogsStore{
+			logs: logs,
+			overview: repository.MessageRequestOverviewMetrics{
+				TodayRequests:        3,
+				RecentMinuteRequests: 1,
+			},
+		},
+		fakeStatisticsStore{
+			rows:  []*repository.UserStatRow{{UserID: 1, UserName: "alice", Date: time.Date(2026, 4, 23, 9, 0, 0, 0, time.UTC), APICalls: 1, TotalCost: udecimal.MustParse("0")}},
+			users: []*repository.ActiveUserItem{{ID: 1, Name: "alice"}},
+		},
+		fakeDashboardProviderStore{providers: []*model.Provider{
+			{ID: 1, Name: "provider-a", LimitConcurrentSessions: intPtr(10), IsEnabled: &enabled},
+			{ID: 2, Name: "provider-b", LimitConcurrentSessions: intPtr(4), IsEnabled: &enabled},
+			{ID: 3, Name: "provider-c", LimitConcurrentSessions: intPtr(3), IsEnabled: &enabled},
+		}},
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/dashboard-realtime/getDashboardRealtimeData", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer admin-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "\"providerId\":2") || !strings.Contains(body, "\"usedSlots\":4") || !strings.Contains(body, "\"providerId\":3") || !strings.Contains(body, "\"usedSlots\":2") {
+		t.Fatalf("expected tracker-backed provider slot counts, got %s", body)
 	}
 }
 

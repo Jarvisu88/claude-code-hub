@@ -30,6 +30,7 @@ type sessionManager interface {
 	ExtractClientSessionID(requestBody map[string]any, headers http.Header) sessionsvc.ClientSessionExtractionResult
 	GetOrCreateSessionID(ctx context.Context, keyID int, messages any, clientSessionID string) string
 	GetNextRequestSequence(ctx context.Context, sessionID string) int
+	BindProvider(ctx context.Context, sessionID string, providerID int)
 	IncrementConcurrentCount(ctx context.Context, sessionID string)
 	DecrementConcurrentCount(ctx context.Context, sessionID string)
 }
@@ -292,6 +293,7 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 	requestSequence := 1
 	if sessionID != "" && h.sessions != nil {
 		requestSequence = h.sessions.GetNextRequestSequence(c.Request.Context(), sessionID)
+		h.sessions.BindProvider(c.Request.Context(), sessionID, provider.ID)
 	}
 	if sessionID != "" {
 		_ = livechainsvc.Write(c.Request.Context(), sessionID, requestSequence, baseProviderChain)
