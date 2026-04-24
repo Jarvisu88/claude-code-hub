@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,6 +23,8 @@ type fakeUsageLogsStore struct {
 	filters          repository.MessageRequestQueryFilters
 	batchFilters     repository.MessageRequestBatchFilters
 	batchResult      repository.MessageRequestBatchResult
+	batchResults     []repository.MessageRequestBatchResult
+	batchCalls       []repository.MessageRequestBatchFilters
 	summary          repository.MessageRequestSummary
 	overview         repository.MessageRequestOverviewMetrics
 	options          repository.MessageRequestFilterOptions
@@ -55,7 +58,13 @@ func (f *fakeUsageLogsStore) ListPaginatedFiltered(_ context.Context, page, page
 
 func (f *fakeUsageLogsStore) ListBatch(_ context.Context, filters repository.MessageRequestBatchFilters) (repository.MessageRequestBatchResult, error) {
 	f.batchFilters = filters
+	f.batchCalls = append(f.batchCalls, filters)
 	f.limit = filters.Limit
+	if len(f.batchResults) > 0 {
+		result := f.batchResults[0]
+		f.batchResults = f.batchResults[1:]
+		return result, nil
+	}
 	if len(f.batchResult.Logs) == 0 && f.batchResult.NextCursor == nil && !f.batchResult.HasMore {
 		return repository.MessageRequestBatchResult{
 			Logs:       f.logs,
@@ -534,6 +543,7 @@ func TestUsageLogsActionReturnsConvenienceLists(t *testing.T) {
 		{path: "/api/actions/usage-logs/getEndpointList", method: http.MethodPost, body: `{}`, wantContains: "/v1/responses"},
 		{path: "/api/actions/usage-logs/getUsageLogs", method: http.MethodPost, body: `{}`, wantContains: "gpt-5.4"},
 		{path: "/api/actions/usage-logs/getUsageLogsBatch", method: http.MethodPost, body: `{}`, wantContains: "\"logs\":[{\""},
+		{path: "/api/actions/usage-logs/startUsageLogsExport", method: http.MethodPost, body: `{}`, wantContains: "\"jobId\":\""},
 		{path: "/api/actions/usage-logs/getUsageLogsStats", method: http.MethodPost, body: `{}`, wantContains: "\"totalRequests\":2"},
 	}
 
@@ -608,6 +618,139 @@ func TestUsageLogsBatchActionAcceptsCursorFilters(t *testing.T) {
 	body := resp.Body.String()
 	if !strings.Contains(body, "\"hasMore\":true") || !strings.Contains(body, "\"nextCursor\":{\"createdAt\":\"2026-04-24T09:59:00Z\",\"id\":9}") || !strings.Contains(body, "\"id\":10") {
 		t.Fatalf("expected batch payload, got %s", body)
+	}
+}
+
+func TestUsageLogsExportFlow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	origNow := usageLogsExportNow
+	usageLogsExportNow = func() time.Time { return time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC) }
+	defer func() {
+		usageLogsExportNow = origNow
+		defaultUsageLogsExportStore = &usageLogsExportStore{items: map[string]usageLogsExportRecord{}}
+	}()
+	defaultUsageLogsExportStore = &usageLogsExportStore{items: map[string]usageLogsExportRecord{}}
+
+	enabled := true
+	store := &fakeUsageLogsStore{
+		summary: repository.MessageRequestSummary{TotalRows: 2, TotalRequests: 2},
+		batchResults: []repository.MessageRequestBatchResult{
+			{
+				Logs: []*model.MessageRequest{
+					{
+						ID:            1,
+						UserID:        7,
+						Key:           "sk-a",
+						Model:         "gpt-5.4",
+						OriginalModel: stringPtr("gpt-5.4"),
+						Endpoint:      stringPtr("/v1/responses"),
+						StatusCode:    intPtr(200),
+						InputTokens:   intPtr(10),
+						OutputTokens:  intPtr(5),
+						DurationMs:    intPtr(120),
+						SessionID:     stringPtr("sess_export"),
+						UserName:      stringPtr("alice"),
+						KeyName:       stringPtr("Key A"),
+						ProviderName:  stringPtr("provider-a"),
+						CreatedAt:     time.Date(2026, 4, 24, 11, 0, 0, 0, time.UTC),
+					},
+				},
+				NextCursor: &repository.MessageRequestBatchCursor{CreatedAt: "2026-04-24T10:59:00Z", ID: 1},
+				HasMore:    true,
+			},
+			{
+				Logs: []*model.MessageRequest{
+					{
+						ID:         2,
+						UserID:     8,
+						Key:        "sk-b",
+						Model:      "gpt-4o-mini",
+						Endpoint:   stringPtr("/v1/messages"),
+						StatusCode: intPtr(502),
+						SessionID:  stringPtr("sess_export_2"),
+						UserName:   stringPtr("=danger"),
+						CreatedAt:  time.Date(2026, 4, 24, 10, 59, 0, 0, time.UTC),
+						ProviderChain: []model.ProviderChainItem{
+							{Reason: stringPtr("retry_failed")},
+							{Reason: stringPtr("request_success"), StatusCode: intPtr(200)},
+						},
+					},
+				},
+				HasMore: false,
+			},
+		},
+	}
+	router := gin.New()
+	NewUsageLogsActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	startReq := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/startUsageLogsExport", strings.NewReader(`{"minRetryCount":1}`))
+	startReq.Header.Set("Authorization", "Bearer admin-token")
+	startReq.Header.Set("Content-Type", "application/json")
+	startResp := httptest.NewRecorder()
+	router.ServeHTTP(startResp, startReq)
+
+	if startResp.Code != http.StatusOK {
+		t.Fatalf("expected export start 200, got %d: %s", startResp.Code, startResp.Body.String())
+	}
+	var startPayload struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			JobID string `json:"jobId"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(startResp.Body.Bytes(), &startPayload); err != nil {
+		t.Fatalf("failed to decode start payload: %v", err)
+	}
+	if !startPayload.OK || startPayload.Data.JobID == "" {
+		t.Fatalf("expected export job id, got %s", startResp.Body.String())
+	}
+	if len(store.batchCalls) != 2 {
+		t.Fatalf("expected two batch calls for export, got %d", len(store.batchCalls))
+	}
+	if store.batchCalls[0].MinRetryCount == nil || *store.batchCalls[0].MinRetryCount != 1 {
+		t.Fatalf("expected start export to pass minRetryCount, got %+v", store.batchCalls[0].MinRetryCount)
+	}
+	if store.batchCalls[1].Cursor == nil || store.batchCalls[1].Cursor.ID != 1 {
+		t.Fatalf("expected next cursor on second batch call, got %+v", store.batchCalls[1].Cursor)
+	}
+
+	statusReq := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogsExportStatus", strings.NewReader(`{"jobId":"`+startPayload.Data.JobID+`"}`))
+	statusReq.Header.Set("Authorization", "Bearer admin-token")
+	statusReq.Header.Set("Content-Type", "application/json")
+	statusResp := httptest.NewRecorder()
+	router.ServeHTTP(statusResp, statusReq)
+
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("expected export status 200, got %d: %s", statusResp.Code, statusResp.Body.String())
+	}
+	if !strings.Contains(statusResp.Body.String(), `"status":"completed"`) || !strings.Contains(statusResp.Body.String(), `"processedRows":2`) || !strings.Contains(statusResp.Body.String(), `"progressPercent":100`) {
+		t.Fatalf("expected completed export status, got %s", statusResp.Body.String())
+	}
+
+	downloadReq := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/downloadUsageLogsExport", strings.NewReader(`{"jobId":"`+startPayload.Data.JobID+`"}`))
+	downloadReq.Header.Set("Authorization", "Bearer admin-token")
+	downloadReq.Header.Set("Content-Type", "application/json")
+	downloadResp := httptest.NewRecorder()
+	router.ServeHTTP(downloadResp, downloadReq)
+
+	if downloadResp.Code != http.StatusOK {
+		t.Fatalf("expected export download 200, got %d: %s", downloadResp.Code, downloadResp.Body.String())
+	}
+	body := downloadResp.Body.String()
+	if !strings.Contains(body, "Time,User,Key,Provider,Model,Original Model,Endpoint,Status Code") || !strings.Contains(body, "sess_export") || !strings.Contains(body, "'=danger") {
+		t.Fatalf("expected csv payload, got %s", body)
+	}
+	if !strings.Contains(body, ",1\\n") && !strings.Contains(body, ",1\"") {
+		t.Fatalf("expected retry count in csv payload, got %s", body)
 	}
 }
 
