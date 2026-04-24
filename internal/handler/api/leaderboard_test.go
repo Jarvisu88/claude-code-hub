@@ -141,6 +141,44 @@ func TestLeaderboardRouteSupportsUserModelStats(t *testing.T) {
 	}
 }
 
+func TestLeaderboardRouteSupportsCacheHitScopes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enabled := true
+	router := gin.New()
+	store := &fakeLeaderboardLogStore{
+		rows: []repository.LeaderboardRequestRow{
+			{UserID: 1, UserName: "alice", ProviderID: 7, ProviderName: "provider-a", ProviderType: "claude", Model: "gpt-5.4", StatusCode: 200, CostUSD: udecimal.MustParse("1.5"), InputTokens: intPtr(100), CacheReadInputTokens: intPtr(50), CacheCreationInputTokens: intPtr(20)},
+			{UserID: 2, UserName: "bob", ProviderID: 8, ProviderName: "provider-b", ProviderType: "gemini", Model: "gemini-2.5-pro", StatusCode: 200, CostUSD: udecimal.MustParse("2.0"), InputTokens: intPtr(100), CacheReadInputTokens: intPtr(10)},
+		},
+	}
+	handler := NewLeaderboardHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	)
+	handler.RegisterRoutes(router)
+
+	userReq := httptest.NewRequest(http.MethodGet, "/api/leaderboard?period=daily&scope=userCacheHitRate&includeUserModelStats=1", nil)
+	userReq.Header.Set("Authorization", "Bearer admin-token")
+	userResp := httptest.NewRecorder()
+	router.ServeHTTP(userResp, userReq)
+	if userResp.Code != http.StatusOK || !strings.Contains(userResp.Body.String(), "\"cacheHitRate\"") || !strings.Contains(userResp.Body.String(), "\"modelStats\":[") {
+		t.Fatalf("expected user cache-hit leaderboard payload, got %d: %s", userResp.Code, userResp.Body.String())
+	}
+
+	providerReq := httptest.NewRequest(http.MethodGet, "/api/leaderboard?period=daily&scope=providerCacheHitRate&providerType=claude", nil)
+	providerReq.Header.Set("Authorization", "Bearer admin-token")
+	providerResp := httptest.NewRecorder()
+	router.ServeHTTP(providerResp, providerReq)
+	if providerResp.Code != http.StatusOK || strings.Contains(providerResp.Body.String(), "\"providerId\":8") || !strings.Contains(providerResp.Body.String(), "\"providerId\":7") || !strings.Contains(providerResp.Body.String(), "\"modelStats\":[") {
+		t.Fatalf("expected provider cache-hit leaderboard payload, got %d: %s", providerResp.Code, providerResp.Body.String())
+	}
+}
+
 func TestLeaderboardRouteRejectsUnsupportedScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enabled := true
@@ -156,7 +194,7 @@ func TestLeaderboardRouteRejectsUnsupportedScope(t *testing.T) {
 	)
 	handler.RegisterRoutes(router)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/leaderboard?scope=userCacheHitRate", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/leaderboard?scope=unsupportedScope", nil)
 	req.Header.Set("Authorization", "Bearer admin-token")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)

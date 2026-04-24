@@ -61,6 +61,10 @@ func (h *LeaderboardHandler) getLeaderboard(c *gin.Context) {
 		c.JSON(http.StatusOK, buildUserLeaderboard(rows, options.includeUserModelStats))
 	case "provider":
 		c.JSON(http.StatusOK, buildProviderLeaderboard(rows, options.providerTypeFilter, options.includeModelStats))
+	case "userCacheHitRate":
+		c.JSON(http.StatusOK, buildUserCacheHitRateLeaderboard(rows, options.includeUserModelStats))
+	case "providerCacheHitRate":
+		c.JSON(http.StatusOK, buildProviderCacheHitRateLeaderboard(rows, options.providerTypeFilter))
 	case "model":
 		c.JSON(http.StatusOK, buildModelLeaderboard(rows))
 	default:
@@ -79,8 +83,8 @@ type leaderboardQueryOptions struct {
 
 func decodeLeaderboardQuery(c *gin.Context, now time.Time) (options leaderboardQueryOptions, err error) {
 	options.scope = strings.TrimSpace(c.DefaultQuery("scope", "user"))
-	if options.scope != "user" && options.scope != "provider" && options.scope != "model" {
-		return options, appErrors.NewInvalidRequest("scope 仅支持 user/provider/model")
+	if options.scope != "user" && options.scope != "provider" && options.scope != "model" && options.scope != "userCacheHitRate" && options.scope != "providerCacheHitRate" {
+		return options, appErrors.NewInvalidRequest("scope 不支持")
 	}
 	period := strings.TrimSpace(c.DefaultQuery("period", "daily"))
 	location, locErr := time.LoadLocation(repository.DefaultTimezone)
@@ -127,7 +131,7 @@ func decodeLeaderboardQuery(c *gin.Context, now time.Time) (options leaderboardQ
 	default:
 		return options, appErrors.NewInvalidRequest("period 不支持")
 	}
-	if options.scope == "provider" {
+	if options.scope == "provider" || options.scope == "providerCacheHitRate" {
 		options.includeModelStats = parseTruthyQuery(c.Query("includeModelStats"))
 		providerType := strings.TrimSpace(c.Query("providerType"))
 		if providerType != "" && providerType != "all" {
@@ -139,7 +143,7 @@ func decodeLeaderboardQuery(c *gin.Context, now time.Time) (options leaderboardQ
 			}
 		}
 	}
-	if options.scope == "user" {
+	if options.scope == "user" || options.scope == "userCacheHitRate" {
 		options.includeUserModelStats = parseTruthyQuery(c.Query("includeUserModelStats"))
 	}
 	return options, nil
@@ -434,6 +438,203 @@ func buildModelLeaderboard(rows []repository.LeaderboardRequestRow) []gin.H {
 	sort.Slice(result, func(i, j int) bool {
 		if result[i]["totalCost"].(float64) != result[j]["totalCost"].(float64) {
 			return result[i]["totalCost"].(float64) > result[j]["totalCost"].(float64)
+		}
+		return result[i]["totalRequests"].(int) > result[j]["totalRequests"].(int)
+	})
+	return result
+}
+
+func cacheHitTotalInputTokens(row repository.LeaderboardRequestRow) int {
+	total := 0
+	if row.InputTokens != nil {
+		total += *row.InputTokens
+	}
+	if row.CacheCreationInputTokens != nil {
+		total += *row.CacheCreationInputTokens
+	}
+	if row.CacheReadInputTokens != nil {
+		total += *row.CacheReadInputTokens
+	}
+	return total
+}
+
+func buildUserCacheHitRateLeaderboard(rows []repository.LeaderboardRequestRow, includeModelStats bool) []gin.H {
+	type aggregate struct {
+		userID           int
+		userName         string
+		totalRequests    int
+		cacheReadTokens  int
+		totalInputTokens int
+		totalCost        float64
+		modelStats       map[string]*aggregate
+	}
+	aggregates := map[int]*aggregate{}
+	for _, row := range rows {
+		entry := aggregates[row.UserID]
+		if entry == nil {
+			entry = &aggregate{userID: row.UserID, userName: row.UserName, modelStats: map[string]*aggregate{}}
+			aggregates[row.UserID] = entry
+		}
+		entry.totalRequests++
+		if row.CacheReadInputTokens != nil {
+			entry.cacheReadTokens += *row.CacheReadInputTokens
+		}
+		entry.totalInputTokens += cacheHitTotalInputTokens(row)
+		entry.totalCost += row.CostUSD.InexactFloat64()
+		if includeModelStats {
+			modelName := strings.TrimSpace(row.Model)
+			if modelName == "" {
+				modelName = "Unknown"
+			}
+			modelEntry := entry.modelStats[modelName]
+			if modelEntry == nil {
+				modelEntry = &aggregate{userName: modelName}
+				entry.modelStats[modelName] = modelEntry
+			}
+			modelEntry.totalRequests++
+			if row.CacheReadInputTokens != nil {
+				modelEntry.cacheReadTokens += *row.CacheReadInputTokens
+			}
+			modelEntry.totalInputTokens += cacheHitTotalInputTokens(row)
+		}
+	}
+	result := make([]gin.H, 0, len(aggregates))
+	for _, entry := range aggregates {
+		cacheHitRate := 0.0
+		if entry.totalInputTokens > 0 {
+			cacheHitRate = float64(entry.cacheReadTokens) / float64(entry.totalInputTokens)
+		}
+		row := gin.H{
+			"userId":            entry.userID,
+			"userName":          entry.userName,
+			"totalRequests":     entry.totalRequests,
+			"cacheReadTokens":   entry.cacheReadTokens,
+			"totalInputTokens":  entry.totalInputTokens,
+			"totalTokens":       entry.totalInputTokens,
+			"totalCost":         leaderboardRound6(entry.totalCost),
+			"cacheCreationCost": 0,
+			"cacheHitRate":      cacheHitRate,
+		}
+		if includeModelStats {
+			modelStats := make([]gin.H, 0, len(entry.modelStats))
+			for modelName, modelEntry := range entry.modelStats {
+				modelRate := 0.0
+				if modelEntry.totalInputTokens > 0 {
+					modelRate = float64(modelEntry.cacheReadTokens) / float64(modelEntry.totalInputTokens)
+				}
+				modelStats = append(modelStats, gin.H{
+					"model":            modelName,
+					"totalRequests":    modelEntry.totalRequests,
+					"cacheReadTokens":  modelEntry.cacheReadTokens,
+					"totalInputTokens": modelEntry.totalInputTokens,
+					"cacheHitRate":     modelRate,
+				})
+			}
+			sort.Slice(modelStats, func(i, j int) bool {
+				if modelStats[i]["cacheHitRate"].(float64) != modelStats[j]["cacheHitRate"].(float64) {
+					return modelStats[i]["cacheHitRate"].(float64) > modelStats[j]["cacheHitRate"].(float64)
+				}
+				return modelStats[i]["totalRequests"].(int) > modelStats[j]["totalRequests"].(int)
+			})
+			row["modelStats"] = modelStats
+		}
+		result = append(result, row)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i]["cacheHitRate"].(float64) != result[j]["cacheHitRate"].(float64) {
+			return result[i]["cacheHitRate"].(float64) > result[j]["cacheHitRate"].(float64)
+		}
+		return result[i]["totalRequests"].(int) > result[j]["totalRequests"].(int)
+	})
+	return result
+}
+
+func buildProviderCacheHitRateLeaderboard(rows []repository.LeaderboardRequestRow, providerTypeFilter string) []gin.H {
+	type aggregate struct {
+		providerID       int
+		providerName     string
+		totalRequests    int
+		cacheReadTokens  int
+		totalInputTokens int
+		totalCost        float64
+		modelStats       map[string]*aggregate
+	}
+	aggregates := map[int]*aggregate{}
+	for _, row := range rows {
+		if row.ProviderID <= 0 {
+			continue
+		}
+		if providerTypeFilter != "" && row.ProviderType != providerTypeFilter {
+			continue
+		}
+		entry := aggregates[row.ProviderID]
+		if entry == nil {
+			entry = &aggregate{providerID: row.ProviderID, providerName: row.ProviderName, modelStats: map[string]*aggregate{}}
+			aggregates[row.ProviderID] = entry
+		}
+		entry.totalRequests++
+		if row.CacheReadInputTokens != nil {
+			entry.cacheReadTokens += *row.CacheReadInputTokens
+		}
+		entry.totalInputTokens += cacheHitTotalInputTokens(row)
+		entry.totalCost += row.CostUSD.InexactFloat64()
+		modelName := strings.TrimSpace(row.Model)
+		if modelName == "" {
+			modelName = "Unknown"
+		}
+		modelEntry := entry.modelStats[modelName]
+		if modelEntry == nil {
+			modelEntry = &aggregate{providerName: modelName}
+			entry.modelStats[modelName] = modelEntry
+		}
+		modelEntry.totalRequests++
+		if row.CacheReadInputTokens != nil {
+			modelEntry.cacheReadTokens += *row.CacheReadInputTokens
+		}
+		modelEntry.totalInputTokens += cacheHitTotalInputTokens(row)
+	}
+	result := make([]gin.H, 0, len(aggregates))
+	for _, entry := range aggregates {
+		cacheHitRate := 0.0
+		if entry.totalInputTokens > 0 {
+			cacheHitRate = float64(entry.cacheReadTokens) / float64(entry.totalInputTokens)
+		}
+		modelStats := make([]gin.H, 0, len(entry.modelStats))
+		for modelName, modelEntry := range entry.modelStats {
+			modelRate := 0.0
+			if modelEntry.totalInputTokens > 0 {
+				modelRate = float64(modelEntry.cacheReadTokens) / float64(modelEntry.totalInputTokens)
+			}
+			modelStats = append(modelStats, gin.H{
+				"model":            modelName,
+				"totalRequests":    modelEntry.totalRequests,
+				"cacheReadTokens":  modelEntry.cacheReadTokens,
+				"totalInputTokens": modelEntry.totalInputTokens,
+				"cacheHitRate":     modelRate,
+			})
+		}
+		sort.Slice(modelStats, func(i, j int) bool {
+			if modelStats[i]["cacheHitRate"].(float64) != modelStats[j]["cacheHitRate"].(float64) {
+				return modelStats[i]["cacheHitRate"].(float64) > modelStats[j]["cacheHitRate"].(float64)
+			}
+			return modelStats[i]["totalRequests"].(int) > modelStats[j]["totalRequests"].(int)
+		})
+		result = append(result, gin.H{
+			"providerId":        entry.providerID,
+			"providerName":      entry.providerName,
+			"totalRequests":     entry.totalRequests,
+			"cacheReadTokens":   entry.cacheReadTokens,
+			"totalInputTokens":  entry.totalInputTokens,
+			"totalTokens":       entry.totalInputTokens,
+			"totalCost":         leaderboardRound6(entry.totalCost),
+			"cacheCreationCost": 0,
+			"cacheHitRate":      cacheHitRate,
+			"modelStats":        modelStats,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i]["cacheHitRate"].(float64) != result[j]["cacheHitRate"].(float64) {
+			return result[i]["cacheHitRate"].(float64) > result[j]["cacheHitRate"].(float64)
 		}
 		return result[i]["totalRequests"].(int) > result[j]["totalRequests"].(int)
 	})
