@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -17,10 +18,13 @@ import (
 	"github.com/quagmt/udecimal"
 )
 
-type fakeDashboardProviderStore struct{ providers []*model.Provider }
+type fakeDashboardProviderStore struct {
+	providers []*model.Provider
+	err       error
+}
 
 func (f fakeDashboardProviderStore) GetActiveProviders(_ context.Context) ([]*model.Provider, error) {
-	return f.providers, nil
+	return f.providers, f.err
 }
 
 func TestDashboardRealtimeActionReturnsBaselinePayload(t *testing.T) {
@@ -374,6 +378,77 @@ func TestDashboardRealtimeProviderSlotsSortedAndLimitedToTopThree(t *testing.T) 
 	}
 	if !strings.Contains(body, "\"providerId\":3") || !strings.Contains(body, "\"providerId\":2") || !strings.Contains(body, "\"providerId\":1") {
 		t.Fatalf("expected top 3 provider slots by usage, got %s", body)
+	}
+}
+
+func TestDashboardRealtimeToleratesRankingAndProviderSourceFailures(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	origNow := dashboardRealtimeNow
+	dashboardRealtimeNow = func() time.Time { return time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC) }
+	defer func() { dashboardRealtimeNow = origNow }()
+
+	enabled := true
+	router := gin.New()
+
+	logsStore := &fakeUsageLogsStore{
+		logs: []*model.MessageRequest{
+			{
+				ID:           1,
+				UserID:       1,
+				ProviderID:   1,
+				Model:        "gpt-5.4",
+				CreatedAt:    time.Date(2026, 4, 23, 9, 0, 0, 0, time.UTC),
+				DurationMs:   intPtr(100),
+				StatusCode:   intPtr(200),
+				UserName:     stringPtr("alice"),
+				ProviderName: stringPtr("provider-a"),
+			},
+		},
+		overview: repository.MessageRequestOverviewMetrics{
+			TodayRequests:        1,
+			RecentMinuteRequests: 1,
+			ConcurrentSessions:   1,
+		},
+	}
+	statsStore := fakeStatisticsStore{
+		rowsErr:  errors.New("stats unavailable"),
+		usersErr: errors.New("active users unavailable"),
+	}
+	providerStore := fakeDashboardProviderStore{err: errors.New("providers unavailable")}
+
+	NewDashboardRealtimeActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		logsStore,
+		statsStore,
+		providerStore,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/dashboard-realtime/getDashboardRealtimeData", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer admin-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 even when optional sources fail, got %d: %s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "\"metrics\"") || !strings.Contains(body, "\"activityStream\"") {
+		t.Fatalf("expected core dashboard payload, got %s", body)
+	}
+	if !strings.Contains(body, "\"providerSlots\":[]") {
+		t.Fatalf("expected provider slots to degrade to empty array, got %s", body)
+	}
+	if !strings.Contains(body, "\"userRankings\":[{") || !strings.Contains(body, "\"providerRankings\":[{") || !strings.Contains(body, "\"modelDistribution\":[{") {
+		t.Fatalf("expected log-derived rankings to remain available, got %s", body)
+	}
+	if !strings.Contains(body, "\"hour\":0") || !strings.Contains(body, "\"hour\":23") {
+		t.Fatalf("expected zero-filled trendData fallback, got %s", body)
 	}
 }
 

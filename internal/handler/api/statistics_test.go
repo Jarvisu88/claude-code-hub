@@ -21,10 +21,12 @@ type fakeStatisticsStore struct {
 	mixed      *repository.MixedStatistics
 	users      []*repository.ActiveUserItem
 	activeKeys []*repository.ActiveKeyItem
+	rowsErr    error
+	usersErr   error
 }
 
 func (f fakeStatisticsStore) GetUserStatistics(_ context.Context, _ repository.TimeRange, _ string) ([]*repository.UserStatRow, error) {
-	return f.rows, nil
+	return f.rows, f.rowsErr
 }
 
 func (f fakeStatisticsStore) GetKeyStatistics(_ context.Context, _ int, _ repository.TimeRange, _ string) ([]*repository.KeyStatRow, error) {
@@ -36,7 +38,7 @@ func (f fakeStatisticsStore) GetMixedStatistics(_ context.Context, _ int, _ repo
 }
 
 func (f fakeStatisticsStore) GetActiveUsers(_ context.Context) ([]*repository.ActiveUserItem, error) {
-	return f.users, nil
+	return f.users, f.usersErr
 }
 
 func (f fakeStatisticsStore) GetActiveKeysForUser(_ context.Context, _ int) ([]*repository.ActiveKeyItem, error) {

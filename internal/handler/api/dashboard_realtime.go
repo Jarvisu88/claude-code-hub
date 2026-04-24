@@ -67,18 +67,15 @@ func (h *DashboardRealtimeActionHandler) getDashboardRealtimeData(c *gin.Context
 
 	statsRows, err := h.stats.GetUserStatistics(c.Request.Context(), repository.TimeRangeToday, repository.DefaultTimezone)
 	if err != nil {
-		writeAdminError(c, err)
-		return
+		statsRows = nil
 	}
 	activeUsers, err := h.stats.GetActiveUsers(c.Request.Context())
 	if err != nil {
-		writeAdminError(c, err)
-		return
+		activeUsers = nil
 	}
 	activeProviders, err := h.providers.GetActiveProviders(c.Request.Context())
 	if err != nil {
-		writeAdminError(c, err)
-		return
+		activeProviders = nil
 	}
 	statsPayload := buildUserStatisticsResponse(repository.TimeRangeToday, statsRows, activeUsers)
 	trendData := buildDashboardTrendData(statsPayload["chartData"])
