@@ -20,6 +20,7 @@ type usageLogsStore interface {
 	ListRecent(ctx context.Context, limit int) ([]*model.MessageRequest, error)
 	ListFiltered(ctx context.Context, limit int, filters repository.MessageRequestQueryFilters) ([]*model.MessageRequest, error)
 	ListPaginatedFiltered(ctx context.Context, page, pageSize int, filters repository.MessageRequestQueryFilters) (repository.MessageRequestListResult, error)
+	ListBatch(ctx context.Context, filters repository.MessageRequestBatchFilters) (repository.MessageRequestBatchResult, error)
 	GetByID(ctx context.Context, id int) (*model.MessageRequest, error)
 	GetSummary(ctx context.Context, filters repository.MessageRequestQueryFilters) (repository.MessageRequestSummary, error)
 	GetOverviewMetrics(ctx context.Context, now time.Time, location *time.Location) (repository.MessageRequestOverviewMetrics, error)
@@ -33,20 +34,21 @@ type UsageLogsActionHandler struct {
 }
 
 type usageLogsFilterInput struct {
-	Page                 int    `json:"page"`
-	PageSize             int    `json:"pageSize"`
-	Limit                int    `json:"limit"`
-	UserID               *int   `json:"userId"`
-	KeyID                *int   `json:"keyId"`
-	ProviderID           *int   `json:"providerId"`
-	MinRetryCount        *int   `json:"minRetryCount"`
-	SessionID            string `json:"sessionId"`
-	StartTime            *int64 `json:"startTime"`
-	EndTime              *int64 `json:"endTime"`
-	StatusCode           *int   `json:"statusCode"`
-	ExcludeStatusCode200 bool   `json:"excludeStatusCode200"`
-	Model                string `json:"model"`
-	Endpoint             string `json:"endpoint"`
+	Page                 int                                   `json:"page"`
+	PageSize             int                                   `json:"pageSize"`
+	Limit                int                                   `json:"limit"`
+	UserID               *int                                  `json:"userId"`
+	KeyID                *int                                  `json:"keyId"`
+	ProviderID           *int                                  `json:"providerId"`
+	MinRetryCount        *int                                  `json:"minRetryCount"`
+	SessionID            string                                `json:"sessionId"`
+	StartTime            *int64                                `json:"startTime"`
+	EndTime              *int64                                `json:"endTime"`
+	StatusCode           *int                                  `json:"statusCode"`
+	ExcludeStatusCode200 bool                                  `json:"excludeStatusCode200"`
+	Model                string                                `json:"model"`
+	Endpoint             string                                `json:"endpoint"`
+	Cursor               *repository.MessageRequestBatchCursor `json:"cursor"`
 }
 
 type usageLogSessionIDSuggestionInput struct {
@@ -66,6 +68,7 @@ func (h *UsageLogsActionHandler) RegisterRoutes(group *gin.RouterGroup) {
 	protected.Use((&Handler{auth: h.auth}).AdminAuthMiddleware())
 	protected.GET("", h.list)
 	protected.POST("/getUsageLogs", h.list)
+	protected.POST("/getUsageLogsBatch", h.batch)
 	protected.GET("/models", h.models)
 	protected.POST("/getModelList", h.models)
 	protected.GET("/status-codes", h.statusCodes)
@@ -156,6 +159,36 @@ func (h *UsageLogsActionHandler) detail(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": buildUsageLogResponse(log)})
+}
+
+func (h *UsageLogsActionHandler) batch(c *gin.Context) {
+	if h == nil || h.store == nil {
+		writeAdminError(c, appErrors.NewInternalError("日志仓储未初始化"))
+		return
+	}
+	input, err := decodeUsageLogsFilterInput(c)
+	if err != nil {
+		writeAdminError(c, err)
+		return
+	}
+	result, err := h.store.ListBatch(c.Request.Context(), repository.MessageRequestBatchFilters{
+		MessageRequestQueryFilters: input.toRepositoryFilters(),
+		Cursor:                     input.Cursor,
+		Limit:                      normalizeUsageLogsBatchLimit(input.Limit),
+	})
+	if err != nil {
+		writeAdminError(c, err)
+		return
+	}
+	logs := make([]gin.H, 0, len(result.Logs))
+	for _, log := range result.Logs {
+		logs = append(logs, buildUsageLogResponse(log))
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{
+		"logs":       logs,
+		"nextCursor": result.NextCursor,
+		"hasMore":    result.HasMore,
+	}})
 }
 
 func (h *UsageLogsActionHandler) models(c *gin.Context) {
@@ -468,6 +501,16 @@ func (i usageLogsFilterInput) toRepositoryFilters() repository.MessageRequestQue
 		filters.EndTime = &end
 	}
 	return filters
+}
+
+func normalizeUsageLogsBatchLimit(limit int) int {
+	if limit <= 0 {
+		return 50
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
 }
 
 func buildUsageLogResponse(log *model.MessageRequest) gin.H {

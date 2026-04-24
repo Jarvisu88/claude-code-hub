@@ -641,6 +641,7 @@ func (h *Handler) openapiJSON(c *gin.Context) {
 			"/api/actions/system-settings/saveSystemSettings":            gin.H{"post": gin.H{"summary": "Save system settings"}},
 			"/api/actions/usage-logs":                                    gin.H{"get": gin.H{"summary": "List usage logs"}},
 			"/api/actions/usage-logs/getUsageLogs":                       gin.H{"post": gin.H{"summary": "Get usage logs"}},
+			"/api/actions/usage-logs/getUsageLogsBatch":                  gin.H{"post": gin.H{"summary": "Get usage logs batch"}},
 			"/api/actions/usage-logs/getModelList":                       gin.H{"post": gin.H{"summary": "Get usage log model list"}},
 			"/api/actions/usage-logs/getStatusCodeList":                  gin.H{"post": gin.H{"summary": "Get usage log status code list"}},
 			"/api/actions/usage-logs/getEndpointList":                    gin.H{"post": gin.H{"summary": "Get usage log endpoint list"}},

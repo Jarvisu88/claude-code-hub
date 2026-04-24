@@ -57,3 +57,22 @@ func TestApplyMessageRequestQueryFiltersSkipsNonPositiveMinRetryCount(t *testing
 		t.Fatalf("expected retry-count SQL expression to be omitted, got %s", sqlText)
 	}
 }
+
+func TestListBatchRejectsInvalidCursorTimestamp(t *testing.T) {
+	sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN("postgres://user:pass@localhost:5432/test?sslmode=disable")))
+	defer sqldb.Close()
+
+	db := bun.NewDB(sqldb, pgdialect.New())
+	repo := NewMessageRequestRepository(db)
+
+	_, err := repo.ListBatch(t.Context(), MessageRequestBatchFilters{
+		Cursor: &MessageRequestBatchCursor{
+			CreatedAt: "not-a-time",
+			ID:        1,
+		},
+		Limit: 20,
+	})
+	if err == nil || !strings.Contains(err.Error(), "cursor.createdAt") {
+		t.Fatalf("expected invalid cursor timestamp error, got %v", err)
+	}
+}

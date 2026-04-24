@@ -35,6 +35,9 @@ type MessageRequestRepository interface {
 	// ListPaginatedFiltered 获取按条件过滤的分页请求日志
 	ListPaginatedFiltered(ctx context.Context, page, pageSize int, filters MessageRequestQueryFilters) (MessageRequestListResult, error)
 
+	// ListBatch 获取按条件过滤的批量请求日志（游标分页）
+	ListBatch(ctx context.Context, filters MessageRequestBatchFilters) (MessageRequestBatchResult, error)
+
 	// FindLatestBySessionID 获取会话的最新请求日志
 	FindLatestBySessionID(ctx context.Context, sessionID string) (*model.MessageRequest, error)
 
@@ -120,11 +123,28 @@ type MessageRequestSessionIDSuggestionFilters struct {
 	Limit      int    `json:"limit,omitempty"`
 }
 
+type MessageRequestBatchCursor struct {
+	CreatedAt string `json:"createdAt"`
+	ID        int    `json:"id"`
+}
+
+type MessageRequestBatchFilters struct {
+	MessageRequestQueryFilters
+	Cursor *MessageRequestBatchCursor `json:"cursor,omitempty"`
+	Limit  int                        `json:"limit,omitempty"`
+}
+
 type MessageRequestListResult struct {
 	Logs     []*model.MessageRequest `json:"logs"`
 	Total    int                     `json:"total"`
 	Page     int                     `json:"page"`
 	PageSize int                     `json:"pageSize"`
+}
+
+type MessageRequestBatchResult struct {
+	Logs       []*model.MessageRequest    `json:"logs"`
+	NextCursor *MessageRequestBatchCursor `json:"nextCursor"`
+	HasMore    bool                       `json:"hasMore"`
 }
 
 type messageRequestRepository struct {
@@ -414,6 +434,65 @@ func (r *messageRequestRepository) ListPaginatedFiltered(ctx context.Context, pa
 		Total:    total,
 		Page:     page,
 		PageSize: pageSize,
+	}, nil
+}
+
+func (r *messageRequestRepository) ListBatch(ctx context.Context, filters MessageRequestBatchFilters) (MessageRequestBatchResult, error) {
+	limit := filters.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	query := r.db.NewSelect().
+		Model((*model.MessageRequest)(nil)).
+		Where("mr.deleted_at IS NULL")
+	query = applyMessageRequestQueryFilters(query, filters.MessageRequestQueryFilters, false)
+
+	if filters.Cursor != nil && strings.TrimSpace(filters.Cursor.CreatedAt) != "" && filters.Cursor.ID > 0 {
+		createdAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(filters.Cursor.CreatedAt))
+		if err != nil {
+			return MessageRequestBatchResult{}, errors.NewInvalidRequest("cursor.createdAt 不是合法时间")
+		}
+		query = query.Where("(mr.created_at, mr.id) < (?, ?)", createdAt, filters.Cursor.ID)
+	}
+
+	fetchLimit := limit + 1
+	var logs []*model.MessageRequest
+	err := query.
+		ColumnExpr("u.name AS user_name").
+		ColumnExpr("k2.name AS key_name").
+		ColumnExpr("p.name AS provider_name").
+		Join("LEFT JOIN users AS u ON u.id = mr.user_id AND u.deleted_at IS NULL").
+		Join("LEFT JOIN keys AS k2 ON k2.key = mr.key AND k2.deleted_at IS NULL").
+		Join("LEFT JOIN providers AS p ON p.id = mr.provider_id AND p.deleted_at IS NULL").
+		Order("mr.created_at DESC, mr.id DESC").
+		Limit(fetchLimit).
+		Scan(ctx, &logs)
+	if err != nil {
+		return MessageRequestBatchResult{}, errors.NewDatabaseError(err)
+	}
+
+	hasMore := len(logs) > limit
+	if hasMore {
+		logs = logs[:limit]
+	}
+
+	var nextCursor *MessageRequestBatchCursor
+	if hasMore && len(logs) > 0 {
+		last := logs[len(logs)-1]
+		nextCursor = &MessageRequestBatchCursor{
+			CreatedAt: last.CreatedAt.UTC().Format(time.RFC3339Nano),
+			ID:        last.ID,
+		}
+	}
+
+	return MessageRequestBatchResult{
+		Logs:       logs,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
 	}, nil
 }
 

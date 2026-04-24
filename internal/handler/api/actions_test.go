@@ -259,6 +259,7 @@ func TestOpenAPIListsImplementedActionPaths(t *testing.T) {
 		"/api/actions/providers",
 		"/api/actions/system-settings",
 		"/api/actions/usage-logs",
+		"/api/actions/usage-logs/getUsageLogsBatch",
 		"/api/actions/usage-logs/summary",
 		"/api/actions/usage-logs/filter-options",
 		"/api/actions/usage-logs/session-id-suggestions",

@@ -20,6 +20,8 @@ type fakeUsageLogsStore struct {
 	limit            int
 	page             int
 	filters          repository.MessageRequestQueryFilters
+	batchFilters     repository.MessageRequestBatchFilters
+	batchResult      repository.MessageRequestBatchResult
 	summary          repository.MessageRequestSummary
 	overview         repository.MessageRequestOverviewMetrics
 	options          repository.MessageRequestFilterOptions
@@ -49,6 +51,19 @@ func (f *fakeUsageLogsStore) ListPaginatedFiltered(_ context.Context, page, page
 		Page:     page,
 		PageSize: pageSize,
 	}, nil
+}
+
+func (f *fakeUsageLogsStore) ListBatch(_ context.Context, filters repository.MessageRequestBatchFilters) (repository.MessageRequestBatchResult, error) {
+	f.batchFilters = filters
+	f.limit = filters.Limit
+	if len(f.batchResult.Logs) == 0 && f.batchResult.NextCursor == nil && !f.batchResult.HasMore {
+		return repository.MessageRequestBatchResult{
+			Logs:       f.logs,
+			NextCursor: nil,
+			HasMore:    false,
+		}, nil
+	}
+	return f.batchResult, nil
 }
 
 func (f *fakeUsageLogsStore) GetByID(_ context.Context, id int) (*model.MessageRequest, error) {
@@ -518,6 +533,7 @@ func TestUsageLogsActionReturnsConvenienceLists(t *testing.T) {
 		{path: "/api/actions/usage-logs/endpoints", method: http.MethodGet, wantContains: "/v1/responses"},
 		{path: "/api/actions/usage-logs/getEndpointList", method: http.MethodPost, body: `{}`, wantContains: "/v1/responses"},
 		{path: "/api/actions/usage-logs/getUsageLogs", method: http.MethodPost, body: `{}`, wantContains: "gpt-5.4"},
+		{path: "/api/actions/usage-logs/getUsageLogsBatch", method: http.MethodPost, body: `{}`, wantContains: "\"logs\":[{\""},
 		{path: "/api/actions/usage-logs/getUsageLogsStats", method: http.MethodPost, body: `{}`, wantContains: "\"totalRequests\":2"},
 	}
 
@@ -537,6 +553,61 @@ func TestUsageLogsActionReturnsConvenienceLists(t *testing.T) {
 				t.Fatalf("expected payload to contain %q, got %s", tc.wantContains, resp.Body.String())
 			}
 		})
+	}
+}
+
+func TestUsageLogsBatchActionAcceptsCursorFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	store := &fakeUsageLogsStore{
+		batchResult: repository.MessageRequestBatchResult{
+			Logs: []*model.MessageRequest{{
+				ID:        10,
+				UserID:    7,
+				Key:       "sk-123",
+				Model:     "gpt-5.4",
+				CreatedAt: time.Date(2026, 4, 24, 10, 0, 0, 0, time.UTC),
+			}},
+			NextCursor: &repository.MessageRequestBatchCursor{
+				CreatedAt: "2026-04-24T09:59:00Z",
+				ID:        9,
+			},
+			HasMore: true,
+		},
+	}
+	router := gin.New()
+	NewUsageLogsActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogsBatch", strings.NewReader(`{"limit":150,"sessionId":"sess_123","minRetryCount":2,"cursor":{"createdAt":"2026-04-24T10:01:00Z","id":11}}`))
+	req.Header.Set("Authorization", "Bearer admin-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if store.batchFilters.Cursor == nil || store.batchFilters.Cursor.ID != 11 || store.batchFilters.Cursor.CreatedAt != "2026-04-24T10:01:00Z" {
+		t.Fatalf("expected cursor filter capture, got %+v", store.batchFilters.Cursor)
+	}
+	if store.batchFilters.MinRetryCount == nil || *store.batchFilters.MinRetryCount != 2 {
+		t.Fatalf("expected minRetryCount in batch filters, got %+v", store.batchFilters.MinRetryCount)
+	}
+	if store.limit != 100 {
+		t.Fatalf("expected batch limit to normalize to 100, got %d", store.limit)
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "\"hasMore\":true") || !strings.Contains(body, "\"nextCursor\":{\"createdAt\":\"2026-04-24T09:59:00Z\",\"id\":9}") || !strings.Contains(body, "\"id\":10") {
+		t.Fatalf("expected batch payload, got %s", body)
 	}
 }
 
