@@ -61,8 +61,7 @@ func (h *DashboardRealtimeActionHandler) getDashboardRealtimeData(c *gin.Context
 
 	recentLogs, err := h.logs.ListRecent(c.Request.Context(), 200)
 	if err != nil {
-		writeAdminError(c, err)
-		return
+		recentLogs = nil
 	}
 
 	statsRows, err := h.stats.GetUserStatistics(c.Request.Context(), repository.TimeRangeToday, repository.DefaultTimezone)

@@ -452,6 +452,65 @@ func TestDashboardRealtimeToleratesRankingAndProviderSourceFailures(t *testing.T
 	}
 }
 
+func TestDashboardRealtimeToleratesRecentLogFailures(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	origNow := dashboardRealtimeNow
+	dashboardRealtimeNow = func() time.Time { return time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC) }
+	defer func() { dashboardRealtimeNow = origNow }()
+
+	enabled := true
+	router := gin.New()
+
+	logsStore := &fakeUsageLogsStore{
+		recentErr: errors.New("recent logs unavailable"),
+		overview: repository.MessageRequestOverviewMetrics{
+			TodayRequests:        3,
+			RecentMinuteRequests: 1,
+			ConcurrentSessions:   2,
+		},
+	}
+	statsStore := fakeStatisticsStore{
+		rows:  []*repository.UserStatRow{{UserID: 7, UserName: "alice", Date: time.Date(2026, 4, 23, 9, 0, 0, 0, time.UTC), APICalls: 3}},
+		users: []*repository.ActiveUserItem{{ID: 7, Name: "alice"}},
+	}
+	providerStore := fakeDashboardProviderStore{providers: []*model.Provider{{ID: 1, Name: "provider-a", LimitConcurrentSessions: intPtr(2), IsEnabled: &enabled}}}
+
+	NewDashboardRealtimeActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		logsStore,
+		statsStore,
+		providerStore,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/dashboard-realtime/getDashboardRealtimeData", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer admin-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200 when recent logs fail, got %d: %s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "\"metrics\"") || !strings.Contains(body, "\"todayRequests\":3") {
+		t.Fatalf("expected metrics to remain available, got %s", body)
+	}
+	if !strings.Contains(body, "\"activityStream\":[]") || !strings.Contains(body, "\"userRankings\":[]") || !strings.Contains(body, "\"providerRankings\":[]") || !strings.Contains(body, "\"modelDistribution\":[]") {
+		t.Fatalf("expected log-derived sections to degrade to empty arrays, got %s", body)
+	}
+	if !strings.Contains(body, "\"providerSlots\":[{\"name\":\"provider-a\"") {
+		t.Fatalf("expected provider metadata to remain available for slots, got %s", body)
+	}
+	if !strings.Contains(body, "\"hour\":0") || !strings.Contains(body, "\"hour\":23") {
+		t.Fatalf("expected trend data from statistics to remain available, got %s", body)
+	}
+}
+
 func TestDashboardRealtimeRankingsAndDistributionAreLimited(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	origNow := dashboardRealtimeNow

@@ -18,6 +18,7 @@ import (
 
 type fakeUsageLogsStore struct {
 	logs             []*model.MessageRequest
+	recentErr        error
 	limit            int
 	page             int
 	filters          repository.MessageRequestQueryFilters
@@ -35,7 +36,7 @@ type fakeUsageLogsStore struct {
 
 func (f *fakeUsageLogsStore) ListRecent(_ context.Context, limit int) ([]*model.MessageRequest, error) {
 	f.limit = limit
-	return f.logs, nil
+	return f.logs, f.recentErr
 }
 
 func (f *fakeUsageLogsStore) ListFiltered(_ context.Context, limit int, filters repository.MessageRequestQueryFilters) ([]*model.MessageRequest, error) {
