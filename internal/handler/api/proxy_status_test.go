@@ -478,7 +478,7 @@ func TestProxyStatusIncludesTrackedActiveSessions(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if len(logStore.latestSessionIDs) != 1 || logStore.latestSessionIDs[0] != "sess_tracked" || logStore.latestSessionLimit != 50 {
+	if len(logStore.latestSessionIDs) != 1 || logStore.latestSessionIDs[0] != "sess_tracked" || logStore.latestSessionLimit != 0 {
 		t.Fatalf("expected tracked session lookup, got ids=%v limit=%d", logStore.latestSessionIDs, logStore.latestSessionLimit)
 	}
 	body := resp.Body.String()

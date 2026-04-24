@@ -117,9 +117,9 @@ func (h *ProxyStatusHandler) buildStatus(ctx context.Context) (gin.H, error) {
 	if err != nil {
 		return nil, err
 	}
-	activeSessionIDs, err := sessiontrackersvc.ActiveSessionIDs(ctx, 50)
+	activeSessionIDs, err := sessiontrackersvc.ActiveSessionIDs(ctx, 0)
 	if err == nil {
-		if activeLogs, activeErr := h.logs.FindLatestBySessionIDs(ctx, activeSessionIDs, 50); activeErr == nil {
+		if activeLogs, activeErr := h.logs.FindLatestBySessionIDs(ctx, activeSessionIDs, 0); activeErr == nil {
 			logs = mergeProxyStatusLogs(activeLogs, logs)
 		}
 	}

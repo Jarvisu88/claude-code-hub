@@ -70,9 +70,6 @@ func (f redisFinder) activeSessionIDs(ctx context.Context, limit int) ([]string,
 	if f.client == nil {
 		return nil, ErrNotConfigured
 	}
-	if limit <= 0 {
-		limit = 20
-	}
 	lastSeenBySession := map[string]int64{}
 	var cursor uint64
 	for {

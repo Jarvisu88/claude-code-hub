@@ -13,6 +13,17 @@ func TestSortSessionIDsByLastSeen(t *testing.T) {
 	}
 }
 
+func TestSortSessionIDsByLastSeenUnlimitedWhenLimitNonPositive(t *testing.T) {
+	got := sortSessionIDsByLastSeen(map[string]int64{
+		"sess-b": 200,
+		"sess-a": 300,
+		"sess-c": 100,
+	}, 0)
+	if len(got) != 3 || got[0] != "sess-a" || got[1] != "sess-b" || got[2] != "sess-c" {
+		t.Fatalf("unexpected unlimited sorted session ids: %+v", got)
+	}
+}
+
 func TestParseSessionID(t *testing.T) {
 	if got := parseSessionID("session:sess_123:last_seen"); got != "sess_123" {
 		t.Fatalf("expected sess_123, got %q", got)
