@@ -102,7 +102,12 @@ func TestUsageLogsActionReturnsRecentLogs(t *testing.T) {
 			{Type: "anthropic_effort", Scope: "request", Hit: true, Effort: stringPtr("medium")},
 		},
 		CreatedAt: time.Now(),
-	}}}
+	}}, summary: repository.MessageRequestSummary{
+		TotalRequests: 1,
+		TotalRows:     1,
+		TotalCost:     0.25,
+		TotalTokens:   0,
+	}}
 
 	router := gin.New()
 	NewUsageLogsActionHandler(
@@ -129,7 +134,7 @@ func TestUsageLogsActionReturnsRecentLogs(t *testing.T) {
 	if !strings.Contains(resp.Body.String(), "\"page\":1") || !strings.Contains(resp.Body.String(), "\"pageSize\":10") {
 		t.Fatalf("expected paging metadata, got %s", resp.Body.String())
 	}
-	if !strings.Contains(resp.Body.String(), "\"ok\":true") || !strings.Contains(resp.Body.String(), "gpt-5.4") || !strings.Contains(resp.Body.String(), "\"userName\":\"alice\"") || !strings.Contains(resp.Body.String(), "\"keyName\":\"Key A\"") || !strings.Contains(resp.Body.String(), "\"providerName\":\"provider-a\"") || !strings.Contains(resp.Body.String(), "\"userAgent\":\"Claude-Code/1.0\"") || !strings.Contains(resp.Body.String(), "\"clientIp\":\"192.0.2.1\"") || !strings.Contains(resp.Body.String(), "\"totalTokens\":0") || !strings.Contains(resp.Body.String(), "\"costUsd\":\"0.250000\"") || !strings.Contains(resp.Body.String(), "\"costMultiplier\":\"1.25\"") || !strings.Contains(resp.Body.String(), "\"groupCostMultiplier\":\"1.5\"") || !strings.Contains(resp.Body.String(), "\"swapCacheTtlApplied\":true") || !strings.Contains(resp.Body.String(), "\"costBreakdown\":{\"provider_multiplier\":1.25,\"total\":\"2.500000\"}") || !strings.Contains(resp.Body.String(), "\"anthropicEffort\":\"medium\"") {
+	if !strings.Contains(resp.Body.String(), "\"ok\":true") || !strings.Contains(resp.Body.String(), "gpt-5.4") || !strings.Contains(resp.Body.String(), "\"userName\":\"alice\"") || !strings.Contains(resp.Body.String(), "\"keyName\":\"Key A\"") || !strings.Contains(resp.Body.String(), "\"providerName\":\"provider-a\"") || !strings.Contains(resp.Body.String(), "\"userAgent\":\"Claude-Code/1.0\"") || !strings.Contains(resp.Body.String(), "\"clientIp\":\"192.0.2.1\"") || !strings.Contains(resp.Body.String(), "\"totalTokens\":0") || !strings.Contains(resp.Body.String(), "\"costUsd\":\"0.250000\"") || !strings.Contains(resp.Body.String(), "\"costMultiplier\":\"1.25\"") || !strings.Contains(resp.Body.String(), "\"groupCostMultiplier\":\"1.5\"") || !strings.Contains(resp.Body.String(), "\"swapCacheTtlApplied\":true") || !strings.Contains(resp.Body.String(), "\"costBreakdown\":{\"provider_multiplier\":1.25,\"total\":\"2.500000\"}") || !strings.Contains(resp.Body.String(), "\"anthropicEffort\":\"medium\"") || !strings.Contains(resp.Body.String(), "\"summary\":{\"totalRequests\":1,\"totalRows\":1,\"totalCost\":0.25") {
 		t.Fatalf("expected usage logs payload, got %s", resp.Body.String())
 	}
 }
@@ -163,7 +168,7 @@ func TestUsageLogsActionAcceptsFilters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	enabled := true
-	store := &fakeUsageLogsStore{}
+	store := &fakeUsageLogsStore{summary: repository.MessageRequestSummary{TotalRequests: 3, TotalRows: 4}}
 	router := gin.New()
 	NewUsageLogsActionHandler(
 		fakeAdminAuth{result: &authsvc.AuthResult{
@@ -189,7 +194,7 @@ func TestUsageLogsActionAcceptsFilters(t *testing.T) {
 	if store.filters.StatusCode == nil || *store.filters.StatusCode != 201 {
 		t.Fatalf("expected status filter 201, got %+v", store.filters.StatusCode)
 	}
-	if !strings.Contains(resp.Body.String(), "\"total\":0") {
+	if !strings.Contains(resp.Body.String(), "\"total\":0") || !strings.Contains(resp.Body.String(), "\"summary\":{\"totalRequests\":3,\"totalRows\":4") {
 		t.Fatalf("expected total field in payload, got %s", resp.Body.String())
 	}
 }
@@ -198,7 +203,7 @@ func TestUsageLogsActionPostJSONAcceptsFilters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	enabled := true
-	store := &fakeUsageLogsStore{}
+	store := &fakeUsageLogsStore{summary: repository.MessageRequestSummary{TotalRequests: 2, TotalRows: 2}}
 	router := gin.New()
 	NewUsageLogsActionHandler(
 		fakeAdminAuth{result: &authsvc.AuthResult{
@@ -231,7 +236,7 @@ func TestUsageLogsActionPostJSONAcceptsFilters(t *testing.T) {
 	if store.filters.StartTime == nil || store.filters.EndTime == nil {
 		t.Fatalf("expected start/end time filters, got %+v", store.filters)
 	}
-	if !strings.Contains(resp.Body.String(), "\"userId\":9") || !strings.Contains(resp.Body.String(), "\"excludeStatusCode200\":true") {
+	if !strings.Contains(resp.Body.String(), "\"userId\":9") || !strings.Contains(resp.Body.String(), "\"excludeStatusCode200\":true") || !strings.Contains(resp.Body.String(), "\"summary\":{\"totalRequests\":2,\"totalRows\":2") {
 		t.Fatalf("expected response echo filters, got %s", resp.Body.String())
 	}
 }

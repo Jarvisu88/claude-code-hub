@@ -108,6 +108,11 @@ func (h *UsageLogsActionHandler) list(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	summary, err := h.store.GetSummary(c.Request.Context(), filters)
+	if err != nil {
+		writeAdminError(c, err)
+		return
+	}
 	logs := make([]gin.H, 0, len(result.Logs))
 	for _, log := range result.Logs {
 		logs = append(logs, buildUsageLogResponse(log))
@@ -118,6 +123,7 @@ func (h *UsageLogsActionHandler) list(c *gin.Context) {
 		"total":    result.Total,
 		"page":     result.Page,
 		"pageSize": result.PageSize,
+		"summary":  summary,
 		"filters": gin.H{
 			"userId":               filters.UserID,
 			"keyId":                filters.KeyID,
