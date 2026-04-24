@@ -59,6 +59,9 @@ type MessageRequestRepository interface {
 	// ListAvailabilityRows 获取可用性聚合原始请求行
 	ListAvailabilityRows(ctx context.Context, startTime, endTime time.Time, providerIDs []int) ([]AvailabilityRequestRow, error)
 
+	// ListLeaderboardRows 获取排行榜聚合原始请求行
+	ListLeaderboardRows(ctx context.Context, startTime, endTime time.Time) ([]LeaderboardRequestRow, error)
+
 	// GetFilterOptions 获取最小筛选选项
 	GetFilterOptions(ctx context.Context) (MessageRequestFilterOptions, error)
 
@@ -103,6 +106,22 @@ type AvailabilityRequestRow struct {
 	CreatedAt  time.Time `json:"createdAt"`
 	StatusCode int       `json:"statusCode"`
 	DurationMs *int      `json:"durationMs,omitempty"`
+}
+
+type LeaderboardRequestRow struct {
+	UserID                   int              `json:"userId"`
+	UserName                 string           `json:"userName"`
+	ProviderID               int              `json:"providerId"`
+	ProviderName             string           `json:"providerName"`
+	Model                    string           `json:"model"`
+	StatusCode               int              `json:"statusCode"`
+	CostUSD                  udecimal.Decimal `json:"costUsd"`
+	DurationMs               *int             `json:"durationMs,omitempty"`
+	TtfbMs                   *int             `json:"ttfbMs,omitempty"`
+	InputTokens              *int             `json:"inputTokens,omitempty"`
+	OutputTokens             *int             `json:"outputTokens,omitempty"`
+	CacheCreationInputTokens *int             `json:"cacheCreationInputTokens,omitempty"`
+	CacheReadInputTokens     *int             `json:"cacheReadInputTokens,omitempty"`
 }
 
 type MessageRequestTerminalUpdate struct {
@@ -809,6 +828,36 @@ func (r *messageRequestRepository) ListAvailabilityRows(ctx context.Context, sta
 	if len(filteredIDs) > 0 {
 		query = query.Where("mr.provider_id IN (?)", bun.In(filteredIDs))
 	}
+	if err := query.Scan(ctx, &rows); err != nil {
+		return nil, errors.NewDatabaseError(err)
+	}
+	return rows, nil
+}
+
+func (r *messageRequestRepository) ListLeaderboardRows(ctx context.Context, startTime, endTime time.Time) ([]LeaderboardRequestRow, error) {
+	var rows []LeaderboardRequestRow
+	query := r.db.NewSelect().
+		Table("message_request AS mr").
+		ColumnExpr("mr.user_id").
+		ColumnExpr("COALESCE(u.name, CONCAT('User #', mr.user_id::text)) AS user_name").
+		ColumnExpr("mr.provider_id").
+		ColumnExpr("COALESCE(p.name, 'unknown') AS provider_name").
+		ColumnExpr("COALESCE(NULLIF(mr.original_model, ''), NULLIF(mr.model, ''), 'Unknown') AS model").
+		ColumnExpr("mr.status_code").
+		ColumnExpr("mr.cost_usd").
+		ColumnExpr("mr.duration_ms").
+		ColumnExpr("mr.ttfb_ms").
+		ColumnExpr("mr.input_tokens").
+		ColumnExpr("mr.output_tokens").
+		ColumnExpr("mr.cache_creation_input_tokens").
+		ColumnExpr("mr.cache_read_input_tokens").
+		Join("LEFT JOIN users AS u ON u.id = mr.user_id AND u.deleted_at IS NULL").
+		Join("LEFT JOIN providers AS p ON p.id = mr.provider_id AND p.deleted_at IS NULL").
+		Where("mr.deleted_at IS NULL").
+		Where(excludeWarmupMessageRequestCondition).
+		Where("mr.status_code IS NOT NULL").
+		Where("mr.created_at >= ?", startTime).
+		Where("mr.created_at <= ?", endTime)
 	if err := query.Scan(ctx, &rows); err != nil {
 		return nil, errors.NewDatabaseError(err)
 	}
