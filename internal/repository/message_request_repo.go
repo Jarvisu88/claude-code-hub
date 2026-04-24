@@ -38,6 +38,9 @@ type MessageRequestRepository interface {
 	// ListBatch 获取按条件过滤的批量请求日志（游标分页）
 	ListBatch(ctx context.Context, filters MessageRequestBatchFilters) (MessageRequestBatchResult, error)
 
+	// FindLatestBySessionIDs 获取多个 session 的最新请求
+	FindLatestBySessionIDs(ctx context.Context, sessionIDs []string, limit int) ([]*model.MessageRequest, error)
+
 	// FindLatestBySessionID 获取会话的最新请求日志
 	FindLatestBySessionID(ctx context.Context, sessionID string) (*model.MessageRequest, error)
 
@@ -494,6 +497,43 @@ func (r *messageRequestRepository) ListBatch(ctx context.Context, filters Messag
 		NextCursor: nextCursor,
 		HasMore:    hasMore,
 	}, nil
+}
+
+func (r *messageRequestRepository) FindLatestBySessionIDs(ctx context.Context, sessionIDs []string, limit int) ([]*model.MessageRequest, error) {
+	trimmed := make([]string, 0, len(sessionIDs))
+	for _, sessionID := range sessionIDs {
+		if cleaned := strings.TrimSpace(sessionID); cleaned != "" {
+			trimmed = append(trimmed, cleaned)
+		}
+	}
+	if len(trimmed) == 0 {
+		return []*model.MessageRequest{}, nil
+	}
+	if limit <= 0 {
+		limit = len(trimmed)
+	}
+	if limit > len(trimmed) {
+		limit = len(trimmed)
+	}
+
+	var logs []*model.MessageRequest
+	query := r.db.NewSelect().
+		Model((*model.MessageRequest)(nil)).
+		ColumnExpr("DISTINCT ON (mr.session_id) mr.*").
+		ColumnExpr("u.name AS user_name").
+		ColumnExpr("k2.name AS key_name").
+		ColumnExpr("p.name AS provider_name").
+		Join("LEFT JOIN users AS u ON u.id = mr.user_id AND u.deleted_at IS NULL").
+		Join("LEFT JOIN keys AS k2 ON k2.key = mr.key AND k2.deleted_at IS NULL").
+		Join("LEFT JOIN providers AS p ON p.id = mr.provider_id AND p.deleted_at IS NULL").
+		Where("mr.deleted_at IS NULL").
+		Where("mr.session_id IN (?)", bun.In(trimmed)).
+		OrderExpr("mr.session_id, mr.created_at DESC, mr.id DESC").
+		Limit(limit)
+	if err := query.Scan(ctx, &logs); err != nil {
+		return nil, errors.NewDatabaseError(err)
+	}
+	return logs, nil
 }
 
 func (r *messageRequestRepository) FindLatestBySessionID(ctx context.Context, sessionID string) (*model.MessageRequest, error) {

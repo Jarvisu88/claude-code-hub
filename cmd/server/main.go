@@ -20,6 +20,7 @@ import (
 	livechainsvc "github.com/ding113/claude-code-hub/internal/service/livechain"
 	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
+	sessiontrackersvc "github.com/ding113/claude-code-hub/internal/service/sessiontracker"
 	"github.com/gin-gonic/gin"
 	"github.com/uptrace/bun"
 )
@@ -128,6 +129,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	proxySessionManager := sessionsvc.NewManager(cfg.Session, rdb)
 	livechainsvc.Configure(rdb, time.Duration(cfg.Session.TTL)*time.Second)
 	providertrackersvc.Configure(rdb)
+	sessiontrackersvc.Configure(rdb, time.Duration(cfg.Session.TTL)*time.Second)
 	apihandler.ConfigureUsageLogsExportStore(rdb)
 	proxyHTTPClient := &http.Client{Timeout: cfg.Proxy.FetchBodyTimeout}
 	v1handler.NewHandler(proxyAuthService, proxySessionManager, repoFactory.Provider(), repoFactory.MessageRequest(), proxyHTTPClient).RegisterRoutes(router.Group("/v1"))

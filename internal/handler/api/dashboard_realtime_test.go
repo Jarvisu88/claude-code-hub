@@ -15,6 +15,7 @@ import (
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
+	sessiontrackersvc "github.com/ding113/claude-code-hub/internal/service/sessiontracker"
 	"github.com/gin-gonic/gin"
 	"github.com/quagmt/udecimal"
 )
@@ -437,6 +438,69 @@ func TestDashboardRealtimeProviderSlotsPreferTrackerCounts(t *testing.T) {
 	body := resp.Body.String()
 	if !strings.Contains(body, "\"providerId\":2") || !strings.Contains(body, "\"usedSlots\":4") || !strings.Contains(body, "\"providerId\":3") || !strings.Contains(body, "\"usedSlots\":2") {
 		t.Fatalf("expected tracker-backed provider slot counts, got %s", body)
+	}
+}
+
+func TestDashboardRealtimeActivityStreamIncludesTrackedActiveSessions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	sessiontrackersvc.SetIDsForTest([]string{"sess_tracked"})
+	defer sessiontrackersvc.ResetForTest()
+
+	origNow := dashboardRealtimeNow
+	dashboardRealtimeNow = func() time.Time { return time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC) }
+	defer func() { dashboardRealtimeNow = origNow }()
+
+	enabled := true
+	router := gin.New()
+
+	logsStore := &fakeUsageLogsStore{
+		logs: []*model.MessageRequest{},
+		latestBySessionLogs: []*model.MessageRequest{
+			{
+				ID:            101,
+				UserID:        9,
+				ProviderID:    2,
+				Model:         "gpt-4o-mini",
+				OriginalModel: stringPtr("gpt-4o-mini"),
+				CreatedAt:     time.Date(2026, 4, 23, 11, 55, 0, 0, time.UTC),
+				SessionID:     stringPtr("sess_tracked"),
+				UserName:      stringPtr("tracked-user"),
+				ProviderName:  stringPtr("provider-tracked"),
+			},
+		},
+		overview: repository.MessageRequestOverviewMetrics{
+			TodayRequests:        1,
+			RecentMinuteRequests: 1,
+		},
+	}
+
+	NewDashboardRealtimeActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		logsStore,
+		fakeStatisticsStore{},
+		fakeDashboardProviderStore{providers: []*model.Provider{}},
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/dashboard-realtime/getDashboardRealtimeData", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer admin-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(logsStore.latestBySessionIDs) != 1 || logsStore.latestBySessionIDs[0] != "sess_tracked" || logsStore.latestBySessionLimit != 20 {
+		t.Fatalf("expected tracked session lookup, got ids=%v limit=%d", logsStore.latestBySessionIDs, logsStore.latestBySessionLimit)
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "\"id\":\"sess_tracked\"") || !strings.Contains(body, "\"user\":\"tracked-user\"") {
+		t.Fatalf("expected tracked active session in activity stream, got %s", body)
 	}
 }
 

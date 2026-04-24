@@ -18,28 +18,38 @@ import (
 )
 
 type fakeUsageLogsStore struct {
-	logs               []*model.MessageRequest
-	recentErr          error
-	limit              int
-	page               int
-	filters            repository.MessageRequestQueryFilters
-	batchFilters       repository.MessageRequestBatchFilters
-	batchResult        repository.MessageRequestBatchResult
-	batchResults       []repository.MessageRequestBatchResult
-	batchCalls         []repository.MessageRequestBatchFilters
-	summary            repository.MessageRequestSummary
-	overview           repository.MessageRequestOverviewMetrics
-	options            repository.MessageRequestFilterOptions
-	optionsErr         error
-	filterOptionsCalls int
-	suggestions        []string
-	suggestionFilter   repository.MessageRequestSessionIDSuggestionFilters
-	overviewLocation   *time.Location
+	logs                 []*model.MessageRequest
+	latestBySessionLogs  []*model.MessageRequest
+	latestBySessionErr   error
+	latestBySessionIDs   []string
+	latestBySessionLimit int
+	recentErr            error
+	limit                int
+	page                 int
+	filters              repository.MessageRequestQueryFilters
+	batchFilters         repository.MessageRequestBatchFilters
+	batchResult          repository.MessageRequestBatchResult
+	batchResults         []repository.MessageRequestBatchResult
+	batchCalls           []repository.MessageRequestBatchFilters
+	summary              repository.MessageRequestSummary
+	overview             repository.MessageRequestOverviewMetrics
+	options              repository.MessageRequestFilterOptions
+	optionsErr           error
+	filterOptionsCalls   int
+	suggestions          []string
+	suggestionFilter     repository.MessageRequestSessionIDSuggestionFilters
+	overviewLocation     *time.Location
 }
 
 func (f *fakeUsageLogsStore) ListRecent(_ context.Context, limit int) ([]*model.MessageRequest, error) {
 	f.limit = limit
 	return f.logs, f.recentErr
+}
+
+func (f *fakeUsageLogsStore) FindLatestBySessionIDs(_ context.Context, sessionIDs []string, limit int) ([]*model.MessageRequest, error) {
+	f.latestBySessionIDs = append([]string(nil), sessionIDs...)
+	f.latestBySessionLimit = limit
+	return f.latestBySessionLogs, f.latestBySessionErr
 }
 
 func (f *fakeUsageLogsStore) ListFiltered(_ context.Context, limit int, filters repository.MessageRequestQueryFilters) ([]*model.MessageRequest, error) {

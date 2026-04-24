@@ -20,6 +20,7 @@ import (
 
 type usageLogsStore interface {
 	ListRecent(ctx context.Context, limit int) ([]*model.MessageRequest, error)
+	FindLatestBySessionIDs(ctx context.Context, sessionIDs []string, limit int) ([]*model.MessageRequest, error)
 	ListFiltered(ctx context.Context, limit int, filters repository.MessageRequestQueryFilters) ([]*model.MessageRequest, error)
 	ListPaginatedFiltered(ctx context.Context, page, pageSize int, filters repository.MessageRequestQueryFilters) (repository.MessageRequestListResult, error)
 	ListBatch(ctx context.Context, filters repository.MessageRequestBatchFilters) (repository.MessageRequestBatchResult, error)

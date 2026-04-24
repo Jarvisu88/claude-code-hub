@@ -12,6 +12,7 @@ import (
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
+	sessiontrackersvc "github.com/ding113/claude-code-hub/internal/service/sessiontracker"
 	"github.com/gin-gonic/gin"
 )
 
@@ -60,10 +61,20 @@ func (h *DashboardRealtimeActionHandler) getDashboardRealtimeData(c *gin.Context
 		return
 	}
 
+	activeSessionIDs, err := sessiontrackersvc.ActiveSessionIDs(c.Request.Context(), 20)
+	if err != nil {
+		activeSessionIDs = nil
+	}
+	activeSessionLogs, err := h.logs.FindLatestBySessionIDs(c.Request.Context(), activeSessionIDs, 20)
+	if err != nil {
+		activeSessionLogs = nil
+	}
+
 	recentLogs, err := h.logs.ListRecent(c.Request.Context(), 200)
 	if err != nil {
 		recentLogs = nil
 	}
+	activityLogs := mergeDashboardLogs(activeSessionLogs, recentLogs)
 
 	statsRows, err := h.stats.GetUserStatistics(c.Request.Context(), repository.TimeRangeToday, repository.DefaultTimezone)
 	if err != nil {
@@ -96,7 +107,7 @@ func (h *DashboardRealtimeActionHandler) getDashboardRealtimeData(c *gin.Context
 			"yesterdaySamePeriodAvgResponseTime": metrics.YesterdaySamePeriodAvgResponseTime,
 			"recentMinuteRequests":               metrics.RecentMinuteRequests,
 		},
-		"activityStream":    buildDashboardActivityStream(recentLogs),
+		"activityStream":    buildDashboardActivityStream(activityLogs),
 		"userRankings":      limitDashboardRows(userRankings, 5),
 		"providerRankings":  limitDashboardRows(providerRankings, 5),
 		"providerSlots":     buildDashboardProviderSlots(c.Request.Context(), recentLogs, activeProviders, providerRankings),
@@ -204,6 +215,26 @@ func filterDashboardLogsForToday(logs []*model.MessageRequest, now time.Time, lo
 		filtered = append(filtered, log)
 	}
 	return filtered
+}
+
+func mergeDashboardLogs(primary []*model.MessageRequest, secondary []*model.MessageRequest) []*model.MessageRequest {
+	merged := make([]*model.MessageRequest, 0, len(primary)+len(secondary))
+	seen := map[int]struct{}{}
+	appendLogs := func(items []*model.MessageRequest) {
+		for _, log := range items {
+			if log == nil {
+				continue
+			}
+			if _, ok := seen[log.ID]; ok {
+				continue
+			}
+			seen[log.ID] = struct{}{}
+			merged = append(merged, log)
+		}
+	}
+	appendLogs(primary)
+	appendLogs(secondary)
+	return merged
 }
 
 func buildDashboardUserRankings(logs []*model.MessageRequest) []gin.H {
