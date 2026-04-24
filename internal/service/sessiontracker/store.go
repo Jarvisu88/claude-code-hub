@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,8 +73,7 @@ func (f redisFinder) activeSessionIDs(ctx context.Context, limit int) ([]string,
 	if limit <= 0 {
 		limit = 20
 	}
-	ids := make([]string, 0, limit)
-	seen := map[string]struct{}{}
+	lastSeenBySession := map[string]int64{}
 	var cursor uint64
 	for {
 		keys, nextCursor, err := f.client.Scan(ctx, cursor, "session:*:last_seen", 100).Result()
@@ -85,14 +85,16 @@ func (f redisFinder) activeSessionIDs(ctx context.Context, limit int) ([]string,
 			if sessionID == "" {
 				continue
 			}
-			if _, ok := seen[sessionID]; ok {
+			raw, err := f.client.Get(ctx, key).Result()
+			if err != nil || strings.TrimSpace(raw) == "" {
 				continue
 			}
-			seen[sessionID] = struct{}{}
-			ids = append(ids, sessionID)
-			if len(ids) >= limit {
-				sort.Strings(ids)
-				return ids, nil
+			lastSeen, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+			if err != nil {
+				continue
+			}
+			if existing, ok := lastSeenBySession[sessionID]; !ok || lastSeen > existing {
+				lastSeenBySession[sessionID] = lastSeen
 			}
 		}
 		cursor = nextCursor
@@ -100,8 +102,7 @@ func (f redisFinder) activeSessionIDs(ctx context.Context, limit int) ([]string,
 			break
 		}
 	}
-	sort.Strings(ids)
-	return ids, nil
+	return sortSessionIDsByLastSeen(lastSeenBySession, limit), nil
 }
 
 func parseSessionID(key string) string {
@@ -111,4 +112,29 @@ func parseSessionID(key string) string {
 	trimmed := strings.TrimPrefix(key, "session:")
 	trimmed = strings.TrimSuffix(trimmed, ":last_seen")
 	return strings.TrimSpace(trimmed)
+}
+
+func sortSessionIDsByLastSeen(lastSeenBySession map[string]int64, limit int) []string {
+	type pair struct {
+		sessionID string
+		lastSeen  int64
+	}
+	pairs := make([]pair, 0, len(lastSeenBySession))
+	for sessionID, lastSeen := range lastSeenBySession {
+		pairs = append(pairs, pair{sessionID: sessionID, lastSeen: lastSeen})
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].lastSeen != pairs[j].lastSeen {
+			return pairs[i].lastSeen > pairs[j].lastSeen
+		}
+		return pairs[i].sessionID < pairs[j].sessionID
+	})
+	if limit > 0 && len(pairs) > limit {
+		pairs = pairs[:limit]
+	}
+	ids := make([]string, 0, len(pairs))
+	for _, item := range pairs {
+		ids = append(ids, item.sessionID)
+	}
+	return ids
 }
