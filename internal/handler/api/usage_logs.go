@@ -13,6 +13,7 @@ import (
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	"github.com/gin-gonic/gin"
+	"github.com/quagmt/udecimal"
 )
 
 type usageLogsStore interface {
@@ -488,6 +489,21 @@ func buildUsageLogResponse(log *model.MessageRequest) gin.H {
 	if log.GroupCostMultiplier != nil {
 		groupCostMultiplier = log.GroupCostMultiplier.String()
 	}
+	var anthropicEffort any = nil
+	for _, setting := range log.SpecialSettings {
+		if strings.EqualFold(setting.Type, "anthropic_effort") && setting.Effort != nil && strings.TrimSpace(*setting.Effort) != "" {
+			anthropicEffort = strings.TrimSpace(*setting.Effort)
+			break
+		}
+	}
+	var providerChain any = nil
+	if len(log.ProviderChain) > 0 {
+		providerChain = log.ProviderChain
+	}
+	var specialSettings any = nil
+	if len(log.SpecialSettings) > 0 {
+		specialSettings = log.SpecialSettings
+	}
 
 	return gin.H{
 		"id":                         log.ID,
@@ -514,14 +530,14 @@ func buildUsageLogResponse(log *model.MessageRequest) gin.H {
 		"cacheCreation1hInputTokens": log.CacheCreation1hInputTokens,
 		"cacheTtlApplied":            log.CacheTtlApplied,
 		"totalTokens":                log.TotalTokens(),
-		"costUsd":                    log.CostUSD.String(),
+		"costUsd":                    formatUsageLogCost(log.CostUSD),
 		"costMultiplier":             costMultiplier,
 		"groupCostMultiplier":        groupCostMultiplier,
 		"durationMs":                 log.DurationMs,
 		"ttfbMs":                     log.TtfbMs,
 		"costBreakdown":              log.CostBreakdown,
 		"errorMessage":               log.ErrorMessage,
-		"providerChain":              log.ProviderChain,
+		"providerChain":              providerChain,
 		"blockedBy":                  log.BlockedBy,
 		"blockedReason":              log.BlockedReason,
 		"userAgent":                  log.UserAgent,
@@ -529,6 +545,13 @@ func buildUsageLogResponse(log *model.MessageRequest) gin.H {
 		"messagesCount":              log.MessagesCount,
 		"context1mApplied":           log.Context1mApplied,
 		"swapCacheTtlApplied":        log.SwapCacheTtlApplied,
-		"specialSettings":            log.SpecialSettings,
+		"specialSettings":            specialSettings,
+		"anthropicEffort":            anthropicEffort,
 	}
+}
+
+func formatUsageLogCost(value interface {
+	RoundHAZ(uint8) udecimal.Decimal
+}) string {
+	return value.RoundHAZ(6).StringFixed(6)
 }

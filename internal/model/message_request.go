@@ -42,6 +42,7 @@ type SpecialSetting struct {
 	ProviderID   *int                   `json:"providerId"`
 	ProviderName *string                `json:"providerName"`
 	ProviderType *string                `json:"providerType"`
+	Effort       *string                `json:"effort,omitempty"`
 	Hit          bool                   `json:"hit"`
 	Changed      bool                   `json:"changed"`
 	Changes      []SpecialSettingChange `json:"changes"`

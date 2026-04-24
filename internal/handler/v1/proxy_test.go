@@ -1420,6 +1420,12 @@ func TestResponsesHandlerReturns504ForUpstreamTimeout(t *testing.T) {
 	if requestLogs.updated[0].update.ErrorMessage == nil || !strings.Contains(*requestLogs.updated[0].update.ErrorMessage, "请求超时") {
 		t.Fatalf("expected timeout error message, got %+v", requestLogs.updated[0].update.ErrorMessage)
 	}
+	if len(requestLogs.updated[0].update.ProviderChain) != 1 || requestLogs.updated[0].update.ProviderChain[0].StatusCode == nil || *requestLogs.updated[0].update.ProviderChain[0].StatusCode != http.StatusGatewayTimeout {
+		t.Fatalf("expected timeout status recorded on provider chain, got %+v", requestLogs.updated[0].update.ProviderChain)
+	}
+	if requestLogs.updated[0].update.ProviderChain[0].ErrorMessage == nil || !strings.Contains(*requestLogs.updated[0].update.ProviderChain[0].ErrorMessage, "请求超时") {
+		t.Fatalf("expected timeout error recorded on provider chain, got %+v", requestLogs.updated[0].update.ProviderChain[0].ErrorMessage)
+	}
 }
 
 func TestResponsesHandlerReturns502ForGenericUpstreamError(t *testing.T) {
@@ -1474,6 +1480,12 @@ func TestResponsesHandlerReturns502ForGenericUpstreamError(t *testing.T) {
 	}
 	if requestLogs.updated[0].update.ErrorMessage == nil || !strings.Contains(*requestLogs.updated[0].update.ErrorMessage, "上游 Responses 供应商请求失败") {
 		t.Fatalf("expected upstream error message, got %+v", requestLogs.updated[0].update.ErrorMessage)
+	}
+	if len(requestLogs.updated[0].update.ProviderChain) != 1 || requestLogs.updated[0].update.ProviderChain[0].StatusCode == nil || *requestLogs.updated[0].update.ProviderChain[0].StatusCode != http.StatusBadGateway {
+		t.Fatalf("expected upstream error status recorded on provider chain, got %+v", requestLogs.updated[0].update.ProviderChain)
+	}
+	if requestLogs.updated[0].update.ProviderChain[0].ErrorMessage == nil || !strings.Contains(*requestLogs.updated[0].update.ProviderChain[0].ErrorMessage, "上游 Responses 供应商请求失败") {
+		t.Fatalf("expected upstream error message recorded on provider chain, got %+v", requestLogs.updated[0].update.ProviderChain[0].ErrorMessage)
 	}
 }
 

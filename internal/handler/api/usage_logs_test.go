@@ -97,7 +97,11 @@ func TestUsageLogsActionReturnsRecentLogs(t *testing.T) {
 		GroupCostMultiplier: decimalPtr("1.5000"),
 		SwapCacheTtlApplied: true,
 		CostBreakdown:       map[string]any{"total": "2.500000", "provider_multiplier": 1.25},
-		CreatedAt:           time.Now(),
+		CostUSD:             udecimal.MustParse("0.25"),
+		SpecialSettings: []model.SpecialSetting{
+			{Type: "anthropic_effort", Scope: "request", Hit: true, Effort: stringPtr("medium")},
+		},
+		CreatedAt: time.Now(),
 	}}}
 
 	router := gin.New()
@@ -125,7 +129,7 @@ func TestUsageLogsActionReturnsRecentLogs(t *testing.T) {
 	if !strings.Contains(resp.Body.String(), "\"page\":1") || !strings.Contains(resp.Body.String(), "\"pageSize\":10") {
 		t.Fatalf("expected paging metadata, got %s", resp.Body.String())
 	}
-	if !strings.Contains(resp.Body.String(), "\"ok\":true") || !strings.Contains(resp.Body.String(), "gpt-5.4") || !strings.Contains(resp.Body.String(), "\"userName\":\"alice\"") || !strings.Contains(resp.Body.String(), "\"keyName\":\"Key A\"") || !strings.Contains(resp.Body.String(), "\"providerName\":\"provider-a\"") || !strings.Contains(resp.Body.String(), "\"userAgent\":\"Claude-Code/1.0\"") || !strings.Contains(resp.Body.String(), "\"clientIp\":\"192.0.2.1\"") || !strings.Contains(resp.Body.String(), "\"totalTokens\":0") || !strings.Contains(resp.Body.String(), "\"costMultiplier\":\"1.25\"") || !strings.Contains(resp.Body.String(), "\"groupCostMultiplier\":\"1.5\"") || !strings.Contains(resp.Body.String(), "\"swapCacheTtlApplied\":true") || !strings.Contains(resp.Body.String(), "\"costBreakdown\":{\"provider_multiplier\":1.25,\"total\":\"2.500000\"}") {
+	if !strings.Contains(resp.Body.String(), "\"ok\":true") || !strings.Contains(resp.Body.String(), "gpt-5.4") || !strings.Contains(resp.Body.String(), "\"userName\":\"alice\"") || !strings.Contains(resp.Body.String(), "\"keyName\":\"Key A\"") || !strings.Contains(resp.Body.String(), "\"providerName\":\"provider-a\"") || !strings.Contains(resp.Body.String(), "\"userAgent\":\"Claude-Code/1.0\"") || !strings.Contains(resp.Body.String(), "\"clientIp\":\"192.0.2.1\"") || !strings.Contains(resp.Body.String(), "\"totalTokens\":0") || !strings.Contains(resp.Body.String(), "\"costUsd\":\"0.250000\"") || !strings.Contains(resp.Body.String(), "\"costMultiplier\":\"1.25\"") || !strings.Contains(resp.Body.String(), "\"groupCostMultiplier\":\"1.5\"") || !strings.Contains(resp.Body.String(), "\"swapCacheTtlApplied\":true") || !strings.Contains(resp.Body.String(), "\"costBreakdown\":{\"provider_multiplier\":1.25,\"total\":\"2.500000\"}") || !strings.Contains(resp.Body.String(), "\"anthropicEffort\":\"medium\"") {
 		t.Fatalf("expected usage logs payload, got %s", resp.Body.String())
 	}
 }
@@ -262,15 +266,23 @@ func TestUsageLogsActionReturnsLogDetail(t *testing.T) {
 
 	enabled := true
 	store := &fakeUsageLogsStore{logs: []*model.MessageRequest{{
-		ID:           7,
-		Model:        "gpt-5.4",
-		Key:          "sk-123",
-		UserName:     stringPtr("alice"),
-		KeyName:      stringPtr("Key A"),
-		ProviderName: stringPtr("provider-a"),
-		UserAgent:    stringPtr("Claude-Code/1.0"),
-		ClientIP:     stringPtr("192.0.2.1"),
-		CreatedAt:    time.Now(),
+		ID:                  7,
+		Model:               "gpt-5.4",
+		Key:                 "sk-123",
+		UserName:            stringPtr("alice"),
+		KeyName:             stringPtr("Key A"),
+		ProviderName:        stringPtr("provider-a"),
+		UserAgent:           stringPtr("Claude-Code/1.0"),
+		ClientIP:            stringPtr("192.0.2.1"),
+		CostMultiplier:      decimalPtr("1.2500"),
+		GroupCostMultiplier: decimalPtr("1.5000"),
+		SwapCacheTtlApplied: true,
+		CostBreakdown:       map[string]any{"total": "2.500000", "provider_multiplier": 1.25},
+		SpecialSettings: []model.SpecialSetting{
+			{Type: "anthropic_effort", Scope: "request", Hit: true, Effort: stringPtr("medium")},
+		},
+		CostUSD:   udecimal.MustParse("0.25"),
+		CreatedAt: time.Now(),
 	}}}
 	router := gin.New()
 	NewUsageLogsActionHandler(
@@ -291,7 +303,7 @@ func TestUsageLogsActionReturnsLogDetail(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if !strings.Contains(resp.Body.String(), "\"id\":7") || !strings.Contains(resp.Body.String(), "gpt-5.4") || !strings.Contains(resp.Body.String(), "\"userName\":\"alice\"") || !strings.Contains(resp.Body.String(), "\"keyName\":\"Key A\"") || !strings.Contains(resp.Body.String(), "\"providerName\":\"provider-a\"") || !strings.Contains(resp.Body.String(), "\"userAgent\":\"Claude-Code/1.0\"") || !strings.Contains(resp.Body.String(), "\"clientIp\":\"192.0.2.1\"") || !strings.Contains(resp.Body.String(), "\"totalTokens\":0") {
+	if !strings.Contains(resp.Body.String(), "\"id\":7") || !strings.Contains(resp.Body.String(), "gpt-5.4") || !strings.Contains(resp.Body.String(), "\"userName\":\"alice\"") || !strings.Contains(resp.Body.String(), "\"keyName\":\"Key A\"") || !strings.Contains(resp.Body.String(), "\"providerName\":\"provider-a\"") || !strings.Contains(resp.Body.String(), "\"userAgent\":\"Claude-Code/1.0\"") || !strings.Contains(resp.Body.String(), "\"clientIp\":\"192.0.2.1\"") || !strings.Contains(resp.Body.String(), "\"totalTokens\":0") || !strings.Contains(resp.Body.String(), "\"costUsd\":\"0.250000\"") || !strings.Contains(resp.Body.String(), "\"costMultiplier\":\"1.25\"") || !strings.Contains(resp.Body.String(), "\"groupCostMultiplier\":\"1.5\"") || !strings.Contains(resp.Body.String(), "\"swapCacheTtlApplied\":true") || !strings.Contains(resp.Body.String(), "\"costBreakdown\":{\"provider_multiplier\":1.25,\"total\":\"2.500000\"}") || !strings.Contains(resp.Body.String(), "\"anthropicEffort\":\"medium\"") {
 		t.Fatalf("expected log detail payload, got %s", resp.Body.String())
 	}
 }
@@ -327,7 +339,7 @@ func TestUsageLogsActionFallsBackNamesAndProviderNull(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
 	body := resp.Body.String()
-	if !strings.Contains(body, "\"userName\":\"User #42\"") || !strings.Contains(body, "\"keyName\":\"sk-raw\"") || !strings.Contains(body, "\"providerName\":null") {
+	if !strings.Contains(body, "\"userName\":\"User #42\"") || !strings.Contains(body, "\"keyName\":\"sk-raw\"") || !strings.Contains(body, "\"providerName\":null") || !strings.Contains(body, "\"providerChain\":null") || !strings.Contains(body, "\"specialSettings\":null") {
 		t.Fatalf("expected fallback usage log fields, got %s", body)
 	}
 }
@@ -342,6 +354,7 @@ func TestUsageLogsActionReturnsSummary(t *testing.T) {
 
 	enabled := true
 	store := &fakeUsageLogsStore{summary: repository.MessageRequestSummary{
+		TotalRows:                  4,
 		TotalRequests:              3,
 		TotalCost:                  1.25,
 		TotalTokens:                120,
@@ -375,6 +388,7 @@ func TestUsageLogsActionReturnsSummary(t *testing.T) {
 		t.Fatalf("unexpected summary filters: %+v", store)
 	}
 	if !strings.Contains(resp.Body.String(), "\"totalRequests\":3") ||
+		!strings.Contains(resp.Body.String(), "\"totalRows\":4") ||
 		!strings.Contains(resp.Body.String(), "\"totalTokens\":120") ||
 		!strings.Contains(resp.Body.String(), "\"totalCost\":1.25") ||
 		!strings.Contains(resp.Body.String(), "\"totalInputTokens\":80") {

@@ -56,6 +56,7 @@ type MessageRequestRepository interface {
 
 type MessageRequestSummary struct {
 	TotalRequests              int     `json:"totalRequests"`
+	TotalRows                  int     `json:"totalRows"`
 	TotalCost                  float64 `json:"totalCost"`
 	TotalTokens                int     `json:"totalTokens"`
 	TotalInputTokens           int     `json:"totalInputTokens"`
@@ -169,8 +170,8 @@ func (r *messageRequestRepository) GetByID(ctx context.Context, id int) (*model.
 		Join("LEFT JOIN users AS u ON u.id = mr.user_id AND u.deleted_at IS NULL").
 		Join("LEFT JOIN keys AS k ON k.key = mr.key AND k.deleted_at IS NULL").
 		Join("LEFT JOIN providers AS p ON p.id = mr.provider_id AND p.deleted_at IS NULL").
-		Where("id = ?", id).
-		Where("deleted_at IS NULL").
+		Where("mr.id = ?", id).
+		Where("mr.deleted_at IS NULL").
 		Scan(ctx)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -266,8 +267,8 @@ func (r *messageRequestRepository) ListRecent(ctx context.Context, limit int) ([
 		Join("LEFT JOIN users AS u ON u.id = mr.user_id AND u.deleted_at IS NULL").
 		Join("LEFT JOIN keys AS k ON k.key = mr.key AND k.deleted_at IS NULL").
 		Join("LEFT JOIN providers AS p ON p.id = mr.provider_id AND p.deleted_at IS NULL").
-		Where("deleted_at IS NULL").
-		Order("updated_at DESC").
+		Where("mr.deleted_at IS NULL").
+		Order("mr.updated_at DESC").
 		Limit(limit).
 		Scan(ctx)
 	if err != nil {
@@ -334,7 +335,7 @@ func (r *messageRequestRepository) ListPaginatedFiltered(ctx context.Context, pa
 
 	query := r.db.NewSelect().
 		Model((*model.MessageRequest)(nil)).
-		Where("deleted_at IS NULL")
+		Where("mr.deleted_at IS NULL")
 	query = applyMessageRequestQueryFilters(query, filters, false)
 
 	total, err := query.Count(ctx)
@@ -350,7 +351,7 @@ func (r *messageRequestRepository) ListPaginatedFiltered(ctx context.Context, pa
 		Join("LEFT JOIN users AS u ON u.id = mr.user_id AND u.deleted_at IS NULL").
 		Join("LEFT JOIN keys AS k2 ON k2.key = mr.key AND k2.deleted_at IS NULL").
 		Join("LEFT JOIN providers AS p ON p.id = mr.provider_id AND p.deleted_at IS NULL").
-		Order("created_at DESC").
+		Order("mr.created_at DESC").
 		Limit(pageSize).
 		Offset((page-1)*pageSize).
 		Scan(ctx, &logs)
@@ -369,9 +370,9 @@ func (r *messageRequestRepository) FindLatestBySessionID(ctx context.Context, se
 	log := new(model.MessageRequest)
 	err := r.db.NewSelect().
 		Model(log).
-		Where("session_id = ?", sessionID).
-		Where("deleted_at IS NULL").
-		Order("created_at DESC").
+		Where("mr.session_id = ?", sessionID).
+		Where("mr.deleted_at IS NULL").
+		Order("mr.created_at DESC").
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
@@ -387,12 +388,12 @@ func (r *messageRequestRepository) FindSessionOriginChain(ctx context.Context, s
 	log := new(model.MessageRequest)
 	err := r.db.NewSelect().
 		Model(log).
-		Where("session_id = ?", sessionID).
-		Where("deleted_at IS NULL").
+		Where("mr.session_id = ?", sessionID).
+		Where("mr.deleted_at IS NULL").
 		Where(excludeWarmupMessageRequestCondition).
-		Where("provider_chain IS NOT NULL").
-		Where("provider_chain::text LIKE ?", `%\"reason\":\"initial_selection\"%`).
-		Order("request_sequence ASC").
+		Where("mr.provider_chain IS NOT NULL").
+		Where("mr.provider_chain @> ?::jsonb", `[{"reason":"initial_selection"}]`).
+		Order("mr.request_sequence ASC").
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
@@ -410,21 +411,22 @@ func (r *messageRequestRepository) FindSessionOriginChain(ctx context.Context, s
 func (r *messageRequestRepository) GetSummary(ctx context.Context, filters MessageRequestQueryFilters) (MessageRequestSummary, error) {
 	query := r.db.NewSelect().
 		Model((*model.MessageRequest)(nil)).
-		ColumnExpr("COUNT(*) AS total_requests").
-		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total_cost").
-		ColumnExpr("COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS total_input_tokens").
-		ColumnExpr("COALESCE(SUM(COALESCE(output_tokens, 0)), 0) AS total_output_tokens").
-		ColumnExpr("COALESCE(SUM(COALESCE(cache_creation_input_tokens, 0)), 0) AS total_cache_creation_tokens").
-		ColumnExpr("COALESCE(SUM(COALESCE(cache_read_input_tokens, 0)), 0) AS total_cache_read_tokens").
-		ColumnExpr("COALESCE(SUM(COALESCE(cache_creation_5m_input_tokens, 0)), 0) AS total_cache_creation_5m_tokens").
-		ColumnExpr("COALESCE(SUM(COALESCE(cache_creation_1h_input_tokens, 0)), 0) AS total_cache_creation_1h_tokens").
-		ColumnExpr("COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) + COALESCE(cache_creation_input_tokens, 0) + COALESCE(cache_read_input_tokens, 0)), 0) AS total_tokens").
-		Where("deleted_at IS NULL").
-		Where(excludeWarmupMessageRequestCondition)
+		ColumnExpr("COUNT(*) AS total_rows").
+		ColumnExpr("COUNT(*) FILTER (WHERE " + excludeWarmupMessageRequestCondition + ") AS total_requests").
+		ColumnExpr("COALESCE(SUM(cost_usd) FILTER (WHERE " + excludeWarmupMessageRequestCondition + "), 0) AS total_cost").
+		ColumnExpr("COALESCE(SUM(COALESCE(input_tokens, 0)) FILTER (WHERE " + excludeWarmupMessageRequestCondition + "), 0) AS total_input_tokens").
+		ColumnExpr("COALESCE(SUM(COALESCE(output_tokens, 0)) FILTER (WHERE " + excludeWarmupMessageRequestCondition + "), 0) AS total_output_tokens").
+		ColumnExpr("COALESCE(SUM(COALESCE(cache_creation_input_tokens, 0)) FILTER (WHERE " + excludeWarmupMessageRequestCondition + "), 0) AS total_cache_creation_tokens").
+		ColumnExpr("COALESCE(SUM(COALESCE(cache_read_input_tokens, 0)) FILTER (WHERE " + excludeWarmupMessageRequestCondition + "), 0) AS total_cache_read_tokens").
+		ColumnExpr("COALESCE(SUM(COALESCE(cache_creation_5m_input_tokens, 0)) FILTER (WHERE " + excludeWarmupMessageRequestCondition + "), 0) AS total_cache_creation_5m_tokens").
+		ColumnExpr("COALESCE(SUM(COALESCE(cache_creation_1h_input_tokens, 0)) FILTER (WHERE " + excludeWarmupMessageRequestCondition + "), 0) AS total_cache_creation_1h_tokens").
+		ColumnExpr("COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) + COALESCE(cache_creation_input_tokens, 0) + COALESCE(cache_read_input_tokens, 0)) FILTER (WHERE " + excludeWarmupMessageRequestCondition + "), 0) AS total_tokens").
+		Where("mr.deleted_at IS NULL")
 
-	query = applyMessageRequestQueryFilters(query, filters, true)
+	query = applyMessageRequestQueryFilters(query, filters, false)
 
 	var result struct {
+		TotalRows                  int              `bun:"total_rows"`
 		TotalRequests              int              `bun:"total_requests"`
 		TotalCost                  udecimal.Decimal `bun:"total_cost"`
 		TotalTokens                int              `bun:"total_tokens"`
@@ -439,6 +441,7 @@ func (r *messageRequestRepository) GetSummary(ctx context.Context, filters Messa
 		return MessageRequestSummary{}, errors.NewDatabaseError(err)
 	}
 	return MessageRequestSummary{
+		TotalRows:                  result.TotalRows,
 		TotalRequests:              result.TotalRequests,
 		TotalCost:                  roundCost6(result.TotalCost.InexactFloat64()),
 		TotalTokens:                result.TotalTokens,
@@ -477,11 +480,11 @@ func (r *messageRequestRepository) GetOverviewMetrics(ctx context.Context, now t
 			ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total_cost").
 			ColumnExpr("COALESCE(AVG(duration_ms), 0) AS avg_duration").
 			ColumnExpr("COUNT(*) FILTER (WHERE status_code IS NULL OR status_code >= 400) AS error_count").
-			Where("deleted_at IS NULL").
+			Where("mr.deleted_at IS NULL").
 			Where(excludeWarmupMessageRequestCondition).
-			Where("duration_ms IS NOT NULL").
-			Where("created_at >= ?", start).
-			Where("created_at < ?", end).
+			Where("mr.duration_ms IS NOT NULL").
+			Where("mr.created_at >= ?", start).
+			Where("mr.created_at < ?", end).
 			Scan(ctx, &result)
 		if err != nil {
 			return overviewAggregate{}, errors.NewDatabaseError(err)
@@ -504,10 +507,10 @@ func (r *messageRequestRepository) GetOverviewMetrics(ctx context.Context, now t
 	if err := r.db.NewSelect().
 		Model((*model.MessageRequest)(nil)).
 		ColumnExpr("COUNT(*) AS request_count").
-		Where("deleted_at IS NULL").
+		Where("mr.deleted_at IS NULL").
 		Where(excludeWarmupMessageRequestCondition).
-		Where("duration_ms IS NOT NULL").
-		Where("created_at >= ?", recentMinuteStart).
+		Where("mr.duration_ms IS NOT NULL").
+		Where("mr.created_at >= ?", recentMinuteStart).
 		Scan(ctx, &recentMinute); err != nil {
 		return MessageRequestOverviewMetrics{}, errors.NewDatabaseError(err)
 	}
@@ -518,11 +521,11 @@ func (r *messageRequestRepository) GetOverviewMetrics(ctx context.Context, now t
 	if err := r.db.NewSelect().
 		Model((*model.MessageRequest)(nil)).
 		ColumnExpr("COUNT(DISTINCT session_id) AS session_count").
-		Where("deleted_at IS NULL").
+		Where("mr.deleted_at IS NULL").
 		Where(excludeWarmupMessageRequestCondition).
-		Where("duration_ms IS NULL").
-		Where("session_id IS NOT NULL").
-		Where("session_id != ''").
+		Where("mr.duration_ms IS NULL").
+		Where("mr.session_id IS NOT NULL").
+		Where("mr.session_id != ''").
 		Scan(ctx, &concurrent); err != nil {
 		return MessageRequestOverviewMetrics{}, errors.NewDatabaseError(err)
 	}
@@ -554,11 +557,11 @@ func (r *messageRequestRepository) GetFilterOptions(ctx context.Context) (Messag
 	if err := r.db.NewSelect().
 		Model((*model.MessageRequest)(nil)).
 		ColumnExpr("DISTINCT model").
-		Where("deleted_at IS NULL").
+		Where("mr.deleted_at IS NULL").
 		Where(excludeWarmupMessageRequestCondition).
-		Where("model IS NOT NULL").
-		Where("model != ''").
-		Order("model ASC").
+		Where("mr.model IS NOT NULL").
+		Where("mr.model != ''").
+		Order("mr.model ASC").
 		Scan(ctx, &models); err != nil {
 		return MessageRequestFilterOptions{}, errors.NewDatabaseError(err)
 	}
@@ -567,11 +570,11 @@ func (r *messageRequestRepository) GetFilterOptions(ctx context.Context) (Messag
 	if err := r.db.NewSelect().
 		Model((*model.MessageRequest)(nil)).
 		ColumnExpr("DISTINCT endpoint").
-		Where("deleted_at IS NULL").
+		Where("mr.deleted_at IS NULL").
 		Where(excludeWarmupMessageRequestCondition).
-		Where("endpoint IS NOT NULL").
-		Where("endpoint != ''").
-		Order("endpoint ASC").
+		Where("mr.endpoint IS NOT NULL").
+		Where("mr.endpoint != ''").
+		Order("mr.endpoint ASC").
 		Scan(ctx, &endpoints); err != nil {
 		return MessageRequestFilterOptions{}, errors.NewDatabaseError(err)
 	}
@@ -580,10 +583,10 @@ func (r *messageRequestRepository) GetFilterOptions(ctx context.Context) (Messag
 	if err := r.db.NewSelect().
 		Model((*model.MessageRequest)(nil)).
 		ColumnExpr("DISTINCT status_code").
-		Where("deleted_at IS NULL").
+		Where("mr.deleted_at IS NULL").
 		Where(excludeWarmupMessageRequestCondition).
-		Where("status_code IS NOT NULL").
-		Order("status_code ASC").
+		Where("mr.status_code IS NOT NULL").
+		Order("mr.status_code ASC").
 		Scan(ctx, &statusCodes); err != nil {
 		return MessageRequestFilterOptions{}, errors.NewDatabaseError(err)
 	}

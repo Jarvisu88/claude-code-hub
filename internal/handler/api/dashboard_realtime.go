@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -29,6 +30,8 @@ type DashboardRealtimeActionHandler struct {
 	providers dashboardRealtimeProviderStore
 }
 
+var dashboardRealtimeNow = time.Now
+
 func NewDashboardRealtimeActionHandler(auth adminAuthenticator, logs usageLogsStore, stats dashboardRealtimeStatsStore, providers dashboardRealtimeProviderStore) *DashboardRealtimeActionHandler {
 	return &DashboardRealtimeActionHandler{auth: auth, logs: logs, stats: stats, providers: providers}
 }
@@ -49,7 +52,8 @@ func (h *DashboardRealtimeActionHandler) getDashboardRealtimeData(c *gin.Context
 	if err != nil {
 		location = time.Local
 	}
-	metrics, err := h.logs.GetOverviewMetrics(c.Request.Context(), time.Now(), location)
+	now := dashboardRealtimeNow()
+	metrics, err := h.logs.GetOverviewMetrics(c.Request.Context(), now, location)
 	if err != nil {
 		writeAdminError(c, err)
 		return
@@ -78,7 +82,10 @@ func (h *DashboardRealtimeActionHandler) getDashboardRealtimeData(c *gin.Context
 	}
 	statsPayload := buildUserStatisticsResponse(repository.TimeRangeToday, statsRows, activeUsers)
 	trendData := buildDashboardTrendData(statsPayload["chartData"])
-	providerRankings := buildDashboardProviderRankings(recentLogs)
+	todayCompletedLogs := filterDashboardLogsForToday(recentLogs, now, location)
+	userRankings := buildDashboardUserRankings(todayCompletedLogs)
+	providerRankings := buildDashboardProviderRankings(todayCompletedLogs)
+	modelDistribution := buildDashboardModelDistribution(todayCompletedLogs)
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{
 		"metrics": gin.H{
@@ -93,10 +100,10 @@ func (h *DashboardRealtimeActionHandler) getDashboardRealtimeData(c *gin.Context
 			"recentMinuteRequests":               metrics.RecentMinuteRequests,
 		},
 		"activityStream":    buildDashboardActivityStream(recentLogs),
-		"userRankings":      buildDashboardUserRankings(recentLogs),
-		"providerRankings":  providerRankings,
+		"userRankings":      limitDashboardRows(userRankings, 5),
+		"providerRankings":  limitDashboardRows(providerRankings, 5),
 		"providerSlots":     buildDashboardProviderSlots(recentLogs, activeProviders, providerRankings),
-		"modelDistribution": buildDashboardModelDistribution(recentLogs),
+		"modelDistribution": limitDashboardRows(modelDistribution, 10),
 		"trendData":         trendData,
 	}})
 }
@@ -143,7 +150,7 @@ func buildDashboardActivityStream(logs []*model.MessageRequest) []gin.H {
 		}
 		cost := 0.0
 		if !log.CostUSD.IsZero() {
-			cost = log.CostUSD.InexactFloat64()
+			cost = dashboardRound6(log.CostUSD.InexactFloat64())
 		}
 		id := "req-" + strconv.Itoa(log.ID)
 		if log.SessionID != nil && *log.SessionID != "" {
@@ -180,6 +187,28 @@ func buildDashboardActivityStream(logs []*model.MessageRequest) []gin.H {
 	return stream
 }
 
+func filterDashboardLogsForToday(logs []*model.MessageRequest, now time.Time, location *time.Location) []*model.MessageRequest {
+	if location == nil {
+		location = time.Local
+	}
+	localNow := now.In(location)
+	todayStart := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
+	tomorrowStart := todayStart.Add(24 * time.Hour)
+
+	filtered := make([]*model.MessageRequest, 0, len(logs))
+	for _, log := range logs {
+		if log == nil || log.DurationMs == nil || isWarmupProxyStatusRequest(log) {
+			continue
+		}
+		createdAt := log.CreatedAt.In(location)
+		if createdAt.Before(todayStart) || !createdAt.Before(tomorrowStart) {
+			continue
+		}
+		filtered = append(filtered, log)
+	}
+	return filtered
+}
+
 func buildDashboardUserRankings(logs []*model.MessageRequest) []gin.H {
 	type aggregate struct {
 		userID        int
@@ -212,7 +241,7 @@ func buildDashboardUserRankings(logs []*model.MessageRequest) []gin.H {
 			"userId":        entry.userID,
 			"userName":      entry.userName,
 			"totalRequests": entry.totalRequests,
-			"totalCost":     entry.totalCost,
+			"totalCost":     dashboardRound6(entry.totalCost),
 			"totalTokens":   entry.totalTokens,
 		})
 	}
@@ -222,9 +251,6 @@ func buildDashboardUserRankings(logs []*model.MessageRequest) []gin.H {
 		}
 		return rankings[i]["totalRequests"].(int) > rankings[j]["totalRequests"].(int)
 	})
-	if len(rankings) > 5 {
-		rankings = rankings[:5]
-	}
 	return rankings
 }
 
@@ -297,13 +323,13 @@ func buildDashboardProviderRankings(logs []*model.MessageRequest) []gin.H {
 			"providerId":              entry.providerID,
 			"providerName":            entry.providerName,
 			"totalRequests":           entry.totalRequests,
-			"totalCost":               entry.totalCost,
+			"totalCost":               dashboardRound6(entry.totalCost),
 			"totalTokens":             entry.totalTokens,
 			"successRate":             successRate,
 			"avgTtfbMs":               avgTtfbMs,
-			"avgTokensPerSecond":      avgTokensPerSecond,
-			"avgCostPerRequest":       avgCostPerRequest,
-			"avgCostPerMillionTokens": avgCostPerMillionTokens,
+			"avgTokensPerSecond":      dashboardRound6(avgTokensPerSecond),
+			"avgCostPerRequest":       dashboardMaybeRound6(avgCostPerRequest),
+			"avgCostPerMillionTokens": dashboardMaybeRound6(avgCostPerMillionTokens),
 		})
 	}
 	sort.Slice(rankings, func(i, j int) bool {
@@ -312,9 +338,6 @@ func buildDashboardProviderRankings(logs []*model.MessageRequest) []gin.H {
 		}
 		return rankings[i]["totalRequests"].(int) > rankings[j]["totalRequests"].(int)
 	})
-	if len(rankings) > 5 {
-		rankings = rankings[:5]
-	}
 	return rankings
 }
 
@@ -362,7 +385,7 @@ func buildDashboardModelDistribution(logs []*model.MessageRequest) []gin.H {
 		distribution = append(distribution, gin.H{
 			"model":         entry.model,
 			"totalRequests": entry.totalRequests,
-			"totalCost":     entry.totalCost,
+			"totalCost":     dashboardRound6(entry.totalCost),
 			"totalTokens":   entry.totalTokens,
 			"successRate":   successRate,
 		})
@@ -373,9 +396,6 @@ func buildDashboardModelDistribution(logs []*model.MessageRequest) []gin.H {
 		}
 		return distribution[i]["totalCost"].(float64) > distribution[j]["totalCost"].(float64)
 	})
-	if len(distribution) > 10 {
-		distribution = distribution[:10]
-	}
 	return distribution
 }
 
@@ -409,6 +429,29 @@ func buildDashboardTrendData(raw any) []gin.H {
 		trend = append(trend, gin.H{"hour": hour, "value": valuesByHour[hour]})
 	}
 	return trend
+}
+
+func limitDashboardRows(rows []gin.H, limit int) []gin.H {
+	if limit <= 0 || len(rows) <= limit {
+		return rows
+	}
+	limited := make([]gin.H, limit)
+	copy(limited, rows[:limit])
+	return limited
+}
+
+func dashboardRound6(value float64) float64 {
+	return math.Round(value*1_000_000) / 1_000_000
+}
+
+func dashboardMaybeRound6(value any) any {
+	if value == nil {
+		return nil
+	}
+	if number, ok := value.(float64); ok {
+		return dashboardRound6(number)
+	}
+	return value
 }
 
 func buildDashboardProviderSlots(logs []*model.MessageRequest, providers []*model.Provider, providerRankings []gin.H) []gin.H {

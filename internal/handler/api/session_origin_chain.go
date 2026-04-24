@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/ding113/claude-code-hub/internal/model"
@@ -49,6 +50,10 @@ func (h *SessionOriginChainActionHandler) get(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true, "data": nil})
 		return
 	}
+	if !hasInitialSelectionProviderChain(log.ProviderChain) {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "data": nil})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": log.ProviderChain})
 }
 
@@ -60,6 +65,18 @@ func (h *SessionOriginChainActionHandler) getAction(c *gin.Context) {
 		writeAdminError(c, appErrors.NewInvalidRequest("请求体不是合法 JSON"))
 		return
 	}
-	c.Request.URL.RawQuery = "sessionId=" + input.SessionID
+	c.Request.URL.RawQuery = "sessionId=" + url.QueryEscape(input.SessionID)
 	h.get(c)
+}
+
+func hasInitialSelectionProviderChain(chain []model.ProviderChainItem) bool {
+	if len(chain) == 0 {
+		return false
+	}
+	for _, item := range chain {
+		if item.Reason != nil && strings.TrimSpace(*item.Reason) == "initial_selection" {
+			return true
+		}
+	}
+	return false
 }

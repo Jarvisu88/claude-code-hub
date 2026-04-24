@@ -26,8 +26,9 @@ func TestSessionOriginChainActionReturnsProviderChain(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	enabled := true
+	reason := "initial_selection"
 	store := &fakeSessionOriginStore{log: &model.MessageRequest{
-		ProviderChain: []model.ProviderChainItem{{ID: 1, Name: "provider-a"}},
+		ProviderChain: []model.ProviderChainItem{{ID: 1, Name: "provider-a", Reason: &reason}},
 	}}
 	router := gin.New()
 	NewSessionOriginChainActionHandler(
@@ -68,6 +69,38 @@ func TestSessionOriginChainActionReturnsProviderChain(t *testing.T) {
 	}
 }
 
+func TestSessionOriginChainActionEscapesSessionIDInPostBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	reason := "initial_selection"
+	store := &fakeSessionOriginStore{log: &model.MessageRequest{
+		ProviderChain: []model.ProviderChainItem{{ID: 1, Name: "provider-a", Reason: &reason}},
+	}}
+	router := gin.New()
+	NewSessionOriginChainActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	postReq := httptest.NewRequest(http.MethodPost, "/api/actions/session-origin-chain/getSessionOriginChain", strings.NewReader(`{"sessionId":"sess+a b"}`))
+	postReq.Header.Set("Authorization", "Bearer admin-token")
+	postReq.Header.Set("Content-Type", "application/json")
+	postResp := httptest.NewRecorder()
+	router.ServeHTTP(postResp, postReq)
+	if postResp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", postResp.Code, postResp.Body.String())
+	}
+	if store.sessionID != "sess+a b" {
+		t.Fatalf("expected escaped session id to round-trip, got %q", store.sessionID)
+	}
+}
+
 func TestSessionOriginChainActionReturnsNullWhenChainEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -94,6 +127,38 @@ func TestSessionOriginChainActionReturnsNullWhenChainEmpty(t *testing.T) {
 	}
 	if !strings.Contains(resp.Body.String(), "\"data\":null") {
 		t.Fatalf("expected null payload for empty provider chain, got %s", resp.Body.String())
+	}
+}
+
+func TestSessionOriginChainActionReturnsNullWhenNoInitialSelection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	reason := "retry_success"
+	store := &fakeSessionOriginStore{log: &model.MessageRequest{
+		ProviderChain: []model.ProviderChainItem{{ID: 1, Name: "provider-a", Reason: &reason}},
+	}}
+	router := gin.New()
+	NewSessionOriginChainActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/actions/session-origin-chain?sessionId=sess_123", nil)
+	req.Header.Set("Authorization", "Bearer admin-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), "\"data\":null") {
+		t.Fatalf("expected null payload when no initial_selection exists, got %s", resp.Body.String())
 	}
 }
 

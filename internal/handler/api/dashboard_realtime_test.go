@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +25,9 @@ func (f fakeDashboardProviderStore) GetActiveProviders(_ context.Context) ([]*mo
 
 func TestDashboardRealtimeActionReturnsBaselinePayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	origNow := dashboardRealtimeNow
+	dashboardRealtimeNow = func() time.Time { return time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC) }
+	defer func() { dashboardRealtimeNow = origNow }()
 	enabled := true
 	router := gin.New()
 
@@ -41,6 +46,20 @@ func TestDashboardRealtimeActionReturnsBaselinePayload(t *testing.T) {
 				UserName:      stringPtr("alice"),
 				ProviderName:  stringPtr("provider-a"),
 				CostUSD:       udecimal.MustParse("0.25"),
+			},
+			{
+				ID:           99,
+				UserID:       99,
+				ProviderID:   99,
+				Model:        "old-model",
+				CreatedAt:    time.Date(2026, 4, 22, 9, 0, 0, 0, time.UTC),
+				DurationMs:   intPtr(10),
+				StatusCode:   intPtr(200),
+				UserName:     stringPtr("yesterday-user"),
+				ProviderName: stringPtr("yesterday-provider"),
+				CostUSD:      udecimal.MustParse("99"),
+				InputTokens:  intPtr(1),
+				OutputTokens: intPtr(1),
 			},
 			{
 				ID:            2,
@@ -137,14 +156,23 @@ func TestDashboardRealtimeActionReturnsBaselinePayload(t *testing.T) {
 	if !strings.Contains(body, "\"provider\":\"Unknown\"") {
 		t.Fatalf("expected finalized item without providerName to use Unknown fallback, got %s", body)
 	}
+	if strings.Contains(body, "\"userName\":\"yesterday-user\"") || strings.Contains(body, "\"providerName\":\"yesterday-provider\"") {
+		t.Fatalf("expected daily rankings to exclude yesterday entries, got %s", body)
+	}
 	if !strings.Contains(body, "\"userRankings\"") || !strings.Contains(body, "\"providerRankings\"") || !strings.Contains(body, "\"modelDistribution\"") {
 		t.Fatalf("expected rankings/distribution sections, got %s", body)
 	}
-	if !strings.Contains(body, "\"userName\":\"bob\"") || !strings.Contains(body, "\"providerName\":\"provider-b\"") || !strings.Contains(body, "\"model\":\"gpt-4o-mini\"") || !strings.Contains(body, "\"providerSlots\"") || !strings.Contains(body, "\"totalSlots\":2") {
+	if !strings.Contains(body, "\"userName\":\"bob\"") || !strings.Contains(body, "\"providerName\":\"provider-b\"") || !strings.Contains(body, "\"model\":\"gpt-4o-mini\"") || !strings.Contains(body, "\"providerSlots\"") || !strings.Contains(body, "\"totalSlots\":2") || !strings.Contains(body, "\"totalVolume\":150") {
 		t.Fatalf("expected aggregated ranking/distribution data, got %s", body)
 	}
 	if !strings.Contains(body, "\"avgTtfbMs\":40") || !strings.Contains(body, "\"avgTokensPerSecond\":1875") || !strings.Contains(body, "\"successRate\":1") {
 		t.Fatalf("expected provider/model derived metrics, got %s", body)
+	}
+	if !strings.Contains(body, "\"avgCostPerRequest\":0.75") || !strings.Contains(body, "\"avgCostPerMillionTokens\":5000") {
+		t.Fatalf("expected provider cost derived metrics, got %s", body)
+	}
+	if !strings.Contains(body, "\"totalCost\":0.75") {
+		t.Fatalf("expected rounded totalCost fields in dashboard aggregates, got %s", body)
 	}
 	if !strings.Contains(body, "\"hour\":0") || !strings.Contains(body, "\"hour\":23") {
 		t.Fatalf("expected trendData to cover full 24 hours, got %s", body)
@@ -153,6 +181,9 @@ func TestDashboardRealtimeActionReturnsBaselinePayload(t *testing.T) {
 
 func TestDashboardRealtimeActivityStreamSortedByStartTimeDescAndLimited(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	origNow := dashboardRealtimeNow
+	dashboardRealtimeNow = func() time.Time { return time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC) }
+	defer func() { dashboardRealtimeNow = origNow }()
 	enabled := true
 	router := gin.New()
 
@@ -212,6 +243,9 @@ func TestDashboardRealtimeActivityStreamSortedByStartTimeDescAndLimited(t *testi
 
 func TestDashboardRealtimeActivityStreamDedupesBySessionID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	origNow := dashboardRealtimeNow
+	dashboardRealtimeNow = func() time.Time { return time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC) }
+	defer func() { dashboardRealtimeNow = origNow }()
 	enabled := true
 	router := gin.New()
 
@@ -283,6 +317,9 @@ func TestDashboardRealtimeActivityStreamDedupesBySessionID(t *testing.T) {
 
 func TestDashboardRealtimeProviderSlotsSortedAndLimitedToTopThree(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	origNow := dashboardRealtimeNow
+	dashboardRealtimeNow = func() time.Time { return time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC) }
+	defer func() { dashboardRealtimeNow = origNow }()
 	enabled := true
 	router := gin.New()
 
@@ -337,5 +374,83 @@ func TestDashboardRealtimeProviderSlotsSortedAndLimitedToTopThree(t *testing.T) 
 	}
 	if !strings.Contains(body, "\"providerId\":3") || !strings.Contains(body, "\"providerId\":2") || !strings.Contains(body, "\"providerId\":1") {
 		t.Fatalf("expected top 3 provider slots by usage, got %s", body)
+	}
+}
+
+func TestDashboardRealtimeRankingsAndDistributionAreLimited(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	origNow := dashboardRealtimeNow
+	dashboardRealtimeNow = func() time.Time { return time.Date(2026, 4, 23, 12, 0, 0, 0, time.UTC) }
+	defer func() { dashboardRealtimeNow = origNow }()
+
+	enabled := true
+	router := gin.New()
+
+	logs := make([]*model.MessageRequest, 0, 12)
+	for i := 0; i < 12; i++ {
+		userID := 100 + i
+		providerID := 200 + i
+		modelName := "model-" + strconv.Itoa(i)
+		logs = append(logs, &model.MessageRequest{
+			ID:            i + 1,
+			UserID:        userID,
+			ProviderID:    providerID,
+			Model:         modelName,
+			OriginalModel: stringPtr(modelName),
+			CreatedAt:     time.Date(2026, 4, 23, 9, i, 0, 0, time.UTC),
+			DurationMs:    intPtr(10),
+			StatusCode:    intPtr(200),
+			UserName:      stringPtr("user-" + strconv.Itoa(i)),
+			ProviderName:  stringPtr("provider-" + strconv.Itoa(i)),
+			CostUSD:       udecimal.MustParse(strconv.Itoa(12 - i)),
+		})
+	}
+
+	NewDashboardRealtimeActionHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		&fakeUsageLogsStore{
+			logs: logs,
+			overview: repository.MessageRequestOverviewMetrics{
+				TodayRequests:        12,
+				RecentMinuteRequests: 1,
+			},
+		},
+		fakeStatisticsStore{
+			rows:  []*repository.UserStatRow{{UserID: 1, UserName: "alice", Date: time.Date(2026, 4, 23, 9, 0, 0, 0, time.UTC), APICalls: 1, TotalCost: udecimal.MustParse("0")}},
+			users: []*repository.ActiveUserItem{{ID: 1, Name: "alice"}},
+		},
+		fakeDashboardProviderStore{providers: []*model.Provider{}},
+	).RegisterRoutes(router.Group("/api/actions"))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/dashboard-realtime/getDashboardRealtimeData", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer admin-token")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(resp.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode payload: %v", err)
+	}
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected object data payload, got %T", payload["data"])
+	}
+	if userRankings, ok := data["userRankings"].([]any); !ok || len(userRankings) != 5 {
+		t.Fatalf("expected user rankings length 5, got %#v", data["userRankings"])
+	}
+	if providerRankings, ok := data["providerRankings"].([]any); !ok || len(providerRankings) != 5 {
+		t.Fatalf("expected provider rankings length 5, got %#v", data["providerRankings"])
+	}
+	if modelDistribution, ok := data["modelDistribution"].([]any); !ok || len(modelDistribution) != 10 {
+		t.Fatalf("expected model distribution length 10, got %#v", data["modelDistribution"])
 	}
 }
