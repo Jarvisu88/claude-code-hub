@@ -39,6 +39,7 @@ type usageLogsFilterInput struct {
 	UserID               *int   `json:"userId"`
 	KeyID                *int   `json:"keyId"`
 	ProviderID           *int   `json:"providerId"`
+	MinRetryCount        *int   `json:"minRetryCount"`
 	SessionID            string `json:"sessionId"`
 	StartTime            *int64 `json:"startTime"`
 	EndTime              *int64 `json:"endTime"`
@@ -128,6 +129,7 @@ func (h *UsageLogsActionHandler) list(c *gin.Context) {
 			"userId":               filters.UserID,
 			"keyId":                filters.KeyID,
 			"providerId":           filters.ProviderID,
+			"minRetryCount":        filters.MinRetryCount,
 			"model":                filters.Model,
 			"endpoint":             filters.Endpoint,
 			"sessionId":            filters.SessionID,
@@ -314,6 +316,10 @@ func decodeUsageLogsFilterInput(c *gin.Context) (usageLogsFilterInput, error) {
 	if err != nil {
 		return input, err
 	}
+	input.MinRetryCount, err = parseOptionalIntPointerQuery(c, "minRetryCount")
+	if err != nil {
+		return input, err
+	}
 	input.StartTime, err = parseOptionalInt64PointerQuery(c, "startTime")
 	if err != nil {
 		return input, err
@@ -451,6 +457,7 @@ func (i usageLogsFilterInput) toRepositoryFilters() repository.MessageRequestQue
 		ExcludeStatusCode200: i.ExcludeStatusCode200,
 		Model:                strings.TrimSpace(i.Model),
 		Endpoint:             strings.TrimSpace(i.Endpoint),
+		MinRetryCount:        i.MinRetryCount,
 	}
 	if i.StartTime != nil {
 		start := time.UnixMilli(*i.StartTime)

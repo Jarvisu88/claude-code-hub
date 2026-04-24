@@ -109,6 +109,7 @@ type MessageRequestQueryFilters struct {
 	ExcludeStatusCode200 bool       `json:"excludeStatusCode200,omitempty"`
 	Model                string     `json:"model,omitempty"`
 	Endpoint             string     `json:"endpoint,omitempty"`
+	MinRetryCount        *int       `json:"minRetryCount,omitempty"`
 }
 
 type MessageRequestSessionIDSuggestionFilters struct {
@@ -131,6 +132,53 @@ type messageRequestRepository struct {
 }
 
 const excludeWarmupMessageRequestCondition = "(blocked_by IS NULL OR blocked_by <> 'warmup')"
+const retryCountExpression = `(
+	SELECT
+		CASE
+			WHEN COALESCE(
+				bool_or(
+					(elem->>'reason') IN (
+						'hedge_triggered',
+						'hedge_launched',
+						'hedge_winner',
+						'hedge_loser_cancelled'
+					)
+				),
+				false
+			)
+			THEN 0
+			ELSE GREATEST(
+				COALESCE(
+					sum(
+						CASE
+							WHEN (
+								(elem->>'reason') IN (
+									'concurrent_limit_failed',
+									'retry_failed',
+									'system_error',
+									'resource_not_found',
+									'client_error_non_retryable',
+									'endpoint_pool_exhausted',
+									'vendor_type_all_timeout',
+									'client_abort',
+									'http2_fallback'
+								)
+								OR (
+									(elem->>'reason') IN ('request_success', 'retry_success')
+									AND (elem->>'statusCode') IS NOT NULL
+								)
+							)
+							THEN 1
+							ELSE 0
+						END
+					),
+					0
+				) - 1,
+				0
+			)
+		END
+	FROM jsonb_array_elements(COALESCE(mr.provider_chain, '[]'::jsonb)) AS elem
+)`
 
 func NewMessageRequestRepository(db *bun.DB) MessageRequestRepository {
 	return &messageRequestRepository{
@@ -318,6 +366,9 @@ func applyMessageRequestQueryFilters(query *bun.SelectQuery, filters MessageRequ
 	}
 	if endpoint := strings.TrimSpace(filters.Endpoint); endpoint != "" {
 		query = query.Where("mr.endpoint = ?", endpoint)
+	}
+	if filters.MinRetryCount != nil && *filters.MinRetryCount > 0 {
+		query = query.Where(retryCountExpression+" >= ?", *filters.MinRetryCount)
 	}
 	return query
 }

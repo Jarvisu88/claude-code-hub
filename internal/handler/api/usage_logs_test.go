@@ -180,7 +180,7 @@ func TestUsageLogsActionAcceptsFilters(t *testing.T) {
 		store,
 	).RegisterRoutes(router.Group("/api/actions"))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/actions/usage-logs?limit=5&model=gpt-5.4&endpoint=/v1/responses&sessionId=sess_123&statusCode=201", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/actions/usage-logs?limit=5&model=gpt-5.4&endpoint=/v1/responses&sessionId=sess_123&statusCode=201&minRetryCount=2", nil)
 	req.Header.Set("Authorization", "Bearer admin-token")
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
@@ -194,7 +194,10 @@ func TestUsageLogsActionAcceptsFilters(t *testing.T) {
 	if store.filters.StatusCode == nil || *store.filters.StatusCode != 201 {
 		t.Fatalf("expected status filter 201, got %+v", store.filters.StatusCode)
 	}
-	if !strings.Contains(resp.Body.String(), "\"total\":0") || !strings.Contains(resp.Body.String(), "\"summary\":{\"totalRequests\":3,\"totalRows\":4") {
+	if store.filters.MinRetryCount == nil || *store.filters.MinRetryCount != 2 {
+		t.Fatalf("expected minRetryCount filter 2, got %+v", store.filters.MinRetryCount)
+	}
+	if !strings.Contains(resp.Body.String(), "\"total\":0") || !strings.Contains(resp.Body.String(), "\"summary\":{\"totalRequests\":3,\"totalRows\":4") || !strings.Contains(resp.Body.String(), "\"minRetryCount\":2") {
 		t.Fatalf("expected total field in payload, got %s", resp.Body.String())
 	}
 }
@@ -215,7 +218,7 @@ func TestUsageLogsActionPostJSONAcceptsFilters(t *testing.T) {
 		store,
 	).RegisterRoutes(router.Group("/api/actions"))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogs", strings.NewReader(`{"page":2,"pageSize":25,"userId":9,"keyId":11,"providerId":13,"model":"gpt-5.4","endpoint":"/v1/responses","sessionId":"sess_123","statusCode":201,"excludeStatusCode200":true,"startTime":1710000000000,"endTime":1710003600000}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogs", strings.NewReader(`{"page":2,"pageSize":25,"userId":9,"keyId":11,"providerId":13,"minRetryCount":3,"model":"gpt-5.4","endpoint":"/v1/responses","sessionId":"sess_123","statusCode":201,"excludeStatusCode200":true,"startTime":1710000000000,"endTime":1710003600000}`))
 	req.Header.Set("Authorization", "Bearer admin-token")
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
@@ -230,13 +233,16 @@ func TestUsageLogsActionPostJSONAcceptsFilters(t *testing.T) {
 	if store.filters.UserID == nil || *store.filters.UserID != 9 || store.filters.KeyID == nil || *store.filters.KeyID != 11 || store.filters.ProviderID == nil || *store.filters.ProviderID != 13 {
 		t.Fatalf("expected user/key/provider filters, got %+v", store.filters)
 	}
+	if store.filters.MinRetryCount == nil || *store.filters.MinRetryCount != 3 {
+		t.Fatalf("expected minRetryCount filter, got %+v", store.filters.MinRetryCount)
+	}
 	if store.filters.StatusCode == nil || *store.filters.StatusCode != 201 || !store.filters.ExcludeStatusCode200 {
 		t.Fatalf("expected status filters, got %+v", store.filters)
 	}
 	if store.filters.StartTime == nil || store.filters.EndTime == nil {
 		t.Fatalf("expected start/end time filters, got %+v", store.filters)
 	}
-	if !strings.Contains(resp.Body.String(), "\"userId\":9") || !strings.Contains(resp.Body.String(), "\"excludeStatusCode200\":true") || !strings.Contains(resp.Body.String(), "\"summary\":{\"totalRequests\":2,\"totalRows\":2") {
+	if !strings.Contains(resp.Body.String(), "\"userId\":9") || !strings.Contains(resp.Body.String(), "\"excludeStatusCode200\":true") || !strings.Contains(resp.Body.String(), "\"minRetryCount\":3") || !strings.Contains(resp.Body.String(), "\"summary\":{\"totalRequests\":2,\"totalRows\":2") {
 		t.Fatalf("expected response echo filters, got %s", resp.Body.String())
 	}
 }
@@ -417,7 +423,7 @@ func TestUsageLogsStatsActionAcceptsJSONFilters(t *testing.T) {
 		store,
 	).RegisterRoutes(router.Group("/api/actions"))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogsStats", strings.NewReader(`{"providerId":7,"excludeStatusCode200":true}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/actions/usage-logs/getUsageLogsStats", strings.NewReader(`{"providerId":7,"excludeStatusCode200":true,"minRetryCount":2}`))
 	req.Header.Set("Authorization", "Bearer admin-token")
 	req.Header.Set("Content-Type", "application/json")
 	resp := httptest.NewRecorder()
@@ -428,6 +434,9 @@ func TestUsageLogsStatsActionAcceptsJSONFilters(t *testing.T) {
 	}
 	if store.filters.ProviderID == nil || *store.filters.ProviderID != 7 || !store.filters.ExcludeStatusCode200 {
 		t.Fatalf("expected summary JSON filters, got %+v", store.filters)
+	}
+	if store.filters.MinRetryCount == nil || *store.filters.MinRetryCount != 2 {
+		t.Fatalf("expected summary minRetryCount, got %+v", store.filters.MinRetryCount)
 	}
 }
 
