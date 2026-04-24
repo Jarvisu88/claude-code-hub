@@ -29,6 +29,10 @@ func (f fakeDashboardProviderStore) GetActiveProviders(_ context.Context) ([]*mo
 	return f.providers, f.err
 }
 
+func (f fakeDashboardProviderStore) ListAll(_ context.Context) ([]*model.Provider, error) {
+	return f.providers, f.err
+}
+
 func TestDashboardRealtimeActionReturnsBaselinePayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	sessiontrackersvc.SetIDsForTest([]string{"sess_123", "sess_active", "sess_extra"})

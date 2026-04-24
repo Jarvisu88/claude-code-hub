@@ -56,6 +56,9 @@ type MessageRequestRepository interface {
 	// GetCurrentProviderStatus 获取 provider 当前可用性窗口聚合
 	GetCurrentProviderStatus(ctx context.Context, providerIDs []int, now time.Time, window time.Duration) (map[int]ProviderCurrentStatus, error)
 
+	// ListAvailabilityRows 获取可用性聚合原始请求行
+	ListAvailabilityRows(ctx context.Context, startTime, endTime time.Time, providerIDs []int) ([]AvailabilityRequestRow, error)
+
 	// GetFilterOptions 获取最小筛选选项
 	GetFilterOptions(ctx context.Context) (MessageRequestFilterOptions, error)
 
@@ -93,6 +96,13 @@ type ProviderCurrentStatus struct {
 	GreenCount    int        `json:"greenCount"`
 	RedCount      int        `json:"redCount"`
 	LastRequestAt *time.Time `json:"lastRequestAt,omitempty"`
+}
+
+type AvailabilityRequestRow struct {
+	ProviderID int       `json:"providerId"`
+	CreatedAt  time.Time `json:"createdAt"`
+	StatusCode int       `json:"statusCode"`
+	DurationMs *int      `json:"durationMs,omitempty"`
 }
 
 type MessageRequestTerminalUpdate struct {
@@ -775,6 +785,34 @@ func (r *messageRequestRepository) GetCurrentProviderStatus(ctx context.Context,
 		}
 	}
 	return results, nil
+}
+
+func (r *messageRequestRepository) ListAvailabilityRows(ctx context.Context, startTime, endTime time.Time, providerIDs []int) ([]AvailabilityRequestRow, error) {
+	filteredIDs := make([]int, 0, len(providerIDs))
+	for _, providerID := range providerIDs {
+		if providerID > 0 {
+			filteredIDs = append(filteredIDs, providerID)
+		}
+	}
+
+	var rows []AvailabilityRequestRow
+	query := r.db.NewSelect().
+		Table("message_request AS mr").
+		ColumnExpr("mr.provider_id").
+		ColumnExpr("mr.created_at").
+		ColumnExpr("mr.status_code").
+		ColumnExpr("mr.duration_ms").
+		Where("mr.deleted_at IS NULL").
+		Where("mr.status_code IS NOT NULL").
+		Where("mr.created_at >= ?", startTime).
+		Where("mr.created_at <= ?", endTime)
+	if len(filteredIDs) > 0 {
+		query = query.Where("mr.provider_id IN (?)", bun.In(filteredIDs))
+	}
+	if err := query.Scan(ctx, &rows); err != nil {
+		return nil, errors.NewDatabaseError(err)
+	}
+	return rows, nil
 }
 
 func roundCost6(value float64) float64 {
