@@ -126,6 +126,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken)
 	proxySessionManager := sessionsvc.NewManager(cfg.Session, rdb)
 	livechainsvc.Configure(rdb, time.Duration(cfg.Session.TTL)*time.Second)
+	apihandler.ConfigureUsageLogsExportStore(rdb)
 	proxyHTTPClient := &http.Client{Timeout: cfg.Proxy.FetchBodyTimeout}
 	v1handler.NewHandler(proxyAuthService, proxySessionManager, repoFactory.Provider(), repoFactory.MessageRequest(), proxyHTTPClient).RegisterRoutes(router.Group("/v1"))
 	apihandler.NewProxyStatusHandler(proxyAuthService, repoFactory.User(), repoFactory.MessageRequest()).RegisterDirectRoutes(router)

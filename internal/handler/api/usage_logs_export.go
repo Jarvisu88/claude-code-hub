@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ding113/claude-code-hub/internal/database"
 	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
@@ -37,13 +39,31 @@ type usageLogsExportRecord struct {
 	expiresAt time.Time
 }
 
+type usageLogsExportStatusStore interface {
+	save(record usageLogsExportRecord)
+	update(jobID string, mutate func(*usageLogsExportRecord))
+	get(jobID string) (usageLogsExportRecord, bool)
+}
+
 type usageLogsExportStore struct {
 	mu    sync.Mutex
 	items map[string]usageLogsExportRecord
 }
 
-var defaultUsageLogsExportStore = &usageLogsExportStore{
+type redisUsageLogsExportStore struct {
+	client *database.RedisClient
+}
+
+var defaultUsageLogsExportStore usageLogsExportStatusStore = &usageLogsExportStore{
 	items: map[string]usageLogsExportRecord{},
+}
+
+func ConfigureUsageLogsExportStore(client *database.RedisClient) {
+	if client == nil {
+		defaultUsageLogsExportStore = &usageLogsExportStore{items: map[string]usageLogsExportRecord{}}
+		return
+	}
+	defaultUsageLogsExportStore = &redisUsageLogsExportStore{client: client}
 }
 
 func (s *usageLogsExportStore) save(record usageLogsExportRecord) {
@@ -72,6 +92,53 @@ func (s *usageLogsExportStore) get(jobID string) (usageLogsExportRecord, bool) {
 	s.cleanupLocked()
 	record, ok := s.items[jobID]
 	return record, ok
+}
+
+func (s *redisUsageLogsExportStore) save(record usageLogsExportRecord) {
+	if s == nil || s.client == nil {
+		return
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return
+	}
+	_ = s.client.Set(context.Background(), usageLogsExportRedisKey(record.status.JobID), payload, usageLogsExportJobTTL).Err()
+}
+
+func (s *redisUsageLogsExportStore) update(jobID string, mutate func(*usageLogsExportRecord)) {
+	if s == nil || s.client == nil {
+		return
+	}
+	record, ok := s.get(jobID)
+	if !ok {
+		return
+	}
+	mutate(&record)
+	record.expiresAt = usageLogsExportNow().Add(usageLogsExportJobTTL)
+	s.save(record)
+}
+
+func (s *redisUsageLogsExportStore) get(jobID string) (usageLogsExportRecord, bool) {
+	if s == nil || s.client == nil {
+		return usageLogsExportRecord{}, false
+	}
+	raw, err := s.client.Get(context.Background(), usageLogsExportRedisKey(jobID)).Result()
+	if err != nil || raw == "" {
+		return usageLogsExportRecord{}, false
+	}
+	var record usageLogsExportRecord
+	if err := json.Unmarshal([]byte(raw), &record); err != nil {
+		return usageLogsExportRecord{}, false
+	}
+	if !record.expiresAt.After(usageLogsExportNow()) {
+		_ = s.client.Del(context.Background(), usageLogsExportRedisKey(jobID)).Err()
+		return usageLogsExportRecord{}, false
+	}
+	return record, true
+}
+
+func usageLogsExportRedisKey(jobID string) string {
+	return "cch:usage-logs:export:" + jobID
 }
 
 func (s *usageLogsExportStore) cleanupLocked() {
