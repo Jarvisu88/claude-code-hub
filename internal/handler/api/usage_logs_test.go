@@ -17,21 +17,23 @@ import (
 )
 
 type fakeUsageLogsStore struct {
-	logs             []*model.MessageRequest
-	recentErr        error
-	limit            int
-	page             int
-	filters          repository.MessageRequestQueryFilters
-	batchFilters     repository.MessageRequestBatchFilters
-	batchResult      repository.MessageRequestBatchResult
-	batchResults     []repository.MessageRequestBatchResult
-	batchCalls       []repository.MessageRequestBatchFilters
-	summary          repository.MessageRequestSummary
-	overview         repository.MessageRequestOverviewMetrics
-	options          repository.MessageRequestFilterOptions
-	suggestions      []string
-	suggestionFilter repository.MessageRequestSessionIDSuggestionFilters
-	overviewLocation *time.Location
+	logs               []*model.MessageRequest
+	recentErr          error
+	limit              int
+	page               int
+	filters            repository.MessageRequestQueryFilters
+	batchFilters       repository.MessageRequestBatchFilters
+	batchResult        repository.MessageRequestBatchResult
+	batchResults       []repository.MessageRequestBatchResult
+	batchCalls         []repository.MessageRequestBatchFilters
+	summary            repository.MessageRequestSummary
+	overview           repository.MessageRequestOverviewMetrics
+	options            repository.MessageRequestFilterOptions
+	optionsErr         error
+	filterOptionsCalls int
+	suggestions        []string
+	suggestionFilter   repository.MessageRequestSessionIDSuggestionFilters
+	overviewLocation   *time.Location
 }
 
 func (f *fakeUsageLogsStore) ListRecent(_ context.Context, limit int) ([]*model.MessageRequest, error) {
@@ -96,7 +98,8 @@ func (f *fakeUsageLogsStore) GetOverviewMetrics(_ context.Context, _ time.Time, 
 }
 
 func (f *fakeUsageLogsStore) GetFilterOptions(_ context.Context) (repository.MessageRequestFilterOptions, error) {
-	return f.options, nil
+	f.filterOptionsCalls++
+	return f.options, f.optionsErr
 }
 
 func (f *fakeUsageLogsStore) FindSessionIDSuggestions(_ context.Context, filters repository.MessageRequestSessionIDSuggestionFilters) ([]string, error) {
@@ -467,6 +470,13 @@ func TestUsageLogsStatsActionAcceptsJSONFilters(t *testing.T) {
 
 func TestUsageLogsActionReturnsFilterOptions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	origNow := usageLogsFilterOptionsNow
+	usageLogsFilterOptionsNow = func() time.Time { return time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC) }
+	defer func() {
+		usageLogsFilterOptionsNow = origNow
+		defaultUsageLogsFilterOptionsCache = &usageLogsFilterOptionsCacheStore{}
+	}()
+	defaultUsageLogsFilterOptionsCache = &usageLogsFilterOptionsCacheStore{}
 
 	enabled := true
 	store := &fakeUsageLogsStore{options: repository.MessageRequestFilterOptions{
@@ -507,6 +517,21 @@ func TestUsageLogsActionReturnsFilterOptions(t *testing.T) {
 	}
 	if !strings.Contains(postResp.Body.String(), "gpt-5.4") {
 		t.Fatalf("expected action-style filter options payload, got %s", postResp.Body.String())
+	}
+	if store.filterOptionsCalls != 1 {
+		t.Fatalf("expected filter options cache to reuse first fetch, got %d store calls", store.filterOptionsCalls)
+	}
+
+	usageLogsFilterOptionsNow = func() time.Time { return time.Date(2026, 4, 24, 12, 6, 0, 0, time.UTC) }
+	expiredReq := httptest.NewRequest(http.MethodGet, "/api/actions/usage-logs/filter-options", nil)
+	expiredReq.Header.Set("Authorization", "Bearer admin-token")
+	expiredResp := httptest.NewRecorder()
+	router.ServeHTTP(expiredResp, expiredReq)
+	if expiredResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 after cache expiry, got %d: %s", expiredResp.Code, expiredResp.Body.String())
+	}
+	if store.filterOptionsCalls != 2 {
+		t.Fatalf("expected cache expiry to trigger second fetch, got %d store calls", store.filterOptionsCalls)
 	}
 }
 

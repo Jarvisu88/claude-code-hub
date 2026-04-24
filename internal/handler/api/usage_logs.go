@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ding113/claude-code-hub/internal/model"
@@ -31,6 +32,44 @@ type usageLogsStore interface {
 type UsageLogsActionHandler struct {
 	auth  adminAuthenticator
 	store usageLogsStore
+}
+
+const usageLogsFilterOptionsCacheTTL = 5 * time.Minute
+
+var usageLogsFilterOptionsNow = time.Now
+
+type usageLogsFilterOptionsCacheEntry struct {
+	options   repository.MessageRequestFilterOptions
+	expiresAt time.Time
+}
+
+type usageLogsFilterOptionsCacheStore struct {
+	mu    sync.Mutex
+	entry *usageLogsFilterOptionsCacheEntry
+}
+
+var defaultUsageLogsFilterOptionsCache = &usageLogsFilterOptionsCacheStore{}
+
+func (s *usageLogsFilterOptionsCacheStore) get() (repository.MessageRequestFilterOptions, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.entry == nil {
+		return repository.MessageRequestFilterOptions{}, false
+	}
+	if !s.entry.expiresAt.After(usageLogsFilterOptionsNow()) {
+		s.entry = nil
+		return repository.MessageRequestFilterOptions{}, false
+	}
+	return s.entry.options, true
+}
+
+func (s *usageLogsFilterOptionsCacheStore) set(options repository.MessageRequestFilterOptions) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entry = &usageLogsFilterOptionsCacheEntry{
+		options:   options,
+		expiresAt: usageLogsFilterOptionsNow().Add(usageLogsFilterOptionsCacheTTL),
+	}
 }
 
 type usageLogsFilterInput struct {
@@ -199,7 +238,7 @@ func (h *UsageLogsActionHandler) models(c *gin.Context) {
 		writeAdminError(c, appErrors.NewInternalError("日志仓储未初始化"))
 		return
 	}
-	options, err := h.store.GetFilterOptions(c.Request.Context())
+	options, err := h.getFilterOptions(c.Request.Context())
 	if err != nil {
 		writeAdminError(c, err)
 		return
@@ -212,7 +251,7 @@ func (h *UsageLogsActionHandler) statusCodes(c *gin.Context) {
 		writeAdminError(c, appErrors.NewInternalError("日志仓储未初始化"))
 		return
 	}
-	options, err := h.store.GetFilterOptions(c.Request.Context())
+	options, err := h.getFilterOptions(c.Request.Context())
 	if err != nil {
 		writeAdminError(c, err)
 		return
@@ -225,7 +264,7 @@ func (h *UsageLogsActionHandler) endpoints(c *gin.Context) {
 		writeAdminError(c, appErrors.NewInternalError("日志仓储未初始化"))
 		return
 	}
-	options, err := h.store.GetFilterOptions(c.Request.Context())
+	options, err := h.getFilterOptions(c.Request.Context())
 	if err != nil {
 		writeAdminError(c, err)
 		return
@@ -256,7 +295,7 @@ func (h *UsageLogsActionHandler) filterOptions(c *gin.Context) {
 		writeAdminError(c, appErrors.NewInternalError("日志仓储未初始化"))
 		return
 	}
-	options, err := h.store.GetFilterOptions(c.Request.Context())
+	options, err := h.getFilterOptions(c.Request.Context())
 	if err != nil {
 		writeAdminError(c, err)
 		return
@@ -514,6 +553,18 @@ func normalizeUsageLogsBatchLimit(limit int) int {
 		return 100
 	}
 	return limit
+}
+
+func (h *UsageLogsActionHandler) getFilterOptions(ctx context.Context) (repository.MessageRequestFilterOptions, error) {
+	if options, ok := defaultUsageLogsFilterOptionsCache.get(); ok {
+		return options, nil
+	}
+	options, err := h.store.GetFilterOptions(ctx)
+	if err != nil {
+		return repository.MessageRequestFilterOptions{}, err
+	}
+	defaultUsageLogsFilterOptionsCache.set(options)
+	return options, nil
 }
 
 func buildUsageLogResponse(log *model.MessageRequest) gin.H {
