@@ -11,6 +11,7 @@ import (
 
 	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
+	endpointprobesvc "github.com/ding113/claude-code-hub/internal/service/endpointprobe"
 	"github.com/gin-gonic/gin"
 )
 
@@ -90,9 +91,10 @@ func (h *AvailabilityEndpointsHandler) probeLogs(c *gin.Context) {
 		return
 	}
 	endpoint := providerToEndpoint(provider)
+	logs := endpointprobesvc.ListLogs(endpointID, limit, offset)
 	c.JSON(http.StatusOK, gin.H{
 		"endpoint": endpoint,
-		"logs":     []gin.H{},
+		"logs":     logs,
 		"limit":    limit,
 		"offset":   offset,
 	})
@@ -173,6 +175,7 @@ func providerToEndpoint(provider *model.Provider) gin.H {
 		sortOrder = *provider.Priority
 	}
 	isEnabled := provider.IsEnabled == nil || *provider.IsEnabled
+	status := endpointprobesvc.GetStatus(provider.ID)
 	return gin.H{
 		"id":                    provider.ID,
 		"vendorId":              providerVendorID(provider.URL),
@@ -181,12 +184,12 @@ func providerToEndpoint(provider *model.Provider) gin.H {
 		"label":                 provider.Name,
 		"sortOrder":             sortOrder,
 		"isEnabled":             isEnabled,
-		"lastProbedAt":          nil,
-		"lastProbeOk":           nil,
-		"lastProbeStatusCode":   nil,
-		"lastProbeLatencyMs":    nil,
-		"lastProbeErrorType":    nil,
-		"lastProbeErrorMessage": nil,
+		"lastProbedAt":          status.LastProbedAt,
+		"lastProbeOk":           status.LastProbeOk,
+		"lastProbeStatusCode":   status.LastProbeStatusCode,
+		"lastProbeLatencyMs":    status.LastProbeLatencyMs,
+		"lastProbeErrorType":    status.LastProbeErrorType,
+		"lastProbeErrorMessage": status.LastProbeErrorMessage,
 		"createdAt":             provider.CreatedAt,
 		"updatedAt":             provider.UpdatedAt,
 		"deletedAt":             provider.DeletedAt,
