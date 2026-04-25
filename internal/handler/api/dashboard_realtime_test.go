@@ -33,6 +33,15 @@ func (f fakeDashboardProviderStore) ListAll(_ context.Context) ([]*model.Provide
 	return f.providers, f.err
 }
 
+func (f fakeDashboardProviderStore) GetByID(_ context.Context, id int) (*model.Provider, error) {
+	for _, provider := range f.providers {
+		if provider != nil && provider.ID == id {
+			return provider, nil
+		}
+	}
+	return nil, nil
+}
+
 func TestDashboardRealtimeActionReturnsBaselinePayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	sessiontrackersvc.SetIDsForTest([]string{"sess_123", "sess_active", "sess_extra"})
