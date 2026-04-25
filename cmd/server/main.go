@@ -133,6 +133,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	apihandler.NewAdminDatabaseExportHandler(proxyAuthService, backupRunner).RegisterRoutes(router)
 	apihandler.NewAdminDatabaseImportHandler(proxyAuthService, backupRunner).RegisterRoutes(router)
 	apihandler.NewAdminLogCleanupHandler(proxyAuthService, apihandler.NewDBLogCleanupRunner(db)).RegisterRoutes(router)
+	apihandler.NewInternalDataGenHandler(proxyAuthService, repoFactory.MessageRequest()).RegisterRoutes(router)
 	apihandler.NewCurrentAvailabilityHandler(proxyAuthService, repoFactory.Provider(), repoFactory.MessageRequest()).RegisterRoutes(router)
 	apihandler.NewAvailabilityHandler(proxyAuthService, repoFactory.Provider(), repoFactory.MessageRequest()).RegisterRoutes(router)
 	apihandler.NewAvailabilityEndpointsHandler(proxyAuthService, repoFactory.Provider()).RegisterRoutes(router)
