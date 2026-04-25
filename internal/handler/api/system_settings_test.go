@@ -19,7 +19,7 @@ type fakeSystemSettingsStore struct {
 
 func (f *fakeSystemSettingsStore) Get(_ context.Context) (*model.SystemSettings, error) {
 	if f.settings == nil {
-		f.settings = &model.SystemSettings{ID: 1, SiteTitle: "Claude Code Hub", CurrencyDisplay: "USD", BillingModelSource: "original", CodexPriorityBillingSource: "requested", IpGeoLookupEnabled: true}
+		f.settings = &model.SystemSettings{ID: 1, SiteTitle: "Claude Code Hub", CurrencyDisplay: "USD", BillingModelSource: "original", CodexPriorityBillingSource: "requested", EnableThinkingSignatureRectifier: true, EnableThinkingBudgetRectifier: true, EnableBillingHeaderRectifier: true, EnableResponseInputRectifier: true, EnableCodexSessionIDCompletion: true, EnableClaudeMetadataUserIDInjection: true, EnableResponseFixer: true, ResponseFixerConfig: map[string]any{"fixTruncatedJson": true}, IpGeoLookupEnabled: true}
 	}
 	return f.settings, nil
 }
@@ -40,6 +40,39 @@ func (f *fakeSystemSettingsStore) UpdateFields(_ context.Context, _ int, fields 
 	}
 	if value, ok := fields["codex_priority_billing_source"].(string); ok {
 		f.settings.CodexPriorityBillingSource = value
+	}
+	if value, ok := fields["enable_thinking_signature_rectifier"].(bool); ok {
+		f.settings.EnableThinkingSignatureRectifier = value
+	}
+	if value, ok := fields["enable_thinking_budget_rectifier"].(bool); ok {
+		f.settings.EnableThinkingBudgetRectifier = value
+	}
+	if value, ok := fields["enable_billing_header_rectifier"].(bool); ok {
+		f.settings.EnableBillingHeaderRectifier = value
+	}
+	if value, ok := fields["enable_response_input_rectifier"].(bool); ok {
+		f.settings.EnableResponseInputRectifier = value
+	}
+	if value, ok := fields["enable_codex_session_id_completion"].(bool); ok {
+		f.settings.EnableCodexSessionIDCompletion = value
+	}
+	if value, ok := fields["enable_claude_metadata_user_id_injection"].(bool); ok {
+		f.settings.EnableClaudeMetadataUserIDInjection = value
+	}
+	if value, ok := fields["enable_response_fixer"].(bool); ok {
+		f.settings.EnableResponseFixer = value
+	}
+	if value, ok := fields["response_fixer_config"].(map[string]any); ok {
+		f.settings.ResponseFixerConfig = value
+	}
+	if value, ok := fields["quota_db_refresh_interval_seconds"].(int); ok {
+		f.settings.QuotaDbRefreshIntervalSeconds = &value
+	}
+	if value, ok := fields["quota_lease_percent_daily"].(float64); ok {
+		f.settings.QuotaLeasePercentDaily = &value
+	}
+	if value, ok := fields["ip_extraction_config"].(map[string]any); ok {
+		f.settings.IpExtractionConfig = value
 	}
 	if value, ok := fields["timezone"].(string); ok {
 		f.settings.Timezone = &value
@@ -76,7 +109,7 @@ func TestSystemSettingsRoutes(t *testing.T) {
 		t.Fatalf("expected system settings payload, got %s", getResp.Body.String())
 	}
 
-	putReq := httptest.NewRequest(http.MethodPut, "/api/system-settings", strings.NewReader(`{"siteTitle":"CCH Go","enableHttp2":true,"enableHighConcurrencyMode":true,"ipGeoLookupEnabled":false,"codexPriorityBillingSource":"actual","timezone":"Asia/Shanghai"}`))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/system-settings", strings.NewReader(`{"siteTitle":"CCH Go","enableHttp2":true,"enableHighConcurrencyMode":true,"ipGeoLookupEnabled":false,"codexPriorityBillingSource":"actual","timezone":"Asia/Shanghai","enableThinkingSignatureRectifier":false,"enableThinkingBudgetRectifier":false,"enableBillingHeaderRectifier":false,"enableResponseInputRectifier":false,"enableCodexSessionIdCompletion":false,"enableClaudeMetadataUserIdInjection":false,"enableResponseFixer":false,"responseFixerConfig":{"fixTruncatedJson":false},"quotaDbRefreshIntervalSeconds":15,"quotaLeasePercentDaily":0.2,"ipExtractionConfig":{"strategy":"custom"}}`))
 	putReq.Header.Set("Authorization", "Bearer admin-token")
 	putReq.Header.Set("Content-Type", "application/json")
 	putResp := httptest.NewRecorder()
@@ -92,5 +125,11 @@ func TestSystemSettingsRoutes(t *testing.T) {
 	}
 	if store.fields["enable_high_concurrency_mode"] != true || store.fields["ip_geo_lookup_enabled"] != false || store.fields["codex_priority_billing_source"] != "actual" || store.fields["timezone"] != "Asia/Shanghai" {
 		t.Fatalf("expected extended system settings fields, got %+v", store.fields)
+	}
+	if store.fields["enable_thinking_signature_rectifier"] != false || store.fields["enable_thinking_budget_rectifier"] != false || store.fields["enable_billing_header_rectifier"] != false || store.fields["enable_response_input_rectifier"] != false || store.fields["enable_codex_session_id_completion"] != false || store.fields["enable_claude_metadata_user_id_injection"] != false || store.fields["enable_response_fixer"] != false {
+		t.Fatalf("expected rectifier toggles captured, got %+v", store.fields)
+	}
+	if store.fields["quota_db_refresh_interval_seconds"] != 15 || store.fields["quota_lease_percent_daily"] != 0.2 {
+		t.Fatalf("expected quota fields captured, got %+v", store.fields)
 	}
 }

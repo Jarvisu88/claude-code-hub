@@ -47,14 +47,28 @@ func (r *systemSettingsRepository) Get(ctx context.Context) (*model.SystemSettin
 
 	now := time.Now()
 	settings = &model.SystemSettings{
-		SiteTitle:                  "Claude Code Hub",
-		CurrencyDisplay:            "USD",
-		BillingModelSource:         "original",
-		CodexPriorityBillingSource: "requested",
-		EnableHighConcurrencyMode:  false,
-		IpGeoLookupEnabled:         true,
-		CreatedAt:                  now,
-		UpdatedAt:                  now,
+		SiteTitle:                           "Claude Code Hub",
+		CurrencyDisplay:                     "USD",
+		BillingModelSource:                  "original",
+		CodexPriorityBillingSource:          "requested",
+		EnableHighConcurrencyMode:           false,
+		EnableThinkingSignatureRectifier:    true,
+		EnableThinkingBudgetRectifier:       true,
+		EnableBillingHeaderRectifier:        true,
+		EnableResponseInputRectifier:        true,
+		EnableCodexSessionIDCompletion:      true,
+		EnableClaudeMetadataUserIDInjection: true,
+		EnableResponseFixer:                 true,
+		ResponseFixerConfig: map[string]any{
+			"fixTruncatedJson": true,
+			"fixSseFormat":     true,
+			"fixEncoding":      true,
+			"maxJsonDepth":     200,
+			"maxFixSize":       1024 * 1024,
+		},
+		IpGeoLookupEnabled: true,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 	_, err = r.db.NewInsert().
 		Model(settings).

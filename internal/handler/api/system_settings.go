@@ -56,19 +56,34 @@ func (h *SystemSettingsHandler) update(c *gin.Context) {
 	}
 
 	var input struct {
-		SiteTitle                        *string `json:"siteTitle"`
-		AllowGlobalUsageView             *bool   `json:"allowGlobalUsageView"`
-		CurrencyDisplay                  *string `json:"currencyDisplay"`
-		BillingModelSource               *string `json:"billingModelSource"`
-		CodexPriorityBillingSource       *string `json:"codexPriorityBillingSource"`
-		Timezone                         *string `json:"timezone"`
-		EnableAutoCleanup                *bool   `json:"enableAutoCleanup"`
-		EnableClientVersionCheck         *bool   `json:"enableClientVersionCheck"`
-		VerboseProviderError             *bool   `json:"verboseProviderError"`
-		EnableHTTP2                      *bool   `json:"enableHttp2"`
-		EnableHighConcurrencyMode        *bool   `json:"enableHighConcurrencyMode"`
-		InterceptAnthropicWarmupRequests *bool   `json:"interceptAnthropicWarmupRequests"`
-		IpGeoLookupEnabled               *bool   `json:"ipGeoLookupEnabled"`
+		SiteTitle                           *string        `json:"siteTitle"`
+		AllowGlobalUsageView                *bool          `json:"allowGlobalUsageView"`
+		CurrencyDisplay                     *string        `json:"currencyDisplay"`
+		BillingModelSource                  *string        `json:"billingModelSource"`
+		CodexPriorityBillingSource          *string        `json:"codexPriorityBillingSource"`
+		Timezone                            *string        `json:"timezone"`
+		EnableAutoCleanup                   *bool          `json:"enableAutoCleanup"`
+		EnableClientVersionCheck            *bool          `json:"enableClientVersionCheck"`
+		VerboseProviderError                *bool          `json:"verboseProviderError"`
+		EnableHTTP2                         *bool          `json:"enableHttp2"`
+		EnableHighConcurrencyMode           *bool          `json:"enableHighConcurrencyMode"`
+		InterceptAnthropicWarmupRequests    *bool          `json:"interceptAnthropicWarmupRequests"`
+		EnableThinkingSignatureRectifier    *bool          `json:"enableThinkingSignatureRectifier"`
+		EnableThinkingBudgetRectifier       *bool          `json:"enableThinkingBudgetRectifier"`
+		EnableBillingHeaderRectifier        *bool          `json:"enableBillingHeaderRectifier"`
+		EnableResponseInputRectifier        *bool          `json:"enableResponseInputRectifier"`
+		EnableCodexSessionIDCompletion      *bool          `json:"enableCodexSessionIdCompletion"`
+		EnableClaudeMetadataUserIDInjection *bool          `json:"enableClaudeMetadataUserIdInjection"`
+		EnableResponseFixer                 *bool          `json:"enableResponseFixer"`
+		ResponseFixerConfig                 map[string]any `json:"responseFixerConfig"`
+		QuotaDbRefreshIntervalSeconds       *int           `json:"quotaDbRefreshIntervalSeconds"`
+		QuotaLeasePercent5h                 *float64       `json:"quotaLeasePercent5h"`
+		QuotaLeasePercentDaily              *float64       `json:"quotaLeasePercentDaily"`
+		QuotaLeasePercentWeekly             *float64       `json:"quotaLeasePercentWeekly"`
+		QuotaLeasePercentMonthly            *float64       `json:"quotaLeasePercentMonthly"`
+		QuotaLeaseCapUsd                    *float64       `json:"quotaLeaseCapUsd"`
+		IpExtractionConfig                  map[string]any `json:"ipExtractionConfig"`
+		IpGeoLookupEnabled                  *bool          `json:"ipGeoLookupEnabled"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		writeAdminError(c, appErrors.NewInvalidRequest("请求体不是合法 JSON"))
@@ -136,6 +151,51 @@ func (h *SystemSettingsHandler) update(c *gin.Context) {
 	}
 	if input.InterceptAnthropicWarmupRequests != nil {
 		fields["intercept_anthropic_warmup_requests"] = *input.InterceptAnthropicWarmupRequests
+	}
+	if input.EnableThinkingSignatureRectifier != nil {
+		fields["enable_thinking_signature_rectifier"] = *input.EnableThinkingSignatureRectifier
+	}
+	if input.EnableThinkingBudgetRectifier != nil {
+		fields["enable_thinking_budget_rectifier"] = *input.EnableThinkingBudgetRectifier
+	}
+	if input.EnableBillingHeaderRectifier != nil {
+		fields["enable_billing_header_rectifier"] = *input.EnableBillingHeaderRectifier
+	}
+	if input.EnableResponseInputRectifier != nil {
+		fields["enable_response_input_rectifier"] = *input.EnableResponseInputRectifier
+	}
+	if input.EnableCodexSessionIDCompletion != nil {
+		fields["enable_codex_session_id_completion"] = *input.EnableCodexSessionIDCompletion
+	}
+	if input.EnableClaudeMetadataUserIDInjection != nil {
+		fields["enable_claude_metadata_user_id_injection"] = *input.EnableClaudeMetadataUserIDInjection
+	}
+	if input.EnableResponseFixer != nil {
+		fields["enable_response_fixer"] = *input.EnableResponseFixer
+	}
+	if input.ResponseFixerConfig != nil {
+		fields["response_fixer_config"] = input.ResponseFixerConfig
+	}
+	if input.QuotaDbRefreshIntervalSeconds != nil {
+		fields["quota_db_refresh_interval_seconds"] = *input.QuotaDbRefreshIntervalSeconds
+	}
+	if input.QuotaLeasePercent5h != nil {
+		fields["quota_lease_percent_5h"] = *input.QuotaLeasePercent5h
+	}
+	if input.QuotaLeasePercentDaily != nil {
+		fields["quota_lease_percent_daily"] = *input.QuotaLeasePercentDaily
+	}
+	if input.QuotaLeasePercentWeekly != nil {
+		fields["quota_lease_percent_weekly"] = *input.QuotaLeasePercentWeekly
+	}
+	if input.QuotaLeasePercentMonthly != nil {
+		fields["quota_lease_percent_monthly"] = *input.QuotaLeasePercentMonthly
+	}
+	if input.QuotaLeaseCapUsd != nil {
+		fields["quota_lease_cap_usd"] = *input.QuotaLeaseCapUsd
+	}
+	if input.IpExtractionConfig != nil {
+		fields["ip_extraction_config"] = input.IpExtractionConfig
 	}
 	if input.IpGeoLookupEnabled != nil {
 		fields["ip_geo_lookup_enabled"] = *input.IpGeoLookupEnabled

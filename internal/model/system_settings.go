@@ -50,6 +50,39 @@ type SystemSettings struct {
 	// 开启后：对 /v1/messages 的 Warmup 请求直接由 CCH 抢答，避免打到上游供应商
 	InterceptAnthropicWarmupRequests bool `bun:"intercept_anthropic_warmup_requests,notnull,default:false" json:"interceptAnthropicWarmupRequests"`
 
+	// thinking signature 整流器
+	EnableThinkingSignatureRectifier bool `bun:"enable_thinking_signature_rectifier,notnull,default:true" json:"enableThinkingSignatureRectifier"`
+
+	// thinking budget 整流器
+	EnableThinkingBudgetRectifier bool `bun:"enable_thinking_budget_rectifier,notnull,default:true" json:"enableThinkingBudgetRectifier"`
+
+	// billing header 整流器
+	EnableBillingHeaderRectifier bool `bun:"enable_billing_header_rectifier,notnull,default:true" json:"enableBillingHeaderRectifier"`
+
+	// Response API input 整流器
+	EnableResponseInputRectifier bool `bun:"enable_response_input_rectifier,notnull,default:true" json:"enableResponseInputRectifier"`
+
+	// Codex Session ID 补全
+	EnableCodexSessionIDCompletion bool `bun:"enable_codex_session_id_completion,notnull,default:true" json:"enableCodexSessionIdCompletion"`
+
+	// Claude metadata.user_id 注入
+	EnableClaudeMetadataUserIDInjection bool `bun:"enable_claude_metadata_user_id_injection,notnull,default:true" json:"enableClaudeMetadataUserIdInjection"`
+
+	// 响应整流
+	EnableResponseFixer bool           `bun:"enable_response_fixer,notnull,default:true" json:"enableResponseFixer"`
+	ResponseFixerConfig map[string]any `bun:"response_fixer_config,type:jsonb" json:"responseFixerConfig"`
+
+	// Quota lease settings
+	QuotaDbRefreshIntervalSeconds *int     `bun:"quota_db_refresh_interval_seconds" json:"quotaDbRefreshIntervalSeconds"`
+	QuotaLeasePercent5h           *float64 `bun:"quota_lease_percent_5h" json:"quotaLeasePercent5h"`
+	QuotaLeasePercentDaily        *float64 `bun:"quota_lease_percent_daily" json:"quotaLeasePercentDaily"`
+	QuotaLeasePercentWeekly       *float64 `bun:"quota_lease_percent_weekly" json:"quotaLeasePercentWeekly"`
+	QuotaLeasePercentMonthly      *float64 `bun:"quota_lease_percent_monthly" json:"quotaLeasePercentMonthly"`
+	QuotaLeaseCapUsd              *float64 `bun:"quota_lease_cap_usd" json:"quotaLeaseCapUsd"`
+
+	// 客户端 IP 提取链
+	IpExtractionConfig map[string]any `bun:"ip_extraction_config,type:jsonb" json:"ipExtractionConfig"`
+
 	// 是否启用 IP 归属地查询
 	IpGeoLookupEnabled bool `bun:"ip_geo_lookup_enabled,notnull,default:true" json:"ipGeoLookupEnabled"`
 
