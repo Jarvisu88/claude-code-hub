@@ -104,7 +104,7 @@ func (r *modelPriceRepository) GetLatestByModelName(ctx context.Context, modelNa
 	err := r.db.NewSelect().
 		Model(price).
 		Where("model_name = ?", modelName).
-		Order("created_at DESC").
+		OrderExpr("(source = 'manual') DESC, created_at DESC NULLS LAST, id DESC").
 		Limit(1).
 		Scan(ctx)
 
@@ -120,28 +120,12 @@ func (r *modelPriceRepository) GetLatestByModelName(ctx context.Context, modelNa
 
 // ListAllLatestPrices 获取所有模型的最新价格
 func (r *modelPriceRepository) ListAllLatestPrices(ctx context.Context) ([]*model.ModelPrice, error) {
-	// CTE 1: 获取每个模型的最新创建时间
-	latestPrices := r.db.NewSelect().
-		Model((*model.ModelPrice)(nil)).
-		Column("model_name").
-		ColumnExpr("MAX(created_at) AS max_created_at").
-		Group("model_name")
+	latestRecords := buildLatestModelPricesBaseQuery(r.db, "", "", "")
 
-	// CTE 2: 获取最新记录（处理同一时间多条记录的情况）
-	latestRecords := r.db.NewSelect().
-		ColumnExpr("mp.id, mp.model_name, mp.price_data, mp.source, mp.created_at, mp.updated_at").
-		ColumnExpr("ROW_NUMBER() OVER (PARTITION BY mp.model_name ORDER BY (mp.source = 'manual') DESC, mp.created_at DESC, mp.id DESC) AS rn").
-		TableExpr("model_prices AS mp").
-		Join("INNER JOIN (?) AS lp ON mp.model_name = lp.model_name AND mp.created_at = lp.max_created_at", latestPrices)
-
-	// 主查询：筛选每个模型的第一条记录
 	var prices []*model.ModelPrice
 	err := r.db.NewSelect().
-		With("latest_prices", latestPrices).
-		With("latest_records", latestRecords).
+		TableExpr("(?) AS latest_records", latestRecords).
 		ColumnExpr("id, model_name, price_data, source, created_at, updated_at").
-		TableExpr("latest_records").
-		Where("rn = 1").
 		OrderExpr("updated_at DESC NULLS LAST, model_name ASC").
 		Scan(ctx, &prices)
 
@@ -158,63 +142,31 @@ func (r *modelPriceRepository) ListAllLatestPricesPaginated(ctx context.Context,
 
 	// 处理搜索参数
 	search = strings.TrimSpace(search)
-
-	// 构建基础查询的公共部分
-	buildLatestPricesQuery := func() *bun.SelectQuery {
-		q := r.db.NewSelect().
-			Model((*model.ModelPrice)(nil)).
-			Column("model_name").
-			ColumnExpr("MAX(created_at) AS max_created_at").
-			Group("model_name")
-		if search != "" {
-			q = q.Where("model_name ILIKE ?", "%"+search+"%")
-		}
-		if source = strings.TrimSpace(source); source != "" {
-			q = q.Where("source = ?", source)
-		}
-		if litellmProvider = strings.TrimSpace(litellmProvider); litellmProvider != "" {
-			q = q.Where("price_data->>'litellm_provider' = ?", litellmProvider)
-		}
-		return q
-	}
-
-	buildLatestRecordsQuery := func(latestPrices *bun.SelectQuery) *bun.SelectQuery {
-		return r.db.NewSelect().
-			ColumnExpr("mp.id, mp.model_name, mp.price_data, mp.source, mp.created_at, mp.updated_at").
-			ColumnExpr("ROW_NUMBER() OVER (PARTITION BY mp.model_name ORDER BY (mp.source = 'manual') DESC, mp.created_at DESC, mp.id DESC) AS rn").
-			TableExpr("model_prices AS mp").
-			Join("INNER JOIN (?) AS lp ON mp.model_name = lp.model_name AND mp.created_at = lp.max_created_at", latestPrices)
-	}
+	source = strings.TrimSpace(source)
+	litellmProvider = strings.TrimSpace(litellmProvider)
 
 	// 1. 查询总数
-	latestPricesForCount := buildLatestPricesQuery()
-	latestRecordsForCount := buildLatestRecordsQuery(latestPricesForCount)
-
 	var countResult struct {
 		Total int `bun:"total"`
 	}
 	err := r.db.NewSelect().
-		With("latest_prices", latestPricesForCount).
-		With("latest_records", latestRecordsForCount).
-		ColumnExpr("COUNT(*) AS total").
-		TableExpr("latest_records").
-		Where("rn = 1").
+		TableExpr("model_prices").
+		ColumnExpr("COUNT(DISTINCT model_name) AS total").
+		Apply(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return applyModelPriceFilters(q, search, source, litellmProvider)
+		}).
 		Scan(ctx, &countResult)
 	if err != nil {
 		return nil, errors.NewDatabaseError(err)
 	}
 
 	// 2. 查询数据
-	latestPricesForData := buildLatestPricesQuery()
-	latestRecordsForData := buildLatestRecordsQuery(latestPricesForData)
+	latestRecordsForData := buildLatestModelPricesBaseQuery(r.db, search, source, litellmProvider)
 
 	var prices []*model.ModelPrice
 	err = r.db.NewSelect().
-		With("latest_prices", latestPricesForData).
-		With("latest_records", latestRecordsForData).
+		TableExpr("(?) AS latest_records", latestRecordsForData).
 		ColumnExpr("id, model_name, price_data, source, created_at, updated_at").
-		TableExpr("latest_records").
-		Where("rn = 1").
 		OrderExpr("updated_at DESC NULLS LAST, model_name ASC").
 		Limit(pageSize).
 		Offset(offset).
@@ -235,6 +187,28 @@ func (r *modelPriceRepository) ListAllLatestPricesPaginated(ctx context.Context,
 		PageSize:   pageSize,
 		TotalPages: totalPages,
 	}, nil
+}
+
+func buildLatestModelPricesBaseQuery(db *bun.DB, search, source, litellmProvider string) *bun.SelectQuery {
+	q := db.NewSelect().
+		TableExpr("model_prices").
+		ColumnExpr("DISTINCT ON (model_name) id, model_name, price_data, source, created_at, updated_at")
+	q = applyModelPriceFilters(q, search, source, litellmProvider)
+	q = q.OrderExpr("model_name, (source = 'manual') DESC, created_at DESC NULLS LAST, id DESC")
+	return q
+}
+
+func applyModelPriceFilters(q *bun.SelectQuery, search, source, litellmProvider string) *bun.SelectQuery {
+	if search != "" {
+		q = q.Where("model_name ILIKE ?", "%"+search+"%")
+	}
+	if source != "" {
+		q = q.Where("source = ?", source)
+	}
+	if litellmProvider != "" {
+		q = q.Where("price_data->>'litellm_provider' = ?", litellmProvider)
+	}
+	return q
 }
 
 // HasAnyRecords 检查是否存在任意价格记录
