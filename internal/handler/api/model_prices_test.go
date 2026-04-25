@@ -40,6 +40,10 @@ func (f *fakeModelPricesStore) ListAllLatestPricesPaginated(_ context.Context, p
 	if litellmProvider != "" {
 		f.search += "|litellmProvider=" + litellmProvider
 	}
+	if f.paginated != nil {
+		f.paginated.Page = page
+		f.paginated.PageSize = pageSize
+	}
 	return f.paginated, nil
 }
 
@@ -135,7 +139,7 @@ func TestModelPricesActionAndDirectRoutes(t *testing.T) {
 	if store.page != 2 || store.pageSize != 20 || store.search != "gpt|source=manual|litellmProvider=anthropic" {
 		t.Fatalf("unexpected pagination capture: %+v", store)
 	}
-	if strings.Contains(directResp.Body.String(), "\"ok\":true") || !strings.Contains(directResp.Body.String(), "\"pageSize\":50") {
+	if strings.Contains(directResp.Body.String(), "\"ok\":true") || !strings.Contains(directResp.Body.String(), "\"pageSize\":20") {
 		t.Fatalf("expected direct prices raw paginated shape, got %s", directResp.Body.String())
 	}
 
