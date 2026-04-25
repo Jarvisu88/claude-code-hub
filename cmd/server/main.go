@@ -17,6 +17,7 @@ import (
 	"github.com/ding113/claude-code-hub/internal/pkg/validator"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
+	endpointprobesvc "github.com/ding113/claude-code-hub/internal/service/endpointprobe"
 	livechainsvc "github.com/ding113/claude-code-hub/internal/service/livechain"
 	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
@@ -143,6 +144,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 
 	// API v1 路由组 (代理 API)
 	proxySessionManager := sessionsvc.NewManager(cfg.Session, rdb)
+	endpointprobesvc.Configure(rdb, 24*time.Hour)
 	livechainsvc.Configure(rdb, time.Duration(cfg.Session.TTL)*time.Second)
 	providertrackersvc.Configure(rdb)
 	sessiontrackersvc.Configure(rdb, time.Duration(cfg.Session.TTL)*time.Second)
