@@ -13,7 +13,7 @@ import (
 
 type modelPriceStore interface {
 	ListAllLatestPrices(ctx context.Context) ([]*model.ModelPrice, error)
-	ListAllLatestPricesPaginated(ctx context.Context, page, pageSize int, search string) (*repository.PaginatedPrices, error)
+	ListAllLatestPricesPaginated(ctx context.Context, page, pageSize int, search, source, litellmProvider string) (*repository.PaginatedPrices, error)
 	HasAnyRecords(ctx context.Context) (bool, error)
 	GetAllModelNames(ctx context.Context) ([]string, error)
 	GetChatModelNames(ctx context.Context) ([]string, error)
@@ -67,6 +67,8 @@ func (h *ModelPricesActionHandler) directList(c *gin.Context) {
 	page := 1
 	pageSize := 50
 	search := c.Query("search")
+	source := c.Query("source")
+	litellmProvider := c.Query("litellmProvider")
 	if raw := c.Query("page"); raw != "" {
 		value, err := strconv.Atoi(raw)
 		if err != nil || value < 1 {
@@ -83,7 +85,11 @@ func (h *ModelPricesActionHandler) directList(c *gin.Context) {
 		}
 		pageSize = value
 	}
-	result, err := h.store.ListAllLatestPricesPaginated(c.Request.Context(), page, pageSize, search)
+	if source != "" && source != "manual" && source != "litellm" {
+		writeAdminError(c, appErrors.NewInvalidRequest("source 参数无效"))
+		return
+	}
+	result, err := h.store.ListAllLatestPricesPaginated(c.Request.Context(), page, pageSize, search, source, litellmProvider)
 	if err != nil {
 		writeAdminError(c, err)
 		return
@@ -98,9 +104,11 @@ func (h *ModelPricesActionHandler) paginatedAction(c *gin.Context) {
 	}
 
 	var input struct {
-		Page     int    `json:"page"`
-		PageSize int    `json:"pageSize"`
-		Search   string `json:"search"`
+		Page            int    `json:"page"`
+		PageSize        int    `json:"pageSize"`
+		Search          string `json:"search"`
+		Source          string `json:"source"`
+		LitellmProvider string `json:"litellmProvider"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		writeAdminError(c, appErrors.NewInvalidRequest("请求体不是合法 JSON"))
@@ -112,7 +120,11 @@ func (h *ModelPricesActionHandler) paginatedAction(c *gin.Context) {
 	if input.PageSize < 1 {
 		input.PageSize = 50
 	}
-	result, err := h.store.ListAllLatestPricesPaginated(c.Request.Context(), input.Page, input.PageSize, input.Search)
+	if input.Source != "" && input.Source != "manual" && input.Source != "litellm" {
+		writeAdminError(c, appErrors.NewInvalidRequest("source 参数无效"))
+		return
+	}
+	result, err := h.store.ListAllLatestPricesPaginated(c.Request.Context(), input.Page, input.PageSize, input.Search, input.Source, input.LitellmProvider)
 	if err != nil {
 		writeAdminError(c, err)
 		return

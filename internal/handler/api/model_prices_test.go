@@ -28,10 +28,17 @@ func (f *fakeModelPricesStore) ListAllLatestPrices(_ context.Context) ([]*model.
 	return f.prices, nil
 }
 
-func (f *fakeModelPricesStore) ListAllLatestPricesPaginated(_ context.Context, page, pageSize int, search string) (*repository.PaginatedPrices, error) {
+func (f *fakeModelPricesStore) ListAllLatestPricesPaginated(_ context.Context, page, pageSize int, search, source, litellmProvider string) (*repository.PaginatedPrices, error) {
 	f.page = page
 	f.pageSize = pageSize
-	f.search = search
+	if source != "" {
+		f.search = search + "|source=" + source
+	} else {
+		f.search = search
+	}
+	if litellmProvider != "" {
+		f.search += "|litellmProvider=" + litellmProvider
+	}
 	return f.paginated, nil
 }
 
@@ -117,14 +124,14 @@ func TestModelPricesActionAndDirectRoutes(t *testing.T) {
 		t.Fatalf("expected action paginated request to capture page/pageSize/search, got %+v", store)
 	}
 
-	directReq := httptest.NewRequest(http.MethodGet, "/api/prices?page=2&pageSize=20&search=gpt", nil)
+	directReq := httptest.NewRequest(http.MethodGet, "/api/prices?page=2&pageSize=20&search=gpt&source=manual&litellmProvider=anthropic", nil)
 	directReq.Header.Set("Authorization", "Bearer admin-token")
 	directResp := httptest.NewRecorder()
 	router.ServeHTTP(directResp, directReq)
 	if directResp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", directResp.Code, directResp.Body.String())
 	}
-	if store.page != 2 || store.pageSize != 20 || store.search != "gpt" {
+	if store.page != 2 || store.pageSize != 20 || store.search != "gpt|source=manual|litellmProvider=anthropic" {
 		t.Fatalf("unexpected pagination capture: %+v", store)
 	}
 	if !strings.Contains(directResp.Body.String(), "\"ok\":true") {

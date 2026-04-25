@@ -29,7 +29,7 @@ type ModelPriceRepository interface {
 	ListAllLatestPrices(ctx context.Context) ([]*model.ModelPrice, error)
 
 	// ListAllLatestPricesPaginated 分页获取所有模型的最新价格
-	ListAllLatestPricesPaginated(ctx context.Context, page, pageSize int, search string) (*PaginatedPrices, error)
+	ListAllLatestPricesPaginated(ctx context.Context, page, pageSize int, search, source, litellmProvider string) (*PaginatedPrices, error)
 
 	// HasAnyRecords 检查是否存在任意价格记录
 	HasAnyRecords(ctx context.Context) (bool, error)
@@ -129,8 +129,8 @@ func (r *modelPriceRepository) ListAllLatestPrices(ctx context.Context) ([]*mode
 
 	// CTE 2: 获取最新记录（处理同一时间多条记录的情况）
 	latestRecords := r.db.NewSelect().
-		ColumnExpr("mp.id, mp.model_name, mp.price_data, mp.created_at, mp.updated_at").
-		ColumnExpr("ROW_NUMBER() OVER (PARTITION BY mp.model_name ORDER BY mp.id DESC) AS rn").
+		ColumnExpr("mp.id, mp.model_name, mp.price_data, mp.source, mp.created_at, mp.updated_at").
+		ColumnExpr("ROW_NUMBER() OVER (PARTITION BY mp.model_name ORDER BY (mp.source = 'manual') DESC, mp.created_at DESC, mp.id DESC) AS rn").
 		TableExpr("model_prices AS mp").
 		Join("INNER JOIN (?) AS lp ON mp.model_name = lp.model_name AND mp.created_at = lp.max_created_at", latestPrices)
 
@@ -139,10 +139,10 @@ func (r *modelPriceRepository) ListAllLatestPrices(ctx context.Context) ([]*mode
 	err := r.db.NewSelect().
 		With("latest_prices", latestPrices).
 		With("latest_records", latestRecords).
-		ColumnExpr("id, model_name, price_data, created_at, updated_at").
+		ColumnExpr("id, model_name, price_data, source, created_at, updated_at").
 		TableExpr("latest_records").
 		Where("rn = 1").
-		Order("model_name ASC").
+		OrderExpr("updated_at DESC NULLS LAST, model_name ASC").
 		Scan(ctx, &prices)
 
 	if err != nil {
@@ -153,7 +153,7 @@ func (r *modelPriceRepository) ListAllLatestPrices(ctx context.Context) ([]*mode
 }
 
 // ListAllLatestPricesPaginated 分页获取所有模型的最新价格
-func (r *modelPriceRepository) ListAllLatestPricesPaginated(ctx context.Context, page, pageSize int, search string) (*PaginatedPrices, error) {
+func (r *modelPriceRepository) ListAllLatestPricesPaginated(ctx context.Context, page, pageSize int, search, source, litellmProvider string) (*PaginatedPrices, error) {
 	offset := (page - 1) * pageSize
 
 	// 处理搜索参数
@@ -169,13 +169,19 @@ func (r *modelPriceRepository) ListAllLatestPricesPaginated(ctx context.Context,
 		if search != "" {
 			q = q.Where("model_name ILIKE ?", "%"+search+"%")
 		}
+		if source = strings.TrimSpace(source); source != "" {
+			q = q.Where("source = ?", source)
+		}
+		if litellmProvider = strings.TrimSpace(litellmProvider); litellmProvider != "" {
+			q = q.Where("price_data->>'litellm_provider' = ?", litellmProvider)
+		}
 		return q
 	}
 
 	buildLatestRecordsQuery := func(latestPrices *bun.SelectQuery) *bun.SelectQuery {
 		return r.db.NewSelect().
-			ColumnExpr("mp.id, mp.model_name, mp.price_data, mp.created_at, mp.updated_at").
-			ColumnExpr("ROW_NUMBER() OVER (PARTITION BY mp.model_name ORDER BY mp.id DESC) AS rn").
+			ColumnExpr("mp.id, mp.model_name, mp.price_data, mp.source, mp.created_at, mp.updated_at").
+			ColumnExpr("ROW_NUMBER() OVER (PARTITION BY mp.model_name ORDER BY (mp.source = 'manual') DESC, mp.created_at DESC, mp.id DESC) AS rn").
 			TableExpr("model_prices AS mp").
 			Join("INNER JOIN (?) AS lp ON mp.model_name = lp.model_name AND mp.created_at = lp.max_created_at", latestPrices)
 	}
@@ -206,10 +212,10 @@ func (r *modelPriceRepository) ListAllLatestPricesPaginated(ctx context.Context,
 	err = r.db.NewSelect().
 		With("latest_prices", latestPricesForData).
 		With("latest_records", latestRecordsForData).
-		ColumnExpr("id, model_name, price_data, created_at, updated_at").
+		ColumnExpr("id, model_name, price_data, source, created_at, updated_at").
 		TableExpr("latest_records").
 		Where("rn = 1").
-		Order("model_name ASC").
+		OrderExpr("updated_at DESC NULLS LAST, model_name ASC").
 		Limit(pageSize).
 		Offset(offset).
 		Scan(ctx, &prices)

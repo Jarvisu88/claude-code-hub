@@ -200,6 +200,7 @@ type ModelPrice struct {
 	ID        int       `bun:"id,pk,autoincrement" json:"id"`
 	ModelName string    `bun:"model_name,notnull" json:"modelName"`
 	PriceData PriceData `bun:"price_data,type:jsonb,notnull" json:"priceData"`
+	Source    string    `bun:"source,notnull,default:'litellm'" json:"source"`
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"createdAt"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updatedAt"`
