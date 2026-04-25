@@ -10,11 +10,14 @@ import (
 
 	"github.com/ding113/claude-code-hub/internal/model"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
+	endpointprobesvc "github.com/ding113/claude-code-hub/internal/service/endpointprobe"
 	"github.com/gin-gonic/gin"
 )
 
 func TestAvailabilityEndpointsRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	endpointprobesvc.ResetForTest()
+	defer endpointprobesvc.ResetForTest()
 	enabled := true
 	router := gin.New()
 	providers := []*model.Provider{
@@ -23,6 +26,10 @@ func TestAvailabilityEndpointsRoutes(t *testing.T) {
 		{ID: 3, Name: "provider-c", URL: "https://api.vendor-b.com/v1", ProviderType: "gemini", IsEnabled: &enabled, CreatedAt: time.Now(), UpdatedAt: time.Now()},
 	}
 	vendorID := providerVendorID("https://api.vendor-a.com/v1")
+	now := time.Date(2026, 4, 25, 12, 0, 0, 0, time.UTC)
+	statusCode := 200
+	latency := 123
+	endpointprobesvc.Record(1, "manual", true, &statusCode, &latency, nil, nil, now)
 
 	NewAvailabilityEndpointsHandler(
 		fakeAdminAuth{result: &authsvc.AuthResult{
@@ -46,8 +53,11 @@ func TestAvailabilityEndpointsRoutes(t *testing.T) {
 	if !strings.Contains(body, "\"endpoints\"") || !strings.Contains(body, "\"id\":2") || !strings.Contains(body, "\"id\":1") || strings.Contains(body, "\"id\":3") {
 		t.Fatalf("expected synthesized vendor/type endpoints, got %s", body)
 	}
+	if !strings.Contains(body, "\"lastProbeOk\":true") || !strings.Contains(body, "\"lastProbeLatencyMs\":123") {
+		t.Fatalf("expected probe status fields in endpoint payload, got %s", body)
+	}
 
-	logsReq := httptest.NewRequest(http.MethodGet, "/api/availability/endpoints/probe-logs?endpointId=1&limit=50&offset=10", nil)
+	logsReq := httptest.NewRequest(http.MethodGet, "/api/availability/endpoints/probe-logs?endpointId=1&limit=50&offset=0", nil)
 	logsReq.Header.Set("Authorization", "Bearer admin-token")
 	logsResp := httptest.NewRecorder()
 	router.ServeHTTP(logsResp, logsReq)
@@ -55,7 +65,7 @@ func TestAvailabilityEndpointsRoutes(t *testing.T) {
 	if logsResp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", logsResp.Code, logsResp.Body.String())
 	}
-	if !strings.Contains(logsResp.Body.String(), "\"endpoint\"") || !strings.Contains(logsResp.Body.String(), "\"logs\":[]") {
+	if !strings.Contains(logsResp.Body.String(), "\"endpoint\"") || !strings.Contains(logsResp.Body.String(), "\"source\":\"manual\"") || !strings.Contains(logsResp.Body.String(), "\"statusCode\":200") {
 		t.Fatalf("expected empty probe logs payload, got %s", logsResp.Body.String())
 	}
 }
