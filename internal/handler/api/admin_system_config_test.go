@@ -35,7 +35,7 @@ func TestAdminSystemConfigRoutes(t *testing.T) {
 		t.Fatalf("expected admin system config payload, got %d: %s", getResp.Code, getResp.Body.String())
 	}
 
-	postReq := httptest.NewRequest(http.MethodPost, "/api/admin/system-config", strings.NewReader(`{"siteTitle":"CCH Go","allowGlobalUsageView":true,"enableAutoCleanup":true,"cleanupRetentionDays":45,"cleanupSchedule":"0 3 * * *","cleanupBatchSize":20000}`))
+	postReq := httptest.NewRequest(http.MethodPost, "/api/admin/system-config", strings.NewReader(`{"siteTitle":"CCH Go","allowGlobalUsageView":true,"enableAutoCleanup":true,"cleanupRetentionDays":45,"cleanupSchedule":"0 3 * * *","cleanupBatchSize":20000,"codexPriorityBillingSource":"actual","timezone":"Asia/Shanghai","enableHighConcurrencyMode":true,"enableThinkingSignatureRectifier":false,"enableThinkingBudgetRectifier":false,"enableBillingHeaderRectifier":false,"enableResponseInputRectifier":false,"enableCodexSessionIdCompletion":false,"enableClaudeMetadataUserIdInjection":false,"enableResponseFixer":false,"responseFixerConfig":{"fixTruncatedJson":false},"quotaDbRefreshIntervalSeconds":15,"quotaLeasePercentDaily":0.2,"ipExtractionConfig":{"strategy":"custom"},"ipGeoLookupEnabled":false}`))
 	postReq.Header.Set("Authorization", "Bearer admin-token")
 	postReq.Header.Set("Content-Type", "application/json")
 	postResp := httptest.NewRecorder()
@@ -45,5 +45,8 @@ func TestAdminSystemConfigRoutes(t *testing.T) {
 	}
 	if store.fields["site_title"] != "CCH Go" || store.fields["allow_global_usage_view"] != true || store.fields["cleanup_retention_days"] != 45 || store.fields["cleanup_schedule"] != "0 3 * * *" || store.fields["cleanup_batch_size"] != 20000 {
 		t.Fatalf("expected admin system config fields captured, got %+v", store.fields)
+	}
+	if store.fields["codex_priority_billing_source"] != "actual" || store.fields["timezone"] != "Asia/Shanghai" || store.fields["enable_high_concurrency_mode"] != true || store.fields["enable_response_fixer"] != false || store.fields["quota_db_refresh_interval_seconds"] != 15 || store.fields["quota_lease_percent_daily"] != 0.2 || store.fields["ip_geo_lookup_enabled"] != false {
+		t.Fatalf("expected extended admin system config fields captured, got %+v", store.fields)
 	}
 }
