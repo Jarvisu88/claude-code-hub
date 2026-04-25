@@ -32,6 +32,15 @@ func (f *fakeSystemSettingsStore) UpdateFields(_ context.Context, _ int, fields 
 	if value, ok := fields["enable_http2"].(bool); ok {
 		f.settings.EnableHttp2 = value
 	}
+	if value, ok := fields["cleanup_retention_days"].(int); ok {
+		f.settings.CleanupRetentionDays = &value
+	}
+	if value, ok := fields["cleanup_schedule"].(string); ok {
+		f.settings.CleanupSchedule = value
+	}
+	if value, ok := fields["cleanup_batch_size"].(int); ok {
+		f.settings.CleanupBatchSize = &value
+	}
 	if value, ok := fields["enable_high_concurrency_mode"].(bool); ok {
 		f.settings.EnableHighConcurrencyMode = value
 	}
@@ -109,7 +118,7 @@ func TestSystemSettingsRoutes(t *testing.T) {
 		t.Fatalf("expected system settings payload, got %s", getResp.Body.String())
 	}
 
-	putReq := httptest.NewRequest(http.MethodPut, "/api/system-settings", strings.NewReader(`{"siteTitle":"CCH Go","enableHttp2":true,"enableHighConcurrencyMode":true,"ipGeoLookupEnabled":false,"codexPriorityBillingSource":"actual","timezone":"Asia/Shanghai","enableThinkingSignatureRectifier":false,"enableThinkingBudgetRectifier":false,"enableBillingHeaderRectifier":false,"enableResponseInputRectifier":false,"enableCodexSessionIdCompletion":false,"enableClaudeMetadataUserIdInjection":false,"enableResponseFixer":false,"responseFixerConfig":{"fixTruncatedJson":false},"quotaDbRefreshIntervalSeconds":15,"quotaLeasePercentDaily":0.2,"ipExtractionConfig":{"strategy":"custom"}}`))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/system-settings", strings.NewReader(`{"siteTitle":"CCH Go","enableHttp2":true,"cleanupRetentionDays":45,"cleanupSchedule":"0 3 * * *","cleanupBatchSize":20000,"enableHighConcurrencyMode":true,"ipGeoLookupEnabled":false,"codexPriorityBillingSource":"actual","timezone":"Asia/Shanghai","enableThinkingSignatureRectifier":false,"enableThinkingBudgetRectifier":false,"enableBillingHeaderRectifier":false,"enableResponseInputRectifier":false,"enableCodexSessionIdCompletion":false,"enableClaudeMetadataUserIdInjection":false,"enableResponseFixer":false,"responseFixerConfig":{"fixTruncatedJson":false},"quotaDbRefreshIntervalSeconds":15,"quotaLeasePercentDaily":0.2,"ipExtractionConfig":{"strategy":"custom"}}`))
 	putReq.Header.Set("Authorization", "Bearer admin-token")
 	putReq.Header.Set("Content-Type", "application/json")
 	putResp := httptest.NewRecorder()
@@ -125,6 +134,9 @@ func TestSystemSettingsRoutes(t *testing.T) {
 	}
 	if store.fields["enable_high_concurrency_mode"] != true || store.fields["ip_geo_lookup_enabled"] != false || store.fields["codex_priority_billing_source"] != "actual" || store.fields["timezone"] != "Asia/Shanghai" {
 		t.Fatalf("expected extended system settings fields, got %+v", store.fields)
+	}
+	if store.fields["cleanup_retention_days"] != 45 || store.fields["cleanup_schedule"] != "0 3 * * *" || store.fields["cleanup_batch_size"] != 20000 {
+		t.Fatalf("expected cleanup settings captured, got %+v", store.fields)
 	}
 	if store.fields["enable_thinking_signature_rectifier"] != false || store.fields["enable_thinking_budget_rectifier"] != false || store.fields["enable_billing_header_rectifier"] != false || store.fields["enable_response_input_rectifier"] != false || store.fields["enable_codex_session_id_completion"] != false || store.fields["enable_claude_metadata_user_id_injection"] != false || store.fields["enable_response_fixer"] != false {
 		t.Fatalf("expected rectifier toggles captured, got %+v", store.fields)

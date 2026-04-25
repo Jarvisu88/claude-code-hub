@@ -35,7 +35,7 @@ func TestActionStyleSystemSettingsRoutes(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", getResp.Code, getResp.Body.String())
 	}
 
-	putReq := httptest.NewRequest(http.MethodPut, "/api/actions/system-settings", strings.NewReader(`{"siteTitle":"CCH Action","enableHttp2":true}`))
+	putReq := httptest.NewRequest(http.MethodPut, "/api/actions/system-settings", strings.NewReader(`{"siteTitle":"CCH Action","enableHttp2":true,"cleanupRetentionDays":45,"cleanupSchedule":"0 3 * * *","cleanupBatchSize":20000}`))
 	putReq.Header.Set("Authorization", "Bearer admin-token")
 	putReq.Header.Set("Content-Type", "application/json")
 	putResp := httptest.NewRecorder()
@@ -45,6 +45,9 @@ func TestActionStyleSystemSettingsRoutes(t *testing.T) {
 	}
 	if !strings.Contains(putResp.Body.String(), "\"ok\":true") {
 		t.Fatalf("expected action envelope, got %s", putResp.Body.String())
+	}
+	if store.fields["cleanup_retention_days"] != 45 || store.fields["cleanup_schedule"] != "0 3 * * *" || store.fields["cleanup_batch_size"] != 20000 {
+		t.Fatalf("expected cleanup settings captured, got %+v", store.fields)
 	}
 
 	postGetReq := httptest.NewRequest(http.MethodPost, "/api/actions/system-settings/fetchSystemSettings", strings.NewReader(`{}`))

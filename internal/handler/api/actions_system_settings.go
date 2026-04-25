@@ -61,6 +61,9 @@ func (h *SystemSettingsActionHandler) update(c *gin.Context) {
 		CodexPriorityBillingSource          *string        `json:"codexPriorityBillingSource"`
 		Timezone                            *string        `json:"timezone"`
 		EnableAutoCleanup                   *bool          `json:"enableAutoCleanup"`
+		CleanupRetentionDays                *int           `json:"cleanupRetentionDays"`
+		CleanupSchedule                     *string        `json:"cleanupSchedule"`
+		CleanupBatchSize                    *int           `json:"cleanupBatchSize"`
 		EnableClientVersionCheck            *bool          `json:"enableClientVersionCheck"`
 		VerboseProviderError                *bool          `json:"verboseProviderError"`
 		EnableHTTP2                         *bool          `json:"enableHttp2"`
@@ -134,6 +137,28 @@ func (h *SystemSettingsActionHandler) update(c *gin.Context) {
 	}
 	if input.EnableAutoCleanup != nil {
 		fields["enable_auto_cleanup"] = *input.EnableAutoCleanup
+	}
+	if input.CleanupRetentionDays != nil {
+		if *input.CleanupRetentionDays < 1 || *input.CleanupRetentionDays > 365 {
+			writeAdminError(c, appErrors.NewInvalidRequest("cleanupRetentionDays 必须在 1-365 之间"))
+			return
+		}
+		fields["cleanup_retention_days"] = *input.CleanupRetentionDays
+	}
+	if input.CleanupSchedule != nil {
+		trimmed := strings.TrimSpace(*input.CleanupSchedule)
+		if trimmed == "" {
+			writeAdminError(c, appErrors.NewInvalidRequest("cleanupSchedule 不能为空"))
+			return
+		}
+		fields["cleanup_schedule"] = trimmed
+	}
+	if input.CleanupBatchSize != nil {
+		if *input.CleanupBatchSize < 1000 || *input.CleanupBatchSize > 100000 {
+			writeAdminError(c, appErrors.NewInvalidRequest("cleanupBatchSize 必须在 1000-100000 之间"))
+			return
+		}
+		fields["cleanup_batch_size"] = *input.CleanupBatchSize
 	}
 	if input.EnableClientVersionCheck != nil {
 		fields["enable_client_version_check"] = *input.EnableClientVersionCheck
