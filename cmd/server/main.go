@@ -128,6 +128,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	apihandler.NewAuthHandler(proxyAuthService).RegisterRoutes(router)
 	apihandler.NewCurrentAvailabilityHandler(proxyAuthService, repoFactory.Provider(), repoFactory.MessageRequest()).RegisterRoutes(router)
 	apihandler.NewAvailabilityHandler(proxyAuthService, repoFactory.Provider(), repoFactory.MessageRequest()).RegisterRoutes(router)
+	apihandler.NewIPGeoHandler(proxyAuthService, nil).RegisterRoutes(router)
 	apihandler.NewLeaderboardHandler(proxyAuthService, repoFactory.MessageRequest()).RegisterRoutes(router)
 
 	// API v1 路由组 (代理 API)
