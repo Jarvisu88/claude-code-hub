@@ -58,11 +58,15 @@ func (h *SystemSettingsActionHandler) update(c *gin.Context) {
 		AllowGlobalUsageView             *bool   `json:"allowGlobalUsageView"`
 		CurrencyDisplay                  *string `json:"currencyDisplay"`
 		BillingModelSource               *string `json:"billingModelSource"`
+		CodexPriorityBillingSource       *string `json:"codexPriorityBillingSource"`
+		Timezone                         *string `json:"timezone"`
 		EnableAutoCleanup                *bool   `json:"enableAutoCleanup"`
 		EnableClientVersionCheck         *bool   `json:"enableClientVersionCheck"`
 		VerboseProviderError             *bool   `json:"verboseProviderError"`
 		EnableHTTP2                      *bool   `json:"enableHttp2"`
+		EnableHighConcurrencyMode        *bool   `json:"enableHighConcurrencyMode"`
 		InterceptAnthropicWarmupRequests *bool   `json:"interceptAnthropicWarmupRequests"`
+		IpGeoLookupEnabled               *bool   `json:"ipGeoLookupEnabled"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		writeAdminError(c, appErrors.NewInvalidRequest("请求体不是合法 JSON"))
@@ -97,6 +101,22 @@ func (h *SystemSettingsActionHandler) update(c *gin.Context) {
 		}
 		fields["billing_model_source"] = trimmed
 	}
+	if input.CodexPriorityBillingSource != nil {
+		trimmed := strings.TrimSpace(*input.CodexPriorityBillingSource)
+		if trimmed == "" {
+			writeAdminError(c, appErrors.NewInvalidRequest("codexPriorityBillingSource 不能为空"))
+			return
+		}
+		fields["codex_priority_billing_source"] = trimmed
+	}
+	if input.Timezone != nil {
+		trimmed := strings.TrimSpace(*input.Timezone)
+		if trimmed == "" {
+			fields["timezone"] = nil
+		} else {
+			fields["timezone"] = trimmed
+		}
+	}
 	if input.EnableAutoCleanup != nil {
 		fields["enable_auto_cleanup"] = *input.EnableAutoCleanup
 	}
@@ -109,8 +129,14 @@ func (h *SystemSettingsActionHandler) update(c *gin.Context) {
 	if input.EnableHTTP2 != nil {
 		fields["enable_http2"] = *input.EnableHTTP2
 	}
+	if input.EnableHighConcurrencyMode != nil {
+		fields["enable_high_concurrency_mode"] = *input.EnableHighConcurrencyMode
+	}
 	if input.InterceptAnthropicWarmupRequests != nil {
 		fields["intercept_anthropic_warmup_requests"] = *input.InterceptAnthropicWarmupRequests
+	}
+	if input.IpGeoLookupEnabled != nil {
+		fields["ip_geo_lookup_enabled"] = *input.IpGeoLookupEnabled
 	}
 
 	updated, err := h.store.UpdateFields(c.Request.Context(), current.ID, fields)

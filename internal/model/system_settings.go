@@ -22,6 +22,12 @@ type SystemSettings struct {
 	// 计费模型来源配置: 'original' (重定向前) | 'redirected' (重定向后)
 	BillingModelSource string `bun:"billing_model_source,notnull,default:'original'" json:"billingModelSource"`
 
+	// Codex Priority 单独计费口径
+	CodexPriorityBillingSource string `bun:"codex_priority_billing_source,notnull,default:'requested'" json:"codexPriorityBillingSource"`
+
+	// 系统时区配置
+	Timezone *string `bun:"timezone" json:"timezone"`
+
 	// 日志清理配置
 	EnableAutoCleanup    bool   `bun:"enable_auto_cleanup,default:false" json:"enableAutoCleanup"`
 	CleanupRetentionDays *int   `bun:"cleanup_retention_days,default:30" json:"cleanupRetentionDays"`
@@ -37,9 +43,15 @@ type SystemSettings struct {
 	// 启用 HTTP/2 连接供应商（默认关闭，启用后自动回退到 HTTP/1.1 失败时）
 	EnableHttp2 bool `bun:"enable_http2,notnull,default:false" json:"enableHttp2"`
 
+	// 高并发模式
+	EnableHighConcurrencyMode bool `bun:"enable_high_concurrency_mode,notnull,default:false" json:"enableHighConcurrencyMode"`
+
 	// 可选拦截 Anthropic Warmup 请求（默认关闭）
 	// 开启后：对 /v1/messages 的 Warmup 请求直接由 CCH 抢答，避免打到上游供应商
 	InterceptAnthropicWarmupRequests bool `bun:"intercept_anthropic_warmup_requests,notnull,default:false" json:"interceptAnthropicWarmupRequests"`
+
+	// 是否启用 IP 归属地查询
+	IpGeoLookupEnabled bool `bun:"ip_geo_lookup_enabled,notnull,default:true" json:"ipGeoLookupEnabled"`
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"createdAt"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updatedAt"`

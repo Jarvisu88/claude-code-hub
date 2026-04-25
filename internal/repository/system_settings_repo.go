@@ -47,11 +47,14 @@ func (r *systemSettingsRepository) Get(ctx context.Context) (*model.SystemSettin
 
 	now := time.Now()
 	settings = &model.SystemSettings{
-		SiteTitle:          "Claude Code Hub",
-		CurrencyDisplay:    "USD",
-		BillingModelSource: "original",
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		SiteTitle:                  "Claude Code Hub",
+		CurrencyDisplay:            "USD",
+		BillingModelSource:         "original",
+		CodexPriorityBillingSource: "requested",
+		EnableHighConcurrencyMode:  false,
+		IpGeoLookupEnabled:         true,
+		CreatedAt:                  now,
+		UpdatedAt:                  now,
 	}
 	_, err = r.db.NewInsert().
 		Model(settings).
