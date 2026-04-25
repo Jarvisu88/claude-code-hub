@@ -696,6 +696,9 @@ func resolveAdminToken(c *gin.Context) string {
 	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
 		return strings.TrimSpace(parts[1])
 	}
+	if cookieToken, err := c.Cookie(authCookieName); err == nil && strings.TrimSpace(cookieToken) != "" {
+		return strings.TrimSpace(cookieToken)
+	}
 	return authorization
 }
 

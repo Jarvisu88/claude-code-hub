@@ -133,3 +133,31 @@ func TestSystemSettingsRoutes(t *testing.T) {
 		t.Fatalf("expected quota fields captured, got %+v", store.fields)
 	}
 }
+
+func TestSystemSettingsRoutesAcceptAuthCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	store := &fakeSystemSettingsStore{}
+	handler := NewSystemSettingsHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		store,
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/api/system-settings"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system-settings", nil)
+	req.AddCookie(&http.Cookie{Name: authCookieName, Value: "admin-token"})
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "Claude Code Hub") {
+		t.Fatalf("expected auth-cookie system settings payload, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
