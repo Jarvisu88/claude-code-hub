@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -141,8 +142,16 @@ func TestModelPricesActionAndDirectRoutes(t *testing.T) {
 	cloudReq := httptest.NewRequest(http.MethodGet, "/api/prices/cloud-model-count", nil)
 	cloudReq.Header.Set("Authorization", "Bearer admin-token")
 	cloudResp := httptest.NewRecorder()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("[models]\n  [models.gpt_5_4]\n  [models.gpt_4o_mini]\n  [models.gemini_2_5_pro]\n"))
+	}))
+	defer upstream.Close()
+	oldURL := os.Getenv("CLOUD_PRICE_TABLE_URL")
+	t.Cleanup(func() { _ = os.Setenv("CLOUD_PRICE_TABLE_URL", oldURL) })
+	_ = os.Setenv("CLOUD_PRICE_TABLE_URL", upstream.URL)
 	router.ServeHTTP(cloudResp, cloudReq)
-	if cloudResp.Code != http.StatusOK || !strings.Contains(cloudResp.Body.String(), "\"count\":2") {
+	if cloudResp.Code != http.StatusOK || !strings.Contains(cloudResp.Body.String(), "\"count\":3") {
 		t.Fatalf("expected cloud model count payload, got %d: %s", cloudResp.Code, cloudResp.Body.String())
 	}
 }

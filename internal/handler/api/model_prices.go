@@ -2,13 +2,18 @@ package api
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	"github.com/gin-gonic/gin"
+	toml "github.com/pelletier/go-toml/v2"
 )
 
 type modelPriceStore interface {
@@ -23,6 +28,8 @@ type ModelPricesActionHandler struct {
 	auth  adminAuthenticator
 	store modelPriceStore
 }
+
+var modelPricesHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
 func NewModelPricesActionHandler(auth adminAuthenticator, store modelPriceStore) *ModelPricesActionHandler {
 	return &ModelPricesActionHandler{auth: auth, store: store}
@@ -146,16 +153,39 @@ func (h *ModelPricesActionHandler) hasPriceTable(c *gin.Context) {
 }
 
 func (h *ModelPricesActionHandler) cloudModelCount(c *gin.Context) {
-	if h == nil || h.store == nil {
-		writeAdminError(c, appErrors.NewInternalError("价格仓储未初始化"))
-		return
+	url := strings.TrimSpace(os.Getenv("CLOUD_PRICE_TABLE_URL"))
+	if url == "" {
+		url = "https://claude-code-hub.app/config/prices-base.toml"
 	}
-	models, err := h.store.GetAllModelNames(c.Request.Context())
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, url, nil)
 	if err != nil {
-		writeAdminError(c, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "创建云端价格表请求失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{"count": len(models)}})
+	req.Header.Set("Accept", "text/plain")
+	resp, err := modelPricesHTTPClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": "云端价格表拉取失败"})
+		return
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"ok": false, "error": "读取云端价格表失败"})
+		return
+	}
+	var parsed struct {
+		Models map[string]map[string]any `toml:"models"`
+	}
+	if err := toml.Unmarshal(body, &parsed); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": "云端价格表解析失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{"count": len(parsed.Models)}})
 }
 
 func (h *ModelPricesActionHandler) availableModelsByProviderType(c *gin.Context) {
