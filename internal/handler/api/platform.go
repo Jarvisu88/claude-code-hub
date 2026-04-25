@@ -74,5 +74,12 @@ func (h *PlatformHandler) ready(c *gin.Context) {
 }
 
 func (h *PlatformHandler) versionInfo(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"name": "claude-code-hub-go-rewrite", "version": h.version})
+	c.JSON(http.StatusOK, gin.H{
+		"name":       "claude-code-hub-go-rewrite",
+		"version":    h.version,
+		"current":    h.version,
+		"latest":     h.version,
+		"hasUpdate":  false,
+		"releaseUrl": nil,
+	})
 }

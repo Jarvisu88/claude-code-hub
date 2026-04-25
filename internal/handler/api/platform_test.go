@@ -49,6 +49,31 @@ func TestPlatformRoutes(t *testing.T) {
 	}
 }
 
+func TestPlatformVersionRouteReturnsVersionCheckerShape(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := NewPlatformHandler(
+		func(_ context.Context) error { return nil },
+		func(_ context.Context) error { return nil },
+		"test-version",
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "\"current\":\"test-version\"") || !strings.Contains(body, "\"latest\":\"test-version\"") || !strings.Contains(body, "\"hasUpdate\":false") {
+		t.Fatalf("expected version checker payload shape, got %s", body)
+	}
+}
+
 func TestPlatformReadyReturns503WhenDependencyFails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
