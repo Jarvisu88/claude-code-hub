@@ -2,9 +2,12 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,6 +17,8 @@ type PlatformHandler struct {
 	redisPing func(ctx context.Context) error
 	version   string
 }
+
+var versionHTTPClient = &http.Client{Timeout: 5 * time.Second}
 
 func NewPlatformHandler(dbPing func(ctx context.Context) error, redisPing func(ctx context.Context) error, version string) *PlatformHandler {
 	if version == "" {
@@ -77,13 +82,28 @@ func (h *PlatformHandler) ready(c *gin.Context) {
 
 func (h *PlatformHandler) versionInfo(c *gin.Context) {
 	version := resolveCurrentVersion(h.version)
+	latest := version
+	releaseURL := any(nil)
+	publishedAt := any(nil)
+	hasUpdate := false
+	if info, err := fetchLatestVersionInfo(); err == nil && info.Latest != "" {
+		latest = info.Latest
+		if info.ReleaseURL != "" {
+			releaseURL = info.ReleaseURL
+		}
+		if info.PublishedAt != "" {
+			publishedAt = info.PublishedAt
+		}
+		hasUpdate = compareSemverLike(version, latest) < 0
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"name":       "claude-code-hub-go-rewrite",
-		"version":    version,
-		"current":    version,
-		"latest":     version,
-		"hasUpdate":  false,
-		"releaseUrl": nil,
+		"name":        "claude-code-hub-go-rewrite",
+		"version":     version,
+		"current":     version,
+		"latest":      latest,
+		"hasUpdate":   hasUpdate,
+		"releaseUrl":  releaseURL,
+		"publishedAt": publishedAt,
 	})
 }
 
@@ -100,4 +120,123 @@ func resolveCurrentVersion(fallback string) string {
 		}
 	}
 	return fallback
+}
+
+type latestVersionInfo struct {
+	Latest      string
+	ReleaseURL  string
+	PublishedAt string
+}
+
+func fetchLatestVersionInfo() (latestVersionInfo, error) {
+	url := strings.TrimSpace(os.Getenv("VERSION_RELEASE_API_URL"))
+	if url == "" {
+		url = "https://api.github.com/repos/ding113/claude-code-hub/releases/latest"
+	}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return latestVersionInfo{}, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "claude-code-hub-go-rewrite")
+	resp, err := versionHTTPClient.Do(req)
+	if err != nil {
+		return latestVersionInfo{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return latestVersionInfo{}, appVersionHTTPError(resp.StatusCode)
+	}
+	var payload struct {
+		TagName     string `json:"tag_name"`
+		HTMLURL     string `json:"html_url"`
+		PublishedAt string `json:"published_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return latestVersionInfo{}, err
+	}
+	return latestVersionInfo{
+		Latest:      normalizeVersionForDisplay(payload.TagName),
+		ReleaseURL:  strings.TrimSpace(payload.HTMLURL),
+		PublishedAt: strings.TrimSpace(payload.PublishedAt),
+	}, nil
+}
+
+type appVersionHTTPError int
+
+func (e appVersionHTTPError) Error() string { return "version http status " + strconv.Itoa(int(e)) }
+
+func normalizeVersionForDisplay(version string) string {
+	trimmed := strings.TrimSpace(version)
+	if trimmed == "" {
+		return trimmed
+	}
+	if strings.HasPrefix(strings.ToLower(trimmed), "v") {
+		return "v" + trimmed[1:]
+	}
+	if startsWithDigit(trimmed) {
+		return "v" + trimmed
+	}
+	return trimmed
+}
+
+func startsWithDigit(value string) bool {
+	if value == "" {
+		return false
+	}
+	_, err := strconv.Atoi(string(value[0]))
+	return err == nil
+}
+
+func compareSemverLike(current, latest string) int {
+	currentParts := parseVersionParts(current)
+	latestParts := parseVersionParts(latest)
+	if len(currentParts) == 0 || len(latestParts) == 0 {
+		return 0
+	}
+	maxLen := len(currentParts)
+	if len(latestParts) > maxLen {
+		maxLen = len(latestParts)
+	}
+	for i := 0; i < maxLen; i++ {
+		curr := 0
+		if i < len(currentParts) {
+			curr = currentParts[i]
+		}
+		lat := 0
+		if i < len(latestParts) {
+			lat = latestParts[i]
+		}
+		if current == latest {
+			return 0
+		}
+		if lat > curr {
+			return -1
+		}
+		if lat < curr {
+			return 1
+		}
+	}
+	return 0
+}
+
+func parseVersionParts(value string) []int {
+	value = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(value), "v"))
+	if value == "" {
+		return nil
+	}
+	core := strings.Split(strings.Split(value, "-")[0], ".")
+	parts := make([]int, 0, len(core))
+	for _, piece := range core {
+		piece = strings.TrimSpace(piece)
+		if piece == "" {
+			return nil
+		}
+		n, err := strconv.Atoi(piece)
+		if err != nil {
+			return nil
+		}
+		parts = append(parts, n)
+	}
+	return parts
 }

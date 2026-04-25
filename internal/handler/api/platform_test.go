@@ -52,6 +52,9 @@ func TestPlatformRoutes(t *testing.T) {
 
 func TestPlatformVersionRouteReturnsVersionCheckerShape(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	oldReleaseURL := os.Getenv("VERSION_RELEASE_API_URL")
+	t.Cleanup(func() { _ = os.Setenv("VERSION_RELEASE_API_URL", oldReleaseURL) })
+	_ = os.Setenv("VERSION_RELEASE_API_URL", "http://127.0.0.1:0")
 
 	handler := NewPlatformHandler(
 		func(_ context.Context) error { return nil },
@@ -70,7 +73,7 @@ func TestPlatformVersionRouteReturnsVersionCheckerShape(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
 	}
 	body := resp.Body.String()
-	if !strings.Contains(body, "\"current\":\"test-version\"") || !strings.Contains(body, "\"latest\":\"test-version\"") || !strings.Contains(body, "\"hasUpdate\":false") {
+	if !strings.Contains(body, "\"current\":\"test-version\"") || !strings.Contains(body, "\"hasUpdate\":false") {
 		t.Fatalf("expected version checker payload shape, got %s", body)
 	}
 }
@@ -96,6 +99,41 @@ func TestPlatformVersionRoutePrefersEnvVersion(t *testing.T) {
 
 	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "\"current\":\"9.9.9\"") {
 		t.Fatalf("expected env version payload, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestPlatformVersionRouteDetectsUpdateFromReleaseAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldVersion := os.Getenv("NEXT_PUBLIC_APP_VERSION")
+	oldReleaseURL := os.Getenv("VERSION_RELEASE_API_URL")
+	t.Cleanup(func() {
+		_ = os.Setenv("NEXT_PUBLIC_APP_VERSION", oldVersion)
+		_ = os.Setenv("VERSION_RELEASE_API_URL", oldReleaseURL)
+	})
+	_ = os.Setenv("NEXT_PUBLIC_APP_VERSION", "v1.0.0")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"tag_name":"v1.2.0","html_url":"https://example.com/release","published_at":"2026-04-25T00:00:00Z"}`))
+	}))
+	defer upstream.Close()
+	_ = os.Setenv("VERSION_RELEASE_API_URL", upstream.URL)
+
+	handler := NewPlatformHandler(
+		func(_ context.Context) error { return nil },
+		func(_ context.Context) error { return nil },
+		"test-version",
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK || !strings.Contains(body, "\"current\":\"v1.0.0\"") || !strings.Contains(body, "\"latest\":\"v1.2.0\"") || !strings.Contains(body, "\"hasUpdate\":true") || !strings.Contains(body, "\"releaseUrl\":\"https://example.com/release\"") {
+		t.Fatalf("expected update-aware version payload, got %d: %s", resp.Code, body)
 	}
 }
 
