@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -74,12 +76,28 @@ func (h *PlatformHandler) ready(c *gin.Context) {
 }
 
 func (h *PlatformHandler) versionInfo(c *gin.Context) {
+	version := resolveCurrentVersion(h.version)
 	c.JSON(http.StatusOK, gin.H{
 		"name":       "claude-code-hub-go-rewrite",
-		"version":    h.version,
-		"current":    h.version,
-		"latest":     h.version,
+		"version":    version,
+		"current":    version,
+		"latest":     version,
 		"hasUpdate":  false,
 		"releaseUrl": nil,
 	})
+}
+
+func resolveCurrentVersion(fallback string) string {
+	if value := strings.TrimSpace(os.Getenv("NEXT_PUBLIC_APP_VERSION")); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(os.Getenv("APP_VERSION")); value != "" {
+		return value
+	}
+	if content, err := os.ReadFile("VERSION"); err == nil {
+		if value := strings.TrimSpace(string(content)); value != "" {
+			return value
+		}
+	}
+	return fallback
 }

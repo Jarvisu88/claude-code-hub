@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -71,6 +72,30 @@ func TestPlatformVersionRouteReturnsVersionCheckerShape(t *testing.T) {
 	body := resp.Body.String()
 	if !strings.Contains(body, "\"current\":\"test-version\"") || !strings.Contains(body, "\"latest\":\"test-version\"") || !strings.Contains(body, "\"hasUpdate\":false") {
 		t.Fatalf("expected version checker payload shape, got %s", body)
+	}
+}
+
+func TestPlatformVersionRoutePrefersEnvVersion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	old := os.Getenv("NEXT_PUBLIC_APP_VERSION")
+	t.Cleanup(func() { _ = os.Setenv("NEXT_PUBLIC_APP_VERSION", old) })
+	_ = os.Setenv("NEXT_PUBLIC_APP_VERSION", "9.9.9")
+
+	handler := NewPlatformHandler(
+		func(_ context.Context) error { return nil },
+		func(_ context.Context) error { return nil },
+		"test-version",
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "\"current\":\"9.9.9\"") {
+		t.Fatalf("expected env version payload, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 
