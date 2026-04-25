@@ -57,6 +57,7 @@ func (h *IPGeoHandler) lookup(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "ip geolocation disabled"})
 		return
 	}
+	c.Header("Cache-Control", "private, max-age=60")
 
 	ip := strings.TrimSpace(c.Param("ip"))
 	if ip == "" {
@@ -76,9 +77,11 @@ func (h *IPGeoHandler) lookup(c *gin.Context) {
 		baseURL = "https://ip-api.claude-code-hub.app"
 	}
 	upstreamURL := baseURL + "/v1/ip2location/" + url.PathEscape(ip)
-	if lang := strings.TrimSpace(c.Query("lang")); lang != "" {
-		upstreamURL += "?lang=" + url.QueryEscape(lang)
+	lang := strings.TrimSpace(c.Query("lang"))
+	if lang == "" {
+		lang = "en"
 	}
+	upstreamURL += "?lang=" + url.QueryEscape(lang)
 
 	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, upstreamURL, nil)
 	if err != nil {
@@ -106,7 +109,6 @@ func (h *IPGeoHandler) lookup(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "error", "error": "upstream status " + resp.Status})
 		return
 	}
-	c.Header("Cache-Control", "private, max-age=60")
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "data": payload})
 }
 

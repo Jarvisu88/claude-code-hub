@@ -35,6 +35,9 @@ func TestIPGeoRouteReturnsPrivateMarker(t *testing.T) {
 	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"status":"private"`) {
 		t.Fatalf("expected private IP marker, got %d: %s", resp.Code, resp.Body.String())
 	}
+	if got := resp.Header().Get("Cache-Control"); got != "private, max-age=60" {
+		t.Fatalf("expected cache-control header, got %q", got)
+	}
 }
 
 func TestIPGeoRouteProxiesUpstreamLookup(t *testing.T) {
@@ -77,6 +80,49 @@ func TestIPGeoRouteProxiesUpstreamLookup(t *testing.T) {
 
 	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"status":"ok"`) || !strings.Contains(resp.Body.String(), `"ip":"8.8.8.8"`) {
 		t.Fatalf("expected upstream lookup payload, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if got := resp.Header().Get("Cache-Control"); got != "private, max-age=60" {
+		t.Fatalf("expected cache-control header, got %q", got)
+	}
+}
+
+func TestIPGeoRouteDefaultsLangToEnglish(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enabled := true
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.String(), "lang=en") {
+			t.Fatalf("expected default lang=en query, got %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ip":"8.8.4.4","version":"ipv4","location":{"country":{"code":"US","name":"United States","flag":{"emoji":"🇺🇸"}}},"timezone":{"id":"UTC"},"connection":{"asn":15169}}`))
+	}))
+	defer upstream.Close()
+
+	oldURL := os.Getenv("IP_GEO_API_URL")
+	t.Cleanup(func() {
+		_ = os.Setenv("IP_GEO_API_URL", oldURL)
+	})
+	_ = os.Setenv("IP_GEO_API_URL", upstream.URL)
+
+	router := gin.New()
+	NewIPGeoHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, IpGeoLookupEnabled: true}},
+		upstream.Client(),
+	).RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ip-geo/8.8.4.4", nil)
+	req.Header.Set("Authorization", "Bearer admin-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), `"status":"ok"`) {
+		t.Fatalf("expected default lang upstream lookup payload, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 
