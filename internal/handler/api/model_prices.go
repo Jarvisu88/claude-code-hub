@@ -84,7 +84,11 @@ func (h *ModelPricesActionHandler) directList(c *gin.Context) {
 		}
 		page = value
 	}
-	if raw := c.Query("pageSize"); raw != "" {
+	raw := c.Query("pageSize")
+	if raw == "" {
+		raw = c.Query("size")
+	}
+	if raw != "" {
 		value, err := strconv.Atoi(raw)
 		if err != nil || value < 1 || value > 200 {
 			writeAdminError(c, appErrors.NewInvalidRequest("每页大小必须在1-200之间"))
@@ -101,7 +105,7 @@ func (h *ModelPricesActionHandler) directList(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "data": result})
+	c.JSON(http.StatusOK, result)
 }
 
 func (h *ModelPricesActionHandler) paginatedAction(c *gin.Context) {

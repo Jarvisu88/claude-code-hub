@@ -43,11 +43,11 @@ type ModelPriceRepository interface {
 
 // PaginatedPrices 分页价格结果
 type PaginatedPrices struct {
-	Data       []*model.ModelPrice
-	Total      int
-	Page       int
-	PageSize   int
-	TotalPages int
+	Data       []*model.ModelPrice `json:"data"`
+	Total      int                 `json:"total"`
+	Page       int                 `json:"page"`
+	PageSize   int                 `json:"pageSize"`
+	TotalPages int                 `json:"totalPages"`
 }
 
 // modelPriceRepository ModelPriceRepository 实现

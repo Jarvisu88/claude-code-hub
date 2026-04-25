@@ -125,7 +125,7 @@ func TestModelPricesActionAndDirectRoutes(t *testing.T) {
 		t.Fatalf("expected action paginated request to capture page/pageSize/search, got %+v", store)
 	}
 
-	directReq := httptest.NewRequest(http.MethodGet, "/api/prices?page=2&pageSize=20&search=gpt&source=manual&litellmProvider=anthropic", nil)
+	directReq := httptest.NewRequest(http.MethodGet, "/api/prices?page=2&size=20&search=gpt&source=manual&litellmProvider=anthropic", nil)
 	directReq.Header.Set("Authorization", "Bearer admin-token")
 	directResp := httptest.NewRecorder()
 	router.ServeHTTP(directResp, directReq)
@@ -135,8 +135,8 @@ func TestModelPricesActionAndDirectRoutes(t *testing.T) {
 	if store.page != 2 || store.pageSize != 20 || store.search != "gpt|source=manual|litellmProvider=anthropic" {
 		t.Fatalf("unexpected pagination capture: %+v", store)
 	}
-	if !strings.Contains(directResp.Body.String(), "\"ok\":true") {
-		t.Fatalf("expected direct prices envelope, got %s", directResp.Body.String())
+	if strings.Contains(directResp.Body.String(), "\"ok\":true") || !strings.Contains(directResp.Body.String(), "\"pageSize\":50") {
+		t.Fatalf("expected direct prices raw paginated shape, got %s", directResp.Body.String())
 	}
 
 	cloudReq := httptest.NewRequest(http.MethodGet, "/api/prices/cloud-model-count", nil)
