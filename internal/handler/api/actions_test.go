@@ -23,6 +23,10 @@ func (f fakeAdminAuth) AuthenticateAdminToken(_ string) (*authsvc.AuthResult, er
 	return f.result, f.err
 }
 
+func (f fakeAdminAuth) AuthenticateProxy(_ context.Context, _ authsvc.ProxyAuthInput) (*authsvc.AuthResult, error) {
+	return f.result, f.err
+}
+
 type fakeUserLister struct{ users []*model.User }
 
 func (f fakeUserLister) List(_ context.Context, _ *repository.ListOptions) ([]*model.User, error) {

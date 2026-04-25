@@ -7,6 +7,7 @@ import (
 
 	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
+	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	"github.com/gin-gonic/gin"
 )
 
@@ -15,12 +16,17 @@ type systemSettingsStore interface {
 	UpdateFields(ctx context.Context, id int, fields map[string]any) (*model.SystemSettings, error)
 }
 
+type systemSettingsAuthenticator interface {
+	AuthenticateAdminToken(token string) (*authsvc.AuthResult, error)
+	AuthenticateProxy(ctx context.Context, input authsvc.ProxyAuthInput) (*authsvc.AuthResult, error)
+}
+
 type SystemSettingsHandler struct {
-	auth  adminAuthenticator
+	auth  systemSettingsAuthenticator
 	store systemSettingsStore
 }
 
-func NewSystemSettingsHandler(auth adminAuthenticator, store systemSettingsStore) *SystemSettingsHandler {
+func NewSystemSettingsHandler(auth systemSettingsAuthenticator, store systemSettingsStore) *SystemSettingsHandler {
 	return &SystemSettingsHandler{auth: auth, store: store}
 }
 
@@ -32,6 +38,9 @@ func (h *SystemSettingsHandler) RegisterRoutes(group *gin.RouterGroup) {
 }
 
 func (h *SystemSettingsHandler) get(c *gin.Context) {
+	if !h.ensureAuthenticated(c) {
+		return
+	}
 	if h == nil || h.store == nil {
 		writeAdminError(c, appErrors.NewInternalError("系统设置仓储未初始化"))
 		return
@@ -45,6 +54,9 @@ func (h *SystemSettingsHandler) get(c *gin.Context) {
 }
 
 func (h *SystemSettingsHandler) update(c *gin.Context) {
+	if !h.ensureAdmin(c) {
+		return
+	}
 	if h == nil || h.store == nil {
 		writeAdminError(c, appErrors.NewInternalError("系统设置仓储未初始化"))
 		return
@@ -207,4 +219,37 @@ func (h *SystemSettingsHandler) update(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, updated)
+}
+
+func (h *SystemSettingsHandler) ensureAuthenticated(c *gin.Context) bool {
+	if h == nil || h.auth == nil {
+		writeAdminError(c, appErrors.NewInternalError("系统设置鉴权服务未初始化"))
+		return false
+	}
+	token := resolveAdminToken(c)
+	if authResult, err := h.auth.AuthenticateAdminToken(token); err == nil && authResult != nil {
+		return true
+	}
+	if authResult, err := h.auth.AuthenticateProxy(c.Request.Context(), authsvc.ProxyAuthInput{APIKeyHeader: token}); err == nil && authResult != nil {
+		return true
+	}
+	writeAdminError(c, appErrors.NewAuthenticationError("未授权，请先登录", appErrors.CodeUnauthorized))
+	return false
+}
+
+func (h *SystemSettingsHandler) ensureAdmin(c *gin.Context) bool {
+	if h == nil || h.auth == nil {
+		writeAdminError(c, appErrors.NewInternalError("系统设置鉴权服务未初始化"))
+		return false
+	}
+	authResult, err := h.auth.AuthenticateAdminToken(resolveAdminToken(c))
+	if err != nil {
+		writeAdminError(c, err)
+		return false
+	}
+	if authResult == nil || !authResult.IsAdmin {
+		writeAdminError(c, appErrors.NewPermissionDenied("权限不足", appErrors.CodePermissionDenied))
+		return false
+	}
+	return true
 }

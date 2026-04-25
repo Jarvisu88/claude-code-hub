@@ -161,3 +161,31 @@ func TestSystemSettingsRoutesAcceptAuthCookie(t *testing.T) {
 		t.Fatalf("expected auth-cookie system settings payload, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
+
+func TestSystemSettingsRoutesAcceptUserApiKeyForGet(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	store := &fakeSystemSettingsStore{}
+	handler := NewSystemSettingsHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: false,
+			User:    &model.User{ID: 2, Name: "bob", Role: "user", IsEnabled: &enabled},
+			Key:     &model.Key{ID: 2, Key: "user-token", Name: "USER_KEY", IsEnabled: &enabled},
+			APIKey:  "user-token",
+		}},
+		store,
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/api/system-settings"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system-settings", nil)
+	req.Header.Set("Authorization", "Bearer user-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "Claude Code Hub") {
+		t.Fatalf("expected non-admin authenticated GET payload, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
