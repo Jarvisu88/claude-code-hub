@@ -45,6 +45,7 @@ func TestLeaderboardRouteReturnsProviderScope(t *testing.T) {
 			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
 			APIKey:  "admin-token",
 		}},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, AllowGlobalUsageView: true}},
 		store,
 	)
 	handler.now = func() time.Time { return time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC) }
@@ -85,6 +86,7 @@ func TestLeaderboardRouteSupportsProviderTypeAndModelStats(t *testing.T) {
 			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
 			APIKey:  "admin-token",
 		}},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, AllowGlobalUsageView: true}},
 		store,
 	)
 	handler.RegisterRoutes(router)
@@ -123,6 +125,7 @@ func TestLeaderboardRouteSupportsUserModelStats(t *testing.T) {
 			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
 			APIKey:  "admin-token",
 		}},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, AllowGlobalUsageView: true}},
 		store,
 	)
 	handler.RegisterRoutes(router)
@@ -158,6 +161,7 @@ func TestLeaderboardRouteSupportsCacheHitScopes(t *testing.T) {
 			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
 			APIKey:  "admin-token",
 		}},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, AllowGlobalUsageView: true}},
 		store,
 	)
 	handler.RegisterRoutes(router)
@@ -198,6 +202,7 @@ func TestLeaderboardRouteRejectsUnsupportedScope(t *testing.T) {
 			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
 			APIKey:  "admin-token",
 		}},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, AllowGlobalUsageView: true}},
 		&fakeLeaderboardLogStore{},
 	)
 	handler.RegisterRoutes(router)
@@ -209,5 +214,36 @@ func TestLeaderboardRouteRejectsUnsupportedScope(t *testing.T) {
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestLeaderboardRouteAllowsNonAdminWithGlobalUsageView(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enabled := true
+	router := gin.New()
+	store := &fakeLeaderboardLogStore{
+		rows: []repository.LeaderboardRequestRow{
+			{UserID: 1, UserName: "alice", ProviderID: 7, ProviderName: "provider-a", ProviderType: "claude", Model: "gpt-5.4", StatusCode: 200, CostUSD: udecimal.MustParse("1.5"), InputTokens: intPtr(100), OutputTokens: intPtr(50)},
+		},
+	}
+	handler := NewLeaderboardHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: false,
+			User:    &model.User{ID: 2, Name: "bob", Role: "user", IsEnabled: &enabled},
+			Key:     &model.Key{ID: 2, Key: "user-token", Name: "USER_KEY", IsEnabled: &enabled},
+			APIKey:  "user-token",
+		}},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, AllowGlobalUsageView: true}},
+		store,
+	)
+	handler.RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/leaderboard?period=daily&scope=user", nil)
+	req.Header.Set("Authorization", "Bearer user-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "\"userId\":1") {
+		t.Fatalf("expected non-admin leaderboard access with global usage view, got %d: %s", resp.Code, resp.Body.String())
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
+	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,14 +18,20 @@ type leaderboardLogStore interface {
 	ListLeaderboardRows(ctx context.Context, startTime, endTime time.Time) ([]repository.LeaderboardRequestRow, error)
 }
 
-type LeaderboardHandler struct {
-	auth adminAuthenticator
-	logs leaderboardLogStore
-	now  func() time.Time
+type leaderboardAuthenticator interface {
+	AuthenticateAdminToken(token string) (*authsvc.AuthResult, error)
+	AuthenticateProxy(ctx context.Context, input authsvc.ProxyAuthInput) (*authsvc.AuthResult, error)
 }
 
-func NewLeaderboardHandler(auth adminAuthenticator, logs leaderboardLogStore) *LeaderboardHandler {
-	return &LeaderboardHandler{auth: auth, logs: logs, now: time.Now}
+type LeaderboardHandler struct {
+	auth     leaderboardAuthenticator
+	settings systemSettingsStore
+	logs     leaderboardLogStore
+	now      func() time.Time
+}
+
+func NewLeaderboardHandler(auth leaderboardAuthenticator, settings systemSettingsStore, logs leaderboardLogStore) *LeaderboardHandler {
+	return &LeaderboardHandler{auth: auth, settings: settings, logs: logs, now: time.Now}
 }
 
 func (h *LeaderboardHandler) RegisterRoutes(router gin.IRouter) {
@@ -32,17 +39,11 @@ func (h *LeaderboardHandler) RegisterRoutes(router gin.IRouter) {
 }
 
 func (h *LeaderboardHandler) getLeaderboard(c *gin.Context) {
-	if h == nil || h.auth == nil || h.logs == nil {
+	if h == nil || h.auth == nil || h.logs == nil || h.settings == nil {
 		writeAdminError(c, appErrors.NewInternalError("排行榜服务未初始化"))
 		return
 	}
-	authResult, err := h.auth.AuthenticateAdminToken(resolveAdminToken(c))
-	if err != nil {
-		writeAdminError(c, err)
-		return
-	}
-	if authResult == nil || !authResult.IsAdmin {
-		writeAdminError(c, appErrors.NewPermissionDenied("权限不足", appErrors.CodePermissionDenied))
+	if !h.ensureAuthorized(c) {
 		return
 	}
 	options, err := decodeLeaderboardQuery(c, h.now())
@@ -73,6 +74,32 @@ func (h *LeaderboardHandler) getLeaderboard(c *gin.Context) {
 	default:
 		writeAdminError(c, appErrors.NewInvalidRequest("scope 不支持"))
 	}
+}
+
+func (h *LeaderboardHandler) ensureAuthorized(c *gin.Context) bool {
+	token := resolveAdminToken(c)
+	if token == "" {
+		writeAdminError(c, appErrors.NewAuthenticationError("未授权，请先登录", appErrors.CodeUnauthorized))
+		return false
+	}
+	if authResult, err := h.auth.AuthenticateAdminToken(token); err == nil && authResult != nil && authResult.IsAdmin {
+		return true
+	}
+	authResult, err := h.auth.AuthenticateProxy(c.Request.Context(), authsvc.ProxyAuthInput{APIKeyHeader: token})
+	if err != nil || authResult == nil {
+		writeAdminError(c, appErrors.NewAuthenticationError("未授权，请先登录", appErrors.CodeUnauthorized))
+		return false
+	}
+	settings, settingsErr := h.settings.Get(c.Request.Context())
+	if settingsErr != nil {
+		writeAdminError(c, settingsErr)
+		return false
+	}
+	if settings != nil && settings.AllowGlobalUsageView {
+		return true
+	}
+	writeAdminError(c, appErrors.NewPermissionDenied("无权限访问排行榜，请联系管理员开启全站使用量查看权限", appErrors.CodePermissionDenied))
+	return false
 }
 
 type leaderboardQueryOptions struct {
