@@ -130,4 +130,12 @@ func TestModelPricesActionAndDirectRoutes(t *testing.T) {
 	if !strings.Contains(directResp.Body.String(), "\"ok\":true") {
 		t.Fatalf("expected direct prices envelope, got %s", directResp.Body.String())
 	}
+
+	cloudReq := httptest.NewRequest(http.MethodGet, "/api/prices/cloud-model-count", nil)
+	cloudReq.Header.Set("Authorization", "Bearer admin-token")
+	cloudResp := httptest.NewRecorder()
+	router.ServeHTTP(cloudResp, cloudReq)
+	if cloudResp.Code != http.StatusOK || !strings.Contains(cloudResp.Body.String(), "\"count\":2") {
+		t.Fatalf("expected cloud model count payload, got %d: %s", cloudResp.Code, cloudResp.Body.String())
+	}
 }

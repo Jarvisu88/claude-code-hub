@@ -42,6 +42,7 @@ func (h *ModelPricesActionHandler) RegisterDirectRoutes(group *gin.RouterGroup) 
 	protected := group.Group("")
 	protected.Use((&Handler{auth: h.auth}).AdminAuthMiddleware())
 	protected.GET("", h.directList)
+	protected.GET("/cloud-model-count", h.cloudModelCount)
 }
 
 func (h *ModelPricesActionHandler) list(c *gin.Context) {
@@ -130,6 +131,19 @@ func (h *ModelPricesActionHandler) hasPriceTable(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": has})
+}
+
+func (h *ModelPricesActionHandler) cloudModelCount(c *gin.Context) {
+	if h == nil || h.store == nil {
+		writeAdminError(c, appErrors.NewInternalError("价格仓储未初始化"))
+		return
+	}
+	models, err := h.store.GetAllModelNames(c.Request.Context())
+	if err != nil {
+		writeAdminError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{"count": len(models)}})
 }
 
 func (h *ModelPricesActionHandler) availableModelsByProviderType(c *gin.Context) {
