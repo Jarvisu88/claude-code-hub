@@ -18,15 +18,16 @@ type httpDoer interface {
 }
 
 type IPGeoHandler struct {
-	auth adminAuthenticator
-	http httpDoer
+	auth     adminAuthenticator
+	settings systemSettingsStore
+	http     httpDoer
 }
 
-func NewIPGeoHandler(auth adminAuthenticator, httpClient httpDoer) *IPGeoHandler {
+func NewIPGeoHandler(auth adminAuthenticator, settings systemSettingsStore, httpClient httpDoer) *IPGeoHandler {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: ipGeoTimeout()}
 	}
-	return &IPGeoHandler{auth: auth, http: httpClient}
+	return &IPGeoHandler{auth: auth, settings: settings, http: httpClient}
 }
 
 func (h *IPGeoHandler) RegisterRoutes(router gin.IRouter) {
@@ -34,7 +35,7 @@ func (h *IPGeoHandler) RegisterRoutes(router gin.IRouter) {
 }
 
 func (h *IPGeoHandler) lookup(c *gin.Context) {
-	if h == nil || h.auth == nil || h.http == nil {
+	if h == nil || h.auth == nil || h.http == nil || h.settings == nil {
 		writeAdminError(c, appErrors.NewInternalError("IP 地理位置服务未初始化"))
 		return
 	}
@@ -45,6 +46,15 @@ func (h *IPGeoHandler) lookup(c *gin.Context) {
 	}
 	if authResult == nil || !authResult.IsAdmin {
 		writeAdminError(c, appErrors.NewPermissionDenied("权限不足", appErrors.CodePermissionDenied))
+		return
+	}
+	settings, err := h.settings.Get(c.Request.Context())
+	if err != nil {
+		writeAdminError(c, err)
+		return
+	}
+	if settings != nil && !settings.IpGeoLookupEnabled {
+		c.JSON(http.StatusNotFound, gin.H{"error": "ip geolocation disabled"})
 		return
 	}
 

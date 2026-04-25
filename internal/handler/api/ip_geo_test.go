@@ -23,6 +23,7 @@ func TestIPGeoRouteReturnsPrivateMarker(t *testing.T) {
 			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
 			APIKey:  "admin-token",
 		}},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, IpGeoLookupEnabled: true}},
 		nil,
 	).RegisterRoutes(router)
 
@@ -65,6 +66,7 @@ func TestIPGeoRouteProxiesUpstreamLookup(t *testing.T) {
 			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
 			APIKey:  "admin-token",
 		}},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, IpGeoLookupEnabled: true}},
 		upstream.Client(),
 	).RegisterRoutes(router)
 
@@ -83,6 +85,7 @@ func TestIPGeoRouteRequiresAdmin(t *testing.T) {
 	router := gin.New()
 	NewIPGeoHandler(
 		fakeAdminAuth{},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, IpGeoLookupEnabled: true}},
 		nil,
 	).RegisterRoutes(router)
 
@@ -92,5 +95,30 @@ func TestIPGeoRouteRequiresAdmin(t *testing.T) {
 
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestIPGeoRouteHonorsDisabledSetting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enabled := true
+	router := gin.New()
+	NewIPGeoHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		&fakeSystemSettingsStore{settings: &model.SystemSettings{ID: 1, IpGeoLookupEnabled: false}},
+		nil,
+	).RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/ip-geo/8.8.8.8", nil)
+	req.Header.Set("Authorization", "Bearer admin-token")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNotFound || !strings.Contains(resp.Body.String(), "ip geolocation disabled") {
+		t.Fatalf("expected disabled ip geo payload, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
