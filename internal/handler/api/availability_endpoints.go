@@ -82,8 +82,16 @@ func (h *AvailabilityEndpointsHandler) probeLogs(c *gin.Context) {
 		writeAdminError(c, appErrors.NewInvalidRequest("Invalid query"))
 		return
 	}
-	limit := parseOptionalPositiveInt(c.Query("limit"), 200, 1000)
-	offset := parseOptionalPositiveInt(c.Query("offset"), 0, 1_000_000)
+	limit, err := parseAvailabilityProbeLogsLimit(c.Query("limit"))
+	if err != nil {
+		writeAdminError(c, appErrors.NewInvalidRequest("Invalid query"))
+		return
+	}
+	offset, err := parseAvailabilityProbeLogsOffset(c.Query("offset"))
+	if err != nil {
+		writeAdminError(c, appErrors.NewInvalidRequest("Invalid query"))
+		return
+	}
 
 	provider, err := h.providers.GetByID(c.Request.Context(), endpointID)
 	if err != nil || provider == nil {
@@ -95,8 +103,6 @@ func (h *AvailabilityEndpointsHandler) probeLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"endpoint": endpoint,
 		"logs":     logs,
-		"limit":    limit,
-		"offset":   offset,
 	})
 }
 
@@ -126,22 +132,28 @@ func parseIntQueryParam(c *gin.Context, key string) (int, error) {
 	return value, nil
 }
 
-func parseOptionalPositiveInt(raw string, fallback int, max int) int {
+func parseAvailabilityProbeLogsLimit(raw string) (int, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return fallback
+		return 200, nil
 	}
 	value, err := strconv.Atoi(raw)
-	if err != nil {
-		return fallback
+	if err != nil || value <= 0 || value > 1000 {
+		return 0, appErrors.NewInvalidRequest("Invalid query")
 	}
-	if value < 0 {
-		return fallback
+	return value, nil
+}
+
+func parseAvailabilityProbeLogsOffset(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
 	}
-	if max > 0 && value > max {
-		return fallback
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0, appErrors.NewInvalidRequest("Invalid query")
 	}
-	return value
+	return value, nil
 }
 
 func synthesizeProviderEndpoints(providers []*model.Provider, vendorID int, providerType string) []gin.H {

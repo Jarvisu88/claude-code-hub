@@ -68,6 +68,9 @@ func TestAvailabilityEndpointsRoutes(t *testing.T) {
 	if !strings.Contains(logsResp.Body.String(), "\"endpoint\"") || !strings.Contains(logsResp.Body.String(), "\"source\":\"manual\"") || !strings.Contains(logsResp.Body.String(), "\"statusCode\":200") {
 		t.Fatalf("expected empty probe logs payload, got %s", logsResp.Body.String())
 	}
+	if strings.Contains(logsResp.Body.String(), "\"limit\"") || strings.Contains(logsResp.Body.String(), "\"offset\"") {
+		t.Fatalf("expected node-compatible probe logs shape without limit/offset, got %s", logsResp.Body.String())
+	}
 }
 
 func TestAvailabilityEndpointsRejectInvalidQuery(t *testing.T) {
@@ -91,5 +94,38 @@ func TestAvailabilityEndpointsRejectInvalidQuery(t *testing.T) {
 
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestAvailabilityProbeLogsRejectInvalidLimitOrOffset(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	enabled := true
+	router := gin.New()
+	NewAvailabilityEndpointsHandler(
+		fakeAdminAuth{result: &authsvc.AuthResult{
+			IsAdmin: true,
+			User:    &model.User{ID: -1, Name: "admin", Role: "admin", IsEnabled: &enabled},
+			Key:     &model.Key{ID: -1, Key: "admin-token", Name: "ADMIN_TOKEN", IsEnabled: &enabled},
+			APIKey:  "admin-token",
+		}},
+		fakeDashboardProviderStore{providers: []*model.Provider{{ID: 1, Name: "provider-a", URL: "https://api.vendor-a.com/v1", ProviderType: "claude", IsEnabled: &enabled}}},
+	).RegisterRoutes(router)
+
+	cases := []string{
+		"/api/availability/endpoints/probe-logs?endpointId=1&limit=0",
+		"/api/availability/endpoints/probe-logs?endpointId=1&limit=1001",
+		"/api/availability/endpoints/probe-logs?endpointId=1&offset=-1",
+		"/api/availability/endpoints/probe-logs?endpointId=1&limit=bad",
+	}
+
+	for _, path := range cases {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer admin-token")
+		resp := httptest.NewRecorder()
+		router.ServeHTTP(resp, req)
+
+		if resp.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for %s, got %d: %s", path, resp.Code, resp.Body.String())
+		}
 	}
 }
