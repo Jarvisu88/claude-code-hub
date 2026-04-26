@@ -10,6 +10,7 @@ import (
 type providerState struct {
 	failureCount int
 	openUntil    time.Time
+	halfOpen     bool
 }
 
 var (
@@ -38,6 +39,12 @@ func SetOpenForTest(providerID int, openUntil time.Time) {
 	states[providerID] = providerState{failureCount: 999, openUntil: openUntil}
 }
 
+func SetHalfOpenForTest(providerID int) {
+	mu.Lock()
+	defer mu.Unlock()
+	states[providerID] = providerState{failureCount: 0, halfOpen: true}
+}
+
 func IsOpen(provider *model.Provider) bool {
 	if provider == nil || provider.ID <= 0 {
 		return false
@@ -52,7 +59,9 @@ func IsOpen(provider *model.Provider) bool {
 		return false
 	}
 	if now().After(state.openUntil) {
-		delete(states, provider.ID)
+		state.openUntil = time.Time{}
+		state.halfOpen = true
+		states[provider.ID] = state
 		return false
 	}
 	return true
@@ -78,6 +87,7 @@ func RecordFailure(provider *model.Provider, networkError bool) {
 	defer mu.Unlock()
 	state := states[provider.ID]
 	state.failureCount++
+	state.halfOpen = false
 	if state.failureCount >= threshold {
 		state.openUntil = now().Add(openDuration)
 	}
@@ -91,4 +101,14 @@ func RecordSuccess(provider *model.Provider) {
 	mu.Lock()
 	defer mu.Unlock()
 	delete(states, provider.ID)
+}
+
+func IsHalfOpen(provider *model.Provider) bool {
+	if provider == nil || provider.ID <= 0 {
+		return false
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	state, ok := states[provider.ID]
+	return ok && state.halfOpen
 }
