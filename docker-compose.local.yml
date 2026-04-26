@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: claude_code_hub
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - cch_go_rewrite_postgres:/var/lib/postgresql/data
     healthcheck:
