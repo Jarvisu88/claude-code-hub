@@ -25,6 +25,7 @@ import (
 	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
 	"github.com/gin-gonic/gin"
+	"github.com/quagmt/udecimal"
 )
 
 const authResultContextKey = "proxy_auth_result"
@@ -54,6 +55,11 @@ type proxySystemSettingsStore interface {
 	Get(ctx context.Context) (*model.SystemSettings, error)
 }
 
+type proxyStatisticsStore interface {
+	SumUserTotalCost(ctx context.Context, userID int, maxAgeDays int) (udecimal.Decimal, error)
+	SumKeyTotalCost(ctx context.Context, keyStr string, maxAgeDays int) (udecimal.Decimal, error)
+}
+
 type httpDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
@@ -66,6 +72,7 @@ type Handler struct {
 	providers   providerRepository
 	requestLogs messageRequestRepository
 	settings    proxySystemSettingsStore
+	stats       proxyStatisticsStore
 	http        httpDoer
 }
 
@@ -78,13 +85,23 @@ const (
 	proxyEndpointChatCompletions proxyEndpointKind = "chat_completions"
 )
 
-func NewHandler(auth *authsvc.Service, sessions sessionManager, providers providerRepository, requestLogs messageRequestRepository, httpClient httpDoer, settings ...proxySystemSettingsStore) *Handler {
+func NewHandler(auth *authsvc.Service, sessions sessionManager, providers providerRepository, requestLogs messageRequestRepository, httpClient httpDoer, options ...any) *Handler {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
 	var settingsStore proxySystemSettingsStore
-	if len(settings) > 0 {
-		settingsStore = settings[0]
+	var statsStore proxyStatisticsStore
+	for _, option := range options {
+		switch typed := option.(type) {
+		case proxySystemSettingsStore:
+			if settingsStore == nil {
+				settingsStore = typed
+			}
+		case proxyStatisticsStore:
+			if statsStore == nil {
+				statsStore = typed
+			}
+		}
 	}
 	return &Handler{
 		auth:        auth,
@@ -92,6 +109,7 @@ func NewHandler(auth *authsvc.Service, sessions sessionManager, providers provid
 		providers:   providers,
 		requestLogs: requestLogs,
 		settings:    settingsStore,
+		stats:       statsStore,
 		http:        httpClient,
 	}
 }
@@ -183,6 +201,18 @@ func (h *Handler) SessionLifecycleMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		if exceeded, limit, current := exceedsTotalCostLimit(c.Request.Context(), h.stats, authResult); exceeded {
+			writeAppError(c, (&appErrors.AppError{
+				Type:       appErrors.ErrorTypeRateLimitError,
+				Message:    "总费用额度已达上限：当前 " + current.String() + "，上限 " + limit.String(),
+				Code:       appErrors.CodeTotalLimitExceeded,
+				HTTPStatus: http.StatusPaymentRequired,
+			}).WithDetails(map[string]any{
+				"current": current.String(),
+				"limit":   limit.String(),
+			}))
+			return
+		}
 		if exceeded, limit, current := exceedsConcurrentSessionLimit(authResult, h.sessions.GetConcurrentCount(c.Request.Context(), sessionID)); exceeded {
 			writeAppError(c, (&appErrors.AppError{
 				Type:       appErrors.ErrorTypeRateLimitError,
@@ -226,6 +256,26 @@ func normalizeConcurrentSessionLimit(value *int) int {
 		return 0
 	}
 	return *value
+}
+
+func exceedsTotalCostLimit(ctx context.Context, stats proxyStatisticsStore, authResult *authsvc.AuthResult) (bool, udecimal.Decimal, udecimal.Decimal) {
+	if stats == nil || authResult == nil || authResult.Key == nil || authResult.User == nil {
+		return false, udecimal.Zero, udecimal.Zero
+	}
+	if authResult.Key.LimitTotalUSD != nil && authResult.Key.LimitTotalUSD.GreaterThan(udecimal.Zero) {
+		current, err := stats.SumKeyTotalCost(ctx, authResult.Key.Key, 365)
+		if err == nil && (current.GreaterThan(*authResult.Key.LimitTotalUSD) || current.Equal(*authResult.Key.LimitTotalUSD)) {
+			return true, *authResult.Key.LimitTotalUSD, current
+		}
+		return false, udecimal.Zero, udecimal.Zero
+	}
+	if authResult.User.LimitTotalUSD != nil && authResult.User.LimitTotalUSD.GreaterThan(udecimal.Zero) {
+		current, err := stats.SumUserTotalCost(ctx, authResult.User.ID, 365)
+		if err == nil && (current.GreaterThan(*authResult.User.LimitTotalUSD) || current.Equal(*authResult.User.LimitTotalUSD)) {
+			return true, *authResult.User.LimitTotalUSD, current
+		}
+	}
+	return false, udecimal.Zero, udecimal.Zero
 }
 
 func (h *Handler) notImplemented(c *gin.Context) {
