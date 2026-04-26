@@ -39,6 +39,7 @@ func (f fakeLoginAuth) AuthenticateProxy(_ context.Context, input authsvc.ProxyA
 func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enabled := true
+	description := "dashboard user"
 	router := gin.New()
 
 	NewAuthHandler(fakeLoginAuth{
@@ -46,7 +47,7 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 		proxyToken: "sk-user",
 		proxyResult: &authsvc.AuthResult{
 			IsAdmin: false,
-			User:    nil,
+			User:    &model.User{ID: 11, Name: "alice", Description: &description, Role: "user", IsEnabled: &enabled},
 			Key:     &model.Key{ID: 1, Key: "sk-user", Name: "User Key", CanLoginWebUi: &enabled},
 			APIKey:  "sk-user",
 		},
@@ -60,7 +61,7 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	if loginResp.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", loginResp.Code, loginResp.Body.String())
 	}
-	if !strings.Contains(loginResp.Body.String(), `"redirectTo":"/dashboard"`) || !strings.Contains(loginResp.Body.String(), `"loginType":"dashboard_user"`) {
+	if !strings.Contains(loginResp.Body.String(), `"redirectTo":"/dashboard"`) || !strings.Contains(loginResp.Body.String(), `"loginType":"dashboard_user"`) || !strings.Contains(loginResp.Body.String(), `"user":{"description":"dashboard user","id":11,"name":"alice","role":"user"}`) {
 		t.Fatalf("expected dashboard login payload, got %s", loginResp.Body.String())
 	}
 	if !strings.Contains(strings.Join(loginResp.Result().Header.Values("Set-Cookie"), ";"), authCookieName+"=sk-user") {
@@ -79,13 +80,15 @@ func TestAuthLoginSupportsAdminAndReadonlyUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	disabledWebUI := false
+	enabled := true
 
 	NewAuthHandler(fakeLoginAuth{
 		adminToken:  "admin-token",
 		proxyToken:  "sk-read",
-		adminResult: &authsvc.AuthResult{IsAdmin: true, APIKey: "admin-token"},
+		adminResult: &authsvc.AuthResult{IsAdmin: true, APIKey: "admin-token", User: &model.User{ID: -1, Name: "Admin Token", Role: "admin", IsEnabled: &enabled}},
 		proxyResult: &authsvc.AuthResult{
 			IsAdmin: false,
+			User:    &model.User{ID: 2, Name: "bob", Role: "user", IsEnabled: &enabled},
 			Key:     &model.Key{ID: 2, Key: "sk-read", Name: "Read Key", CanLoginWebUi: &disabledWebUI},
 			APIKey:  "sk-read",
 		},
@@ -95,7 +98,7 @@ func TestAuthLoginSupportsAdminAndReadonlyUser(t *testing.T) {
 	adminReq.Header.Set("Content-Type", "application/json")
 	adminResp := httptest.NewRecorder()
 	router.ServeHTTP(adminResp, adminReq)
-	if adminResp.Code != http.StatusOK || !strings.Contains(adminResp.Body.String(), `"loginType":"admin"`) || !strings.Contains(adminResp.Body.String(), `"redirectTo":"/dashboard"`) {
+	if adminResp.Code != http.StatusOK || !strings.Contains(adminResp.Body.String(), `"loginType":"admin"`) || !strings.Contains(adminResp.Body.String(), `"redirectTo":"/dashboard"`) || !strings.Contains(adminResp.Body.String(), `"user":{"description":null,"id":-1,"name":"Admin Token","role":"admin"}`) {
 		t.Fatalf("expected admin login payload, got %d: %s", adminResp.Code, adminResp.Body.String())
 	}
 
@@ -103,7 +106,7 @@ func TestAuthLoginSupportsAdminAndReadonlyUser(t *testing.T) {
 	readonlyReq.Header.Set("Content-Type", "application/json")
 	readonlyResp := httptest.NewRecorder()
 	router.ServeHTTP(readonlyResp, readonlyReq)
-	if readonlyResp.Code != http.StatusOK || !strings.Contains(readonlyResp.Body.String(), `"loginType":"readonly_user"`) || !strings.Contains(readonlyResp.Body.String(), `"redirectTo":"/my-usage"`) {
+	if readonlyResp.Code != http.StatusOK || !strings.Contains(readonlyResp.Body.String(), `"loginType":"readonly_user"`) || !strings.Contains(readonlyResp.Body.String(), `"redirectTo":"/my-usage"`) || !strings.Contains(readonlyResp.Body.String(), `"user":{"description":null,"id":2,"name":"bob","role":"user"}`) {
 		t.Fatalf("expected readonly login payload, got %d: %s", readonlyResp.Code, readonlyResp.Body.String())
 	}
 }

@@ -70,11 +70,20 @@ func (h *AuthHandler) login(c *gin.Context) {
 
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(authCookieName, key, authCookieMaxAge, "/", "", false, true)
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"ok":         true,
 		"redirectTo": redirectTo,
 		"loginType":  loginType,
-	})
+	}
+	if authResult != nil && authResult.User != nil {
+		response["user"] = gin.H{
+			"id":          authResult.User.ID,
+			"name":        authResult.User.Name,
+			"description": authResult.User.Description,
+			"role":        authResult.User.Role,
+		}
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *AuthHandler) logout(c *gin.Context) {
