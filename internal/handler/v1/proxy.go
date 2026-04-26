@@ -254,6 +254,30 @@ func (h *Handler) SessionLifecycleMiddleware() gin.HandlerFunc {
 			}))
 			return
 		}
+		if exceeded, limit, current := exceedsWeeklyCostLimit(c.Request.Context(), h.stats, h.settings, authResult); exceeded {
+			writeAppError(c, (&appErrors.AppError{
+				Type:       appErrors.ErrorTypeRateLimitError,
+				Message:    "每周费用额度已达上限：当前 " + current.String() + "，上限 " + limit.String(),
+				Code:       appErrors.CodeWeeklyLimitExceeded,
+				HTTPStatus: http.StatusPaymentRequired,
+			}).WithDetails(map[string]any{
+				"current": current.String(),
+				"limit":   limit.String(),
+			}))
+			return
+		}
+		if exceeded, limit, current := exceedsMonthlyCostLimit(c.Request.Context(), h.stats, h.settings, authResult); exceeded {
+			writeAppError(c, (&appErrors.AppError{
+				Type:       appErrors.ErrorTypeRateLimitError,
+				Message:    "每月费用额度已达上限：当前 " + current.String() + "，上限 " + limit.String(),
+				Code:       appErrors.CodeMonthlyLimitExceeded,
+				HTTPStatus: http.StatusPaymentRequired,
+			}).WithDetails(map[string]any{
+				"current": current.String(),
+				"limit":   limit.String(),
+			}))
+			return
+		}
 
 		c.Set(proxySessionIDContextKey, sessionID)
 		h.sessions.IncrementConcurrentCount(c.Request.Context(), sessionID)
@@ -350,6 +374,48 @@ func exceedsDailyCostLimit(ctx context.Context, stats proxyStatisticsStore, sett
 	return false, udecimal.Zero, udecimal.Zero
 }
 
+func exceedsWeeklyCostLimit(ctx context.Context, stats proxyStatisticsStore, settings proxySystemSettingsStore, authResult *authsvc.AuthResult) (bool, udecimal.Decimal, udecimal.Decimal) {
+	if stats == nil || authResult == nil || authResult.Key == nil || authResult.User == nil {
+		return false, udecimal.Zero, udecimal.Zero
+	}
+	startTime, endTime := weeklyWindowBounds(settings)
+	if authResult.Key.LimitWeeklyUSD != nil && authResult.Key.LimitWeeklyUSD.GreaterThan(udecimal.Zero) {
+		current, err := lookupDailyCost(ctx, stats, true, authResult.Key.Key, authResult.User.ID, startTime, endTime)
+		if err == nil && (current.GreaterThan(*authResult.Key.LimitWeeklyUSD) || current.Equal(*authResult.Key.LimitWeeklyUSD)) {
+			return true, *authResult.Key.LimitWeeklyUSD, current
+		}
+		return false, udecimal.Zero, udecimal.Zero
+	}
+	if authResult.User.LimitWeeklyUSD != nil && authResult.User.LimitWeeklyUSD.GreaterThan(udecimal.Zero) {
+		current, err := lookupDailyCost(ctx, stats, false, authResult.Key.Key, authResult.User.ID, startTime, endTime)
+		if err == nil && (current.GreaterThan(*authResult.User.LimitWeeklyUSD) || current.Equal(*authResult.User.LimitWeeklyUSD)) {
+			return true, *authResult.User.LimitWeeklyUSD, current
+		}
+	}
+	return false, udecimal.Zero, udecimal.Zero
+}
+
+func exceedsMonthlyCostLimit(ctx context.Context, stats proxyStatisticsStore, settings proxySystemSettingsStore, authResult *authsvc.AuthResult) (bool, udecimal.Decimal, udecimal.Decimal) {
+	if stats == nil || authResult == nil || authResult.Key == nil || authResult.User == nil {
+		return false, udecimal.Zero, udecimal.Zero
+	}
+	startTime, endTime := monthlyWindowBounds(settings)
+	if authResult.Key.LimitMonthlyUSD != nil && authResult.Key.LimitMonthlyUSD.GreaterThan(udecimal.Zero) {
+		current, err := lookupDailyCost(ctx, stats, true, authResult.Key.Key, authResult.User.ID, startTime, endTime)
+		if err == nil && (current.GreaterThan(*authResult.Key.LimitMonthlyUSD) || current.Equal(*authResult.Key.LimitMonthlyUSD)) {
+			return true, *authResult.Key.LimitMonthlyUSD, current
+		}
+		return false, udecimal.Zero, udecimal.Zero
+	}
+	if authResult.User.LimitMonthlyUSD != nil && authResult.User.LimitMonthlyUSD.GreaterThan(udecimal.Zero) {
+		current, err := lookupDailyCost(ctx, stats, false, authResult.Key.Key, authResult.User.ID, startTime, endTime)
+		if err == nil && (current.GreaterThan(*authResult.User.LimitMonthlyUSD) || current.Equal(*authResult.User.LimitMonthlyUSD)) {
+			return true, *authResult.User.LimitMonthlyUSD, current
+		}
+	}
+	return false, udecimal.Zero, udecimal.Zero
+}
+
 func lookupDailyCost(ctx context.Context, stats proxyStatisticsStore, keyScoped bool, keyString string, userID int, startTime, endTime time.Time) (udecimal.Decimal, error) {
 	if keyScoped {
 		return stats.SumKeyCostInTimeRangeByKeyString(ctx, keyString, startTime, endTime)
@@ -390,6 +456,33 @@ func dailyWindowBoundsForMode(settings proxySystemSettingsStore, mode string, re
 		startOfWindow = startOfWindow.Add(-24 * time.Hour)
 	}
 	return startOfWindow.UTC(), now
+}
+
+func resolveSettingsTimezone(settings proxySystemSettingsStore) string {
+	timezone := repository.DefaultTimezone
+	if settings != nil {
+		if systemSettings, err := settings.Get(context.Background()); err == nil && systemSettings != nil && systemSettings.Timezone != nil {
+			timezone = repository.ValidateTimezone(strings.TrimSpace(*systemSettings.Timezone))
+		}
+	}
+	return repository.ValidateTimezone(timezone)
+}
+
+func weeklyWindowBounds(settings proxySystemSettingsStore) (time.Time, time.Time) {
+	now := time.Now()
+	location, _ := time.LoadLocation(resolveSettingsTimezone(settings))
+	zonedNow := now.In(location)
+	delta := (int(zonedNow.Weekday()) + 6) % 7
+	start := time.Date(zonedNow.Year(), zonedNow.Month(), zonedNow.Day(), 0, 0, 0, 0, location).AddDate(0, 0, -delta)
+	return start.UTC(), now
+}
+
+func monthlyWindowBounds(settings proxySystemSettingsStore) (time.Time, time.Time) {
+	now := time.Now()
+	location, _ := time.LoadLocation(resolveSettingsTimezone(settings))
+	zonedNow := now.In(location)
+	start := time.Date(zonedNow.Year(), zonedNow.Month(), 1, 0, 0, 0, 0, location)
+	return start.UTC(), now
 }
 
 func parseDailyResetTime(value string) (int, int) {

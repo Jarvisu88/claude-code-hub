@@ -83,6 +83,10 @@ type fakeProxyStatisticsStore struct {
 	key5h         udecimal.Decimal
 	userDaily     udecimal.Decimal
 	keyDaily      udecimal.Decimal
+	userWeekly    udecimal.Decimal
+	keyWeekly     udecimal.Decimal
+	userMonthly   udecimal.Decimal
+	keyMonthly    udecimal.Decimal
 	provider5h    udecimal.Decimal
 	providerDaily udecimal.Decimal
 	providerTotal udecimal.Decimal
@@ -181,12 +185,28 @@ func isAbout5hWindow(startTime, endTime time.Time) bool {
 	return duration >= 5*time.Hour-2*time.Minute && duration <= 5*time.Hour+2*time.Minute
 }
 
+func isAboutWeeklyWindow(startTime, endTime time.Time) bool {
+	duration := endTime.Sub(startTime)
+	return duration >= 6*24*time.Hour && duration <= 8*24*time.Hour
+}
+
+func isAboutMonthlyWindow(startTime, endTime time.Time) bool {
+	duration := endTime.Sub(startTime)
+	return duration >= 20*24*time.Hour && duration <= 31*24*time.Hour
+}
+
 func (f *fakeProxyStatisticsStore) SumUserCostInTimeRange(_ context.Context, _ int, startTime, endTime time.Time) (udecimal.Decimal, error) {
 	if f.err != nil {
 		return udecimal.Zero, f.err
 	}
 	if isAbout5hWindow(startTime, endTime) {
 		return f.user5h, nil
+	}
+	if isAboutWeeklyWindow(startTime, endTime) {
+		return f.userWeekly, nil
+	}
+	if isAboutMonthlyWindow(startTime, endTime) {
+		return f.userMonthly, nil
 	}
 	return f.userDaily, nil
 }
@@ -197,6 +217,12 @@ func (f *fakeProxyStatisticsStore) SumKeyCostInTimeRangeByKeyString(_ context.Co
 	}
 	if isAbout5hWindow(startTime, endTime) {
 		return f.key5h, nil
+	}
+	if isAboutWeeklyWindow(startTime, endTime) {
+		return f.keyWeekly, nil
+	}
+	if isAboutMonthlyWindow(startTime, endTime) {
+		return f.keyMonthly, nil
 	}
 	return f.keyDaily, nil
 }
@@ -1235,6 +1261,81 @@ func TestSessionLifecycleMiddlewareFailsOpenWhenDailyCostLookupFails(t *testing.
 
 	if resp.Code != http.StatusNoContent {
 		t.Fatalf("expected fail-open 204, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestSessionLifecycleMiddlewareRejectsKeyWeeklyLimitExceeded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	limit := udecimal.MustParse("9")
+	current := udecimal.MustParse("9")
+	sessionManager := &fakeSessionManager{extractedSessionID: "sess_client_123", generatedSessionID: "sess_generated_123"}
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:             1,
+			UserID:         10,
+			Key:            "proxy-key",
+			Name:           "key-1",
+			IsEnabled:      &enabled,
+			LimitWeeklyUSD: &limit,
+			User:           &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+		},
+	}, testUserRepo{}, ""), sessionManager, nil, nil, nil, &fakeProxyStatisticsStore{keyWeekly: current})
+
+	router := gin.New()
+	group := router.Group("/v1")
+	group.Use(handler.AuthMiddleware(), handler.SessionLifecycleMiddleware())
+	group.POST("/responses", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestSessionLifecycleMiddlewareRejectsUserMonthlyLimitExceeded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	limit := udecimal.MustParse("12")
+	current := udecimal.MustParse("12")
+	sessionManager := &fakeSessionManager{extractedSessionID: "sess_client_123", generatedSessionID: "sess_generated_123"}
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:        1,
+			UserID:    10,
+			Key:       "proxy-key",
+			Name:      "key-1",
+			IsEnabled: &enabled,
+			User: &model.User{
+				ID:              10,
+				Name:            "tester",
+				Role:            "user",
+				IsEnabled:       &enabled,
+				LimitMonthlyUSD: &limit,
+			},
+		},
+	}, testUserRepo{}, ""), sessionManager, nil, nil, nil, &fakeProxyStatisticsStore{userMonthly: current})
+
+	router := gin.New()
+	group := router.Group("/v1")
+	group.Use(handler.AuthMiddleware(), handler.SessionLifecycleMiddleware())
+	group.POST("/responses", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 
