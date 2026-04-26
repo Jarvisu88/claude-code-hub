@@ -76,13 +76,14 @@ type fakeProxySystemSettingsStore struct {
 }
 
 type fakeProxyStatisticsStore struct {
-	userTotal udecimal.Decimal
-	keyTotal  udecimal.Decimal
-	user5h    udecimal.Decimal
-	key5h     udecimal.Decimal
-	userDaily udecimal.Decimal
-	keyDaily  udecimal.Decimal
-	err       error
+	userTotal     udecimal.Decimal
+	keyTotal      udecimal.Decimal
+	user5h        udecimal.Decimal
+	key5h         udecimal.Decimal
+	userDaily     udecimal.Decimal
+	keyDaily      udecimal.Decimal
+	providerTotal udecimal.Decimal
+	err           error
 }
 
 type timeoutHTTPClient struct{}
@@ -173,6 +174,13 @@ func (f *fakeProxyStatisticsStore) SumKeyCostInTimeRangeByKeyString(_ context.Co
 		return f.key5h, nil
 	}
 	return f.keyDaily, nil
+}
+
+func (f *fakeProxyStatisticsStore) SumProviderTotalCost(_ context.Context, _ int, _ *time.Time) (udecimal.Decimal, error) {
+	if f.err != nil {
+		return udecimal.Zero, f.err
+	}
+	return f.providerTotal, nil
 }
 
 func (f *fakeSessionManager) ExtractClientSessionID(requestBody map[string]any, _ http.Header) sessionsvc.ClientSessionExtractionResult {
@@ -2151,6 +2159,140 @@ func TestResponsesHandlerFailsOpenWhenProviderConcurrentCountUnavailable(t *test
 	}
 	if capturedAuthHeader != "Bearer cheap-secret" {
 		t.Fatalf("expected fail-open to keep provider available when concurrent count unavailable, got auth header %q", capturedAuthHeader)
+	}
+}
+
+func TestResponsesHandlerSkipsProviderWhenTotalCostLimitReached(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var capturedAuthHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	priority := 10
+	limit := udecimal.MustParse("5")
+	current := udecimal.MustParse("5")
+	cheapCost := udecimal.MustParse("0.8")
+	expensiveCost := udecimal.MustParse("1.5")
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{
+				ID:             1,
+				Name:           "cheap-but-capped",
+				URL:            upstream.URL,
+				Key:            "cheap-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				CostMultiplier: &cheapCost,
+				LimitTotalUSD:  &limit,
+			},
+			{
+				ID:             2,
+				Name:           "fallback-provider",
+				URL:            upstream.URL,
+				Key:            "fallback-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				CostMultiplier: &expensiveCost,
+			},
+		}},
+		nil,
+		upstream.Client(),
+		&fakeProxyStatisticsStore{providerTotal: current},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedAuthHeader != "Bearer fallback-secret" {
+		t.Fatalf("expected fallback provider when first provider total limit is reached, got auth header %q", capturedAuthHeader)
+	}
+}
+
+func TestResponsesHandlerFailsOpenWhenProviderTotalLookupFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var capturedAuthHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	priority := 10
+	limit := udecimal.MustParse("1")
+	cheapCost := udecimal.MustParse("0.8")
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:             1,
+			Name:           "cheap-provider",
+			URL:            upstream.URL,
+			Key:            "cheap-secret",
+			ProviderType:   string(model.ProviderTypeCodex),
+			IsEnabled:      &enabled,
+			Priority:       &priority,
+			CostMultiplier: &cheapCost,
+			LimitTotalUSD:  &limit,
+		}}},
+		nil,
+		upstream.Client(),
+		&fakeProxyStatisticsStore{err: errors.New("db down")},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedAuthHeader != "Bearer cheap-secret" {
+		t.Fatalf("expected fail-open to keep provider available when total lookup fails, got auth header %q", capturedAuthHeader)
 	}
 }
 

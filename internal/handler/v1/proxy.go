@@ -60,6 +60,7 @@ type proxyStatisticsStore interface {
 	SumKeyTotalCost(ctx context.Context, keyStr string, maxAgeDays int) (udecimal.Decimal, error)
 	SumUserCostInTimeRange(ctx context.Context, userID int, startTime, endTime time.Time) (udecimal.Decimal, error)
 	SumKeyCostInTimeRangeByKeyString(ctx context.Context, keyStr string, startTime, endTime time.Time) (udecimal.Decimal, error)
+	SumProviderTotalCost(ctx context.Context, providerID int, resetAt *time.Time) (udecimal.Decimal, error)
 }
 
 type httpDoer interface {
@@ -823,6 +824,13 @@ func (h *Handler) selectProviderForEndpoint(ctx context.Context, endpointKind pr
 		if limit := normalizeConcurrentSessionLimit(provider.LimitConcurrentSessions); limit > 0 {
 			if providerConcurrentCounts != nil && providerConcurrentCounts[provider.ID] >= limit {
 				continue
+			}
+		}
+		if h != nil && h.stats != nil && provider.LimitTotalUSD != nil && provider.LimitTotalUSD.GreaterThan(udecimal.Zero) {
+			if current, err := h.stats.SumProviderTotalCost(ctx, provider.ID, provider.TotalCostResetAt); err == nil {
+				if current.GreaterThan(*provider.LimitTotalUSD) || current.Equal(*provider.LimitTotalUSD) {
+					continue
+				}
 			}
 		}
 		candidates = append(candidates, provider)
