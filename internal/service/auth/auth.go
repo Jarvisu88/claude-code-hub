@@ -15,6 +15,10 @@ type proxyKeyLookup interface {
 	GetByKeyWithUser(ctx context.Context, key string) (*model.Key, error)
 }
 
+type keyListLookup interface {
+	ListByUserID(ctx context.Context, userID int) ([]*model.Key, error)
+}
+
 type userExpiryMarker interface {
 	MarkUserExpired(ctx context.Context, userID int) (bool, error)
 }
@@ -22,10 +26,12 @@ type userExpiryMarker interface {
 // Service 封装 API Key 与管理员令牌鉴权逻辑。
 // 当前阶段只处理最核心的认证语义，不耦合限流、会话和 provider 选择。
 type Service struct {
-	keyRepo    proxyKeyLookup
-	userRepo   userExpiryMarker
-	adminToken string
-	now        func() time.Time
+	keyRepo       proxyKeyLookup
+	keyListRepo   keyListLookup
+	userRepo      userExpiryMarker
+	sessionReader sessionTokenReader
+	adminToken    string
+	now           func() time.Time
 }
 
 // ProxyAuthInput 统一承载 /v1 代理链可接受的凭据输入。
@@ -34,6 +40,7 @@ type ProxyAuthInput struct {
 	APIKeyHeader        string
 	GeminiAPIKeyHeader  string
 	GeminiAPIKeyQuery   string
+	AllowSessionToken   bool
 }
 
 // AuthResult 返回当前请求被鉴权后的 principal。
@@ -44,17 +51,27 @@ type AuthResult struct {
 	IsAdmin bool
 }
 
-func NewService(keyRepo proxyKeyLookup, userRepo userExpiryMarker, adminToken string) *Service {
+func NewService(keyRepo proxyKeyLookup, userRepo userExpiryMarker, adminToken string, sessionReaders ...sessionTokenReader) *Service {
+	var keyListRepo keyListLookup
+	if repo, ok := keyRepo.(keyListLookup); ok {
+		keyListRepo = repo
+	}
+	var sessionReader sessionTokenReader
+	if len(sessionReaders) > 0 {
+		sessionReader = sessionReaders[0]
+	}
 	return &Service{
-		keyRepo:    keyRepo,
-		userRepo:   userRepo,
-		adminToken: adminToken,
-		now:        time.Now,
+		keyRepo:       keyRepo,
+		keyListRepo:   keyListRepo,
+		userRepo:      userRepo,
+		sessionReader: sessionReader,
+		adminToken:    adminToken,
+		now:           time.Now,
 	}
 }
 
-func NewServiceFromFactory(factory *repository.Factory, adminToken string) *Service {
-	return NewService(factory.Key(), factory.User(), adminToken)
+func NewServiceFromFactory(factory *repository.Factory, adminToken string, sessionReaders ...sessionTokenReader) *Service {
+	return NewService(factory.Key(), factory.User(), adminToken, sessionReaders...)
 }
 
 // AuthenticateProxy 校验 /v1 代理请求。
@@ -67,7 +84,16 @@ func (s *Service) AuthenticateProxy(ctx context.Context, input ProxyAuthInput) (
 	if err != nil {
 		return nil, err
 	}
+	if input.AllowSessionToken {
+		if sessionResult, err := s.resolveSessionToken(ctx, apiKey); err == nil && sessionResult != nil {
+			return sessionResult, nil
+		}
+	}
 
+	return s.authenticateAPIKey(ctx, apiKey)
+}
+
+func (s *Service) authenticateAPIKey(ctx context.Context, apiKey string) (*AuthResult, error) {
 	key, err := s.keyRepo.GetByKeyWithUser(ctx, apiKey)
 	if err != nil {
 		if appErrors.IsCode(err, appErrors.CodeNotFound) {
@@ -117,6 +143,12 @@ func (s *Service) AuthenticateAdminToken(token string) (*AuthResult, error) {
 	if normalizedToken == "" {
 		return nil, appErrors.NewAuthenticationError("未提供管理员令牌。", appErrors.CodeTokenRequired)
 	}
+	if sessionResult, err := s.resolveSessionToken(context.Background(), normalizedToken); err == nil && sessionResult != nil {
+		if sessionResult.IsAdmin {
+			return sessionResult, nil
+		}
+		return nil, appErrors.NewAuthenticationError("管理员令牌无效。", appErrors.CodeInvalidToken)
+	}
 	if normalizedAdminToken == "" {
 		return nil, appErrors.NewAuthenticationError("管理员令牌未配置。", appErrors.CodeUnauthorized)
 	}
@@ -124,6 +156,10 @@ func (s *Service) AuthenticateAdminToken(token string) (*AuthResult, error) {
 		return nil, appErrors.NewAuthenticationError("管理员令牌无效。", appErrors.CodeInvalidToken)
 	}
 
+	return s.buildAdminAuthResult(normalizedToken), nil
+}
+
+func (s *Service) buildAdminAuthResult(token string) *AuthResult {
 	now := s.now()
 	enabled := true
 	canLogin := true
@@ -139,7 +175,7 @@ func (s *Service) AuthenticateAdminToken(token string) (*AuthResult, error) {
 	key := &model.Key{
 		ID:            -1,
 		UserID:        user.ID,
-		Key:           normalizedToken,
+		Key:           token,
 		Name:          "ADMIN_TOKEN",
 		IsEnabled:     &enabled,
 		CanLoginWebUi: &canLogin,
@@ -151,9 +187,48 @@ func (s *Service) AuthenticateAdminToken(token string) (*AuthResult, error) {
 	return &AuthResult{
 		User:    user,
 		Key:     key,
-		APIKey:  normalizedToken,
+		APIKey:  token,
 		IsAdmin: true,
-	}, nil
+	}
+}
+
+func (s *Service) resolveSessionToken(ctx context.Context, token string) (*AuthResult, error) {
+	if s == nil || s.sessionReader == nil || s.keyListRepo == nil {
+		return nil, nil
+	}
+	if resolveSessionTokenMode() == sessionTokenModeLegacy || !looksLikeSessionToken(token) {
+		return nil, nil
+	}
+
+	sessionData, err := s.sessionReader.Read(ctx, token)
+	if err != nil || sessionData == nil {
+		return nil, err
+	}
+	if sessionData.ExpiresAt > 0 && time.UnixMilli(sessionData.ExpiresAt).Before(s.now()) {
+		return nil, nil
+	}
+
+	expectedFingerprint := normalizeKeyFingerprint(sessionData.KeyFingerprint)
+	if sessionData.UserID == -1 {
+		if s.adminToken == "" || !constantTimeEqualString(expectedFingerprint, keyFingerprint(s.adminToken)) {
+			return nil, nil
+		}
+		return s.buildAdminAuthResult(s.adminToken), nil
+	}
+
+	keys, err := s.keyListRepo.ListByUserID(ctx, sessionData.UserID)
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range keys {
+		if key == nil {
+			continue
+		}
+		if constantTimeEqualString(expectedFingerprint, keyFingerprint(key.Key)) {
+			return s.authenticateAPIKey(ctx, key.Key)
+		}
+	}
+	return nil, nil
 }
 
 func resolveSingleProxyAPIKey(input ProxyAuthInput) (string, error) {

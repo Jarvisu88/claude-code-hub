@@ -85,7 +85,7 @@ func (h *LeaderboardHandler) ensureAuthorized(c *gin.Context) bool {
 	if authResult, err := h.auth.AuthenticateAdminToken(token); err == nil && authResult != nil && authResult.IsAdmin {
 		return true
 	}
-	authResult, err := h.auth.AuthenticateProxy(c.Request.Context(), authsvc.ProxyAuthInput{APIKeyHeader: token})
+	authResult, err := h.auth.AuthenticateProxy(c.Request.Context(), authsvc.ProxyAuthInput{APIKeyHeader: token, AllowSessionToken: true})
 	if err != nil || authResult == nil {
 		writeAdminError(c, appErrors.NewAuthenticationError("未授权，请先登录", appErrors.CodeUnauthorized))
 		return false

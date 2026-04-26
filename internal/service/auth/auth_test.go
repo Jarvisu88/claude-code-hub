@@ -11,12 +11,29 @@ import (
 )
 
 type stubKeyRepo struct {
-	key *model.Key
-	err error
+	key        *model.Key
+	keysByUser map[int][]*model.Key
+	err        error
 }
 
 func (s *stubKeyRepo) GetByKeyWithUser(_ context.Context, _ string) (*model.Key, error) {
 	return s.key, s.err
+}
+
+func (s *stubKeyRepo) ListByUserID(_ context.Context, userID int) ([]*model.Key, error) {
+	if s.keysByUser == nil {
+		return nil, nil
+	}
+	return s.keysByUser[userID], nil
+}
+
+type stubSessionReader struct {
+	session *SessionTokenData
+	err     error
+}
+
+func (s stubSessionReader) Read(_ context.Context, _ string) (*SessionTokenData, error) {
+	return s.session, s.err
 }
 
 type stubUserRepo struct {
@@ -172,6 +189,92 @@ func TestAuthenticateAdminTokenRejectsInvalidToken(t *testing.T) {
 	}
 	if !appErrors.IsCode(err, appErrors.CodeInvalidToken) {
 		t.Fatalf("expected invalid_token, got %v", err)
+	}
+}
+
+func TestAuthenticateAdminTokenAcceptsOpaqueAdminSession(t *testing.T) {
+	svc := NewService(
+		&stubKeyRepo{},
+		&stubUserRepo{},
+		"admin-token",
+		stubSessionReader{session: &SessionTokenData{
+			SessionID:      "sid_admin_123",
+			KeyFingerprint: keyFingerprint("admin-token"),
+			UserID:         -1,
+			UserRole:       "admin",
+			CreatedAt:      time.Now().Add(-time.Minute).UnixMilli(),
+			ExpiresAt:      time.Now().Add(time.Hour).UnixMilli(),
+		}},
+	)
+	t.Setenv("SESSION_TOKEN_MODE", "opaque")
+
+	result, err := svc.AuthenticateAdminToken("sid_admin_123")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result == nil || !result.IsAdmin || result.User == nil || result.User.Role != "admin" {
+		t.Fatalf("expected opaque admin session auth result, got %+v", result)
+	}
+}
+
+func TestAuthenticateProxyAllowsOpaqueSessionWhenExplicitlyEnabled(t *testing.T) {
+	key := buildActiveKey("proxy-key")
+	svc := NewService(
+		&stubKeyRepo{
+			key: key,
+			keysByUser: map[int][]*model.Key{
+				key.User.ID: {key},
+			},
+		},
+		&stubUserRepo{},
+		"admin-token",
+		stubSessionReader{session: &SessionTokenData{
+			SessionID:      "sid_user_123",
+			KeyFingerprint: keyFingerprint("proxy-key"),
+			UserID:         key.User.ID,
+			UserRole:       key.User.Role,
+			CreatedAt:      time.Now().Add(-time.Minute).UnixMilli(),
+			ExpiresAt:      time.Now().Add(time.Hour).UnixMilli(),
+		}},
+	)
+	t.Setenv("SESSION_TOKEN_MODE", "opaque")
+
+	result, err := svc.AuthenticateProxy(context.Background(), ProxyAuthInput{
+		APIKeyHeader:      "sid_user_123",
+		AllowSessionToken: true,
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result == nil || result.User == nil || result.User.ID != key.User.ID || result.APIKey != "proxy-key" {
+		t.Fatalf("expected opaque session to resolve underlying key auth, got %+v", result)
+	}
+}
+
+func TestAuthenticateProxyDoesNotAcceptOpaqueSessionByDefault(t *testing.T) {
+	svc := NewService(
+		&stubKeyRepo{err: appErrors.NewNotFoundError("Key")},
+		&stubUserRepo{},
+		"admin-token",
+		stubSessionReader{session: &SessionTokenData{
+			SessionID:      "sid_user_123",
+			KeyFingerprint: keyFingerprint("proxy-key"),
+			UserID:         10,
+			UserRole:       "user",
+			CreatedAt:      time.Now().Add(-time.Minute).UnixMilli(),
+			ExpiresAt:      time.Now().Add(time.Hour).UnixMilli(),
+		}},
+	)
+	t.Setenv("SESSION_TOKEN_MODE", "opaque")
+
+	_, err := svc.AuthenticateProxy(context.Background(), ProxyAuthInput{
+		APIKeyHeader: "sid_user_123",
+	})
+	if err == nil {
+		t.Fatal("expected opaque session token to be rejected without explicit opt-in")
+	}
+	if !appErrors.IsCode(err, appErrors.CodeInvalidAPIKey) {
+		t.Fatalf("expected invalid_api_key, got %v", err)
 	}
 }
 

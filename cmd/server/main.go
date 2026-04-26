@@ -112,7 +112,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	router.Use(requestLogger())
 
 	repoFactory := repository.NewFactory(db)
-	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken)
+	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken, authsvc.NewRedisSessionReader(rdb))
 
 	// 健康检查
 	router.GET("/health", healthCheck(db, rdb))

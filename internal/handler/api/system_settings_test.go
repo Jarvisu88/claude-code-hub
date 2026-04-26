@@ -2,10 +2,14 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ding113/claude-code-hub/internal/model"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
@@ -171,6 +175,87 @@ func TestSystemSettingsRoutesAcceptAuthCookie(t *testing.T) {
 
 	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "Claude Code Hub") {
 		t.Fatalf("expected auth-cookie system settings payload, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+type sessionAwareKeyRepo struct {
+	key *model.Key
+}
+
+func (r sessionAwareKeyRepo) GetByKeyWithUser(_ context.Context, key string) (*model.Key, error) {
+	if r.key != nil && r.key.Key == key {
+		return r.key, nil
+	}
+	return nil, nil
+}
+
+func (r sessionAwareKeyRepo) ListByUserID(_ context.Context, userID int) ([]*model.Key, error) {
+	if r.key != nil && r.key.User != nil && r.key.User.ID == userID {
+		return []*model.Key{r.key}, nil
+	}
+	return nil, nil
+}
+
+type noopUserExpiryRepo struct{}
+
+func (noopUserExpiryRepo) MarkUserExpired(_ context.Context, _ int) (bool, error) { return true, nil }
+
+type opaqueSessionReader struct {
+	session *authsvc.SessionTokenData
+}
+
+func (r opaqueSessionReader) Read(_ context.Context, _ string) (*authsvc.SessionTokenData, error) {
+	return r.session, nil
+}
+
+func testSHA256Hex(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func TestSystemSettingsRoutesAcceptOpaqueSessionCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldMode := os.Getenv("SESSION_TOKEN_MODE")
+	t.Cleanup(func() { _ = os.Setenv("SESSION_TOKEN_MODE", oldMode) })
+	_ = os.Setenv("SESSION_TOKEN_MODE", "opaque")
+
+	enabled := true
+	userKey := &model.Key{
+		ID:            2,
+		UserID:        2,
+		Key:           "user-token",
+		Name:          "USER_KEY",
+		IsEnabled:     &enabled,
+		CanLoginWebUi: &enabled,
+		User:          &model.User{ID: 2, Name: "bob", Role: "user", IsEnabled: &enabled},
+	}
+	authService := authsvc.NewService(
+		sessionAwareKeyRepo{key: userKey},
+		noopUserExpiryRepo{},
+		"admin-token",
+		opaqueSessionReader{session: &authsvc.SessionTokenData{
+			SessionID:      "sid_user_opaque_123",
+			KeyFingerprint: "sha256:" + testSHA256Hex("user-token"),
+			UserID:         2,
+			UserRole:       "user",
+			CreatedAt:      time.Now().Add(-time.Minute).UnixMilli(),
+			ExpiresAt:      time.Now().Add(time.Hour).UnixMilli(),
+		}},
+	)
+
+	store := &fakeSystemSettingsStore{}
+	handler := NewSystemSettingsHandler(authService, store)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/api/system-settings"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/system-settings", nil)
+	req.AddCookie(&http.Cookie{Name: authCookieName, Value: "sid_user_opaque_123"})
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK || !strings.Contains(resp.Body.String(), "Claude Code Hub") {
+		t.Fatalf("expected opaque-session auth-cookie system settings payload, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 

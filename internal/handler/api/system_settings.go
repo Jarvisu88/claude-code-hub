@@ -31,9 +31,10 @@ func NewSystemSettingsHandler(auth systemSettingsAuthenticator, store systemSett
 }
 
 func (h *SystemSettingsHandler) RegisterRoutes(group *gin.RouterGroup) {
+	group.GET("", h.get)
+
 	protected := group.Group("")
 	protected.Use((&Handler{auth: h.auth}).AdminAuthMiddleware())
-	protected.GET("", h.get)
 	protected.PUT("", h.update)
 }
 
@@ -255,7 +256,7 @@ func (h *SystemSettingsHandler) ensureAuthenticated(c *gin.Context) bool {
 	if authResult, err := h.auth.AuthenticateAdminToken(token); err == nil && authResult != nil {
 		return true
 	}
-	if authResult, err := h.auth.AuthenticateProxy(c.Request.Context(), authsvc.ProxyAuthInput{APIKeyHeader: token}); err == nil && authResult != nil {
+	if authResult, err := h.auth.AuthenticateProxy(c.Request.Context(), authsvc.ProxyAuthInput{APIKeyHeader: token, AllowSessionToken: true}); err == nil && authResult != nil {
 		return true
 	}
 	writeAdminError(c, appErrors.NewAuthenticationError("未授权，请先登录", appErrors.CodeUnauthorized))

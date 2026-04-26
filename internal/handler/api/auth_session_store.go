@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ding113/claude-code-hub/internal/database"
+	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -24,15 +25,6 @@ type authSessionRevoker interface {
 
 type redisAuthSessionStore struct {
 	client *redis.Client
-}
-
-type authSessionData struct {
-	SessionID      string `json:"sessionId"`
-	KeyFingerprint string `json:"keyFingerprint"`
-	UserID         int    `json:"userId"`
-	UserRole       string `json:"userRole"`
-	CreatedAt      int64  `json:"createdAt"`
-	ExpiresAt      int64  `json:"expiresAt"`
 }
 
 func NewRedisAuthSessionStore(rdb *database.RedisClient) authSessionRevoker {
@@ -55,9 +47,9 @@ func (s *redisAuthSessionStore) Create(ctx context.Context, apiKey string, userI
 		return "", err
 	}
 	now := time.Now()
-	payload := authSessionData{
+	payload := authsvc.SessionTokenData{
 		SessionID:      sessionID,
-		KeyFingerprint: keyFingerprint(apiKey),
+		KeyFingerprint: authsvcKeyFingerprint(apiKey),
 		UserID:         userID,
 		UserRole:       userRole,
 		CreatedAt:      now.UnixMilli(),
@@ -111,7 +103,7 @@ func generateOpaqueSessionID() (string, error) {
 	return "sid_" + hex.EncodeToString(buf), nil
 }
 
-func keyFingerprint(apiKey string) string {
+func authsvcKeyFingerprint(apiKey string) string {
 	sum := sha256.Sum256([]byte(apiKey))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
