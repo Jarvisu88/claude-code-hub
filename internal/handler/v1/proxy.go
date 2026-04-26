@@ -58,6 +58,8 @@ type proxySystemSettingsStore interface {
 type proxyStatisticsStore interface {
 	SumUserTotalCost(ctx context.Context, userID int, maxAgeDays int) (udecimal.Decimal, error)
 	SumKeyTotalCost(ctx context.Context, keyStr string, maxAgeDays int) (udecimal.Decimal, error)
+	SumUserCostInTimeRange(ctx context.Context, userID int, startTime, endTime time.Time) (udecimal.Decimal, error)
+	SumKeyCostInTimeRangeByKeyString(ctx context.Context, keyStr string, startTime, endTime time.Time) (udecimal.Decimal, error)
 }
 
 type httpDoer interface {
@@ -225,6 +227,18 @@ func (h *Handler) SessionLifecycleMiddleware() gin.HandlerFunc {
 			}))
 			return
 		}
+		if exceeded, limit, current := exceeds5hCostLimit(c.Request.Context(), h.stats, authResult); exceeded {
+			writeAppError(c, (&appErrors.AppError{
+				Type:       appErrors.ErrorTypeRateLimitError,
+				Message:    "5小时费用额度已达上限：当前 " + current.String() + "，上限 " + limit.String(),
+				Code:       appErrors.Code5HLimitExceeded,
+				HTTPStatus: http.StatusPaymentRequired,
+			}).WithDetails(map[string]any{
+				"current": current.String(),
+				"limit":   limit.String(),
+			}))
+			return
+		}
 
 		c.Set(proxySessionIDContextKey, sessionID)
 		h.sessions.IncrementConcurrentCount(c.Request.Context(), sessionID)
@@ -273,6 +287,28 @@ func exceedsTotalCostLimit(ctx context.Context, stats proxyStatisticsStore, auth
 		current, err := stats.SumUserTotalCost(ctx, authResult.User.ID, 365)
 		if err == nil && (current.GreaterThan(*authResult.User.LimitTotalUSD) || current.Equal(*authResult.User.LimitTotalUSD)) {
 			return true, *authResult.User.LimitTotalUSD, current
+		}
+	}
+	return false, udecimal.Zero, udecimal.Zero
+}
+
+func exceeds5hCostLimit(ctx context.Context, stats proxyStatisticsStore, authResult *authsvc.AuthResult) (bool, udecimal.Decimal, udecimal.Decimal) {
+	if stats == nil || authResult == nil || authResult.Key == nil || authResult.User == nil {
+		return false, udecimal.Zero, udecimal.Zero
+	}
+	endTime := time.Now()
+	startTime := endTime.Add(-5 * time.Hour)
+	if authResult.Key.Limit5hUSD != nil && authResult.Key.Limit5hUSD.GreaterThan(udecimal.Zero) {
+		current, err := stats.SumKeyCostInTimeRangeByKeyString(ctx, authResult.Key.Key, startTime, endTime)
+		if err == nil && (current.GreaterThan(*authResult.Key.Limit5hUSD) || current.Equal(*authResult.Key.Limit5hUSD)) {
+			return true, *authResult.Key.Limit5hUSD, current
+		}
+		return false, udecimal.Zero, udecimal.Zero
+	}
+	if authResult.User.Limit5hUSD != nil && authResult.User.Limit5hUSD.GreaterThan(udecimal.Zero) {
+		current, err := stats.SumUserCostInTimeRange(ctx, authResult.User.ID, startTime, endTime)
+		if err == nil && (current.GreaterThan(*authResult.User.Limit5hUSD) || current.Equal(*authResult.User.Limit5hUSD)) {
+			return true, *authResult.User.Limit5hUSD, current
 		}
 	}
 	return false, udecimal.Zero, udecimal.Zero
