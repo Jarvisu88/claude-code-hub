@@ -39,8 +39,24 @@ func (f fakeLoginAuth) AuthenticateProxy(_ context.Context, input authsvc.ProxyA
 }
 
 type fakeSessionRevoker struct {
-	revoked []string
-	err     error
+	created []struct {
+		apiKey string
+		userID int
+		role   string
+	}
+	createID  string
+	createErr error
+	revoked   []string
+	err       error
+}
+
+func (f *fakeSessionRevoker) Create(_ context.Context, apiKey string, userID int, userRole string) (string, error) {
+	f.created = append(f.created, struct {
+		apiKey string
+		userID int
+		role   string
+	}{apiKey: apiKey, userID: userID, role: userRole})
+	return f.createID, f.createErr
 }
 
 func (f *fakeSessionRevoker) Revoke(_ context.Context, sessionID string) error {
@@ -264,5 +280,104 @@ func TestAuthLogoutRevokesOpaqueSessionInNonLegacyModes(t *testing.T) {
 	}
 	if len(sessionRevoker.revoked) != 1 || sessionRevoker.revoked[0] != "sid_test_123" {
 		t.Fatalf("expected opaque session revocation, got %+v", sessionRevoker.revoked)
+	}
+}
+
+func TestAuthLoginCreatesOpaqueSessionInDualModeButKeepsLegacyCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldMode := os.Getenv("SESSION_TOKEN_MODE")
+	t.Cleanup(func() { _ = os.Setenv("SESSION_TOKEN_MODE", oldMode) })
+	_ = os.Setenv("SESSION_TOKEN_MODE", "dual")
+
+	enabled := true
+	router := gin.New()
+	sessionRevoker := &fakeSessionRevoker{createID: "sid_dual_123"}
+	NewAuthHandler(fakeLoginAuth{
+		proxyToken: "sk-user",
+		proxyResult: &authsvc.AuthResult{
+			IsAdmin: false,
+			User:    &model.User{ID: 5, Name: "dual-user", Role: "user", IsEnabled: &enabled},
+			Key:     &model.Key{ID: 5, Key: "sk-user", Name: "Dual Key", CanLoginWebUi: &enabled},
+			APIKey:  "sk-user",
+		},
+	}, sessionRevoker).RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"key":"sk-user"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(sessionRevoker.created) != 1 || sessionRevoker.created[0].apiKey != "sk-user" || sessionRevoker.created[0].userID != 5 || sessionRevoker.created[0].role != "user" {
+		t.Fatalf("expected opaque session creation in dual mode, got %+v", sessionRevoker.created)
+	}
+	if !strings.Contains(strings.Join(resp.Result().Header.Values("Set-Cookie"), ";"), authCookieName+"=sk-user") {
+		t.Fatalf("expected legacy cookie to remain in dual mode, got %+v", resp.Result().Header.Values("Set-Cookie"))
+	}
+}
+
+func TestAuthLoginUsesOpaqueSessionCookieInOpaqueMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldMode := os.Getenv("SESSION_TOKEN_MODE")
+	t.Cleanup(func() { _ = os.Setenv("SESSION_TOKEN_MODE", oldMode) })
+	_ = os.Setenv("SESSION_TOKEN_MODE", "opaque")
+
+	enabled := true
+	router := gin.New()
+	sessionRevoker := &fakeSessionRevoker{createID: "sid_opaque_123"}
+	NewAuthHandler(fakeLoginAuth{
+		proxyToken: "sk-user",
+		proxyResult: &authsvc.AuthResult{
+			IsAdmin: false,
+			User:    &model.User{ID: 6, Name: "opaque-user", Role: "user", IsEnabled: &enabled},
+			Key:     &model.Key{ID: 6, Key: "sk-user", Name: "Opaque Key", CanLoginWebUi: &enabled},
+			APIKey:  "sk-user",
+		},
+	}, sessionRevoker).RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"key":"sk-user"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(strings.Join(resp.Result().Header.Values("Set-Cookie"), ";"), authCookieName+"=sid_opaque_123") {
+		t.Fatalf("expected opaque session cookie, got %+v", resp.Result().Header.Values("Set-Cookie"))
+	}
+}
+
+func TestAuthLoginFailsWhenOpaqueSessionCreationFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldMode := os.Getenv("SESSION_TOKEN_MODE")
+	t.Cleanup(func() { _ = os.Setenv("SESSION_TOKEN_MODE", oldMode) })
+	_ = os.Setenv("SESSION_TOKEN_MODE", "opaque")
+
+	enabled := true
+	router := gin.New()
+	sessionRevoker := &fakeSessionRevoker{createErr: errors.New("redis down")}
+	NewAuthHandler(fakeLoginAuth{
+		proxyToken: "sk-user",
+		proxyResult: &authsvc.AuthResult{
+			IsAdmin: false,
+			User:    &model.User{ID: 7, Name: "opaque-user", Role: "user", IsEnabled: &enabled},
+			Key:     &model.Key{ID: 7, Key: "sk-user", Name: "Opaque Key", CanLoginWebUi: &enabled},
+			APIKey:  "sk-user",
+		},
+	}, sessionRevoker).RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"key":"sk-user"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"errorCode":"SESSION_CREATE_FAILED"`) {
+		t.Fatalf("expected SESSION_CREATE_FAILED error code, got %s", resp.Body.String())
 	}
 }

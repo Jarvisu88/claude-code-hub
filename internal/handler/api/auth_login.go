@@ -98,8 +98,37 @@ func (h *AuthHandler) login(c *gin.Context) {
 		redirectTo = "/dashboard"
 	}
 
+	cookieValue := key
+	sessionMode := resolveSessionTokenModeFromEnv()
+	if sessionMode != sessionTokenModeLegacy && authResult != nil && authResult.User != nil {
+		if h == nil || h.sessions == nil {
+			if sessionMode == sessionTokenModeOpaque {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"ok":        false,
+					"error":     "Internal server error",
+					"errorCode": "SESSION_CREATE_FAILED",
+				})
+				return
+			}
+		} else {
+			sessionID, err := h.sessions.Create(c.Request.Context(), key, authResult.User.ID, authResult.User.Role)
+			if err != nil || (sessionMode == sessionTokenModeOpaque && sessionID == "") {
+				if sessionMode == sessionTokenModeOpaque {
+					c.JSON(http.StatusServiceUnavailable, gin.H{
+						"ok":        false,
+						"error":     "Internal server error",
+						"errorCode": "SESSION_CREATE_FAILED",
+					})
+					return
+				}
+			} else if sessionMode == sessionTokenModeOpaque {
+				cookieValue = sessionID
+			}
+		}
+	}
+
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(authCookieName, key, authCookieMaxAge, "/", "", authSecureCookiesEnabled(), true)
+	c.SetCookie(authCookieName, cookieValue, authCookieMaxAge, "/", "", authSecureCookiesEnabled(), true)
 	response := gin.H{
 		"ok":         true,
 		"redirectTo": redirectTo,

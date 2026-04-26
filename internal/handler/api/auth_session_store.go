@@ -2,21 +2,37 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ding113/claude-code-hub/internal/database"
 	"github.com/redis/go-redis/v9"
 )
 
 const authSessionKeyPrefix = "cch:session:"
+const authSessionTTL = 7 * 24 * time.Hour
 
 type authSessionRevoker interface {
+	Create(ctx context.Context, apiKey string, userID int, userRole string) (string, error)
 	Revoke(ctx context.Context, sessionID string) error
 }
 
 type redisAuthSessionStore struct {
 	client *redis.Client
+}
+
+type authSessionData struct {
+	SessionID      string `json:"sessionId"`
+	KeyFingerprint string `json:"keyFingerprint"`
+	UserID         int    `json:"userId"`
+	UserRole       string `json:"userRole"`
+	CreatedAt      int64  `json:"createdAt"`
+	ExpiresAt      int64  `json:"expiresAt"`
 }
 
 func NewRedisAuthSessionStore(rdb *database.RedisClient) authSessionRevoker {
@@ -28,6 +44,33 @@ func NewRedisAuthSessionStore(rdb *database.RedisClient) authSessionRevoker {
 		return nil
 	}
 	return &redisAuthSessionStore{client: client}
+}
+
+func (s *redisAuthSessionStore) Create(ctx context.Context, apiKey string, userID int, userRole string) (string, error) {
+	if s == nil || s.client == nil {
+		return "", nil
+	}
+	sessionID, err := generateOpaqueSessionID()
+	if err != nil {
+		return "", err
+	}
+	now := time.Now()
+	payload := authSessionData{
+		SessionID:      sessionID,
+		KeyFingerprint: keyFingerprint(apiKey),
+		UserID:         userID,
+		UserRole:       userRole,
+		CreatedAt:      now.UnixMilli(),
+		ExpiresAt:      now.Add(authSessionTTL).UnixMilli(),
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	if err := s.client.Set(ctx, authSessionKeyPrefix+sessionID, encoded, authSessionTTL).Err(); err != nil {
+		return "", err
+	}
+	return sessionID, nil
 }
 
 func (s *redisAuthSessionStore) Revoke(ctx context.Context, sessionID string) error {
@@ -58,4 +101,17 @@ func resolveSessionTokenModeFromEnv() sessionTokenMode {
 	default:
 		return sessionTokenModeLegacy
 	}
+}
+
+func generateOpaqueSessionID() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return "sid_" + hex.EncodeToString(buf), nil
+}
+
+func keyFingerprint(apiKey string) string {
+	sum := sha256.Sum256([]byte(apiKey))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
