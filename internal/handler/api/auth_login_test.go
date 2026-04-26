@@ -72,6 +72,9 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	if !strings.Contains(strings.Join(loginResp.Result().Header.Values("Set-Cookie"), ";"), authCookieName+"=sk-user") {
 		t.Fatalf("expected auth cookie to be set, got %+v", loginResp.Result().Header.Values("Set-Cookie"))
 	}
+	if !strings.Contains(strings.Join(loginResp.Result().Header.Values("Set-Cookie"), ";"), "Secure") {
+		t.Fatalf("expected secure auth cookie when ENABLE_SECURE_COOKIES=true, got %+v", loginResp.Result().Header.Values("Set-Cookie"))
+	}
 	if got := loginResp.Header().Get("Cache-Control"); got != "no-store, no-cache, must-revalidate" {
 		t.Fatalf("expected no-store cache control, got %q", got)
 	}
@@ -87,6 +90,9 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	router.ServeHTTP(logoutResp, logoutReq)
 	if logoutResp.Code != http.StatusOK || !strings.Contains(logoutResp.Body.String(), `"ok":true`) {
 		t.Fatalf("expected logout ok payload, got %d: %s", logoutResp.Code, logoutResp.Body.String())
+	}
+	if !strings.Contains(strings.Join(logoutResp.Result().Header.Values("Set-Cookie"), ";"), "Secure") {
+		t.Fatalf("expected secure logout cookie when ENABLE_SECURE_COOKIES=true, got %+v", logoutResp.Result().Header.Values("Set-Cookie"))
 	}
 	if got := logoutResp.Header().Get("Pragma"); got != "no-cache" {
 		t.Fatalf("expected no-cache pragma, got %q", got)

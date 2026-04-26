@@ -94,7 +94,7 @@ func (h *AuthHandler) login(c *gin.Context) {
 	}
 
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(authCookieName, key, authCookieMaxAge, "/", "", false, true)
+	c.SetCookie(authCookieName, key, authCookieMaxAge, "/", "", authSecureCookiesEnabled(), true)
 	response := gin.H{
 		"ok":         true,
 		"redirectTo": redirectTo,
@@ -123,6 +123,6 @@ func isLoginInvalidCredentialError(err error) bool {
 func (h *AuthHandler) logout(c *gin.Context) {
 	applyAuthResponseHeaders(c)
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(authCookieName, "", -1, "/", "", false, true)
+	c.SetCookie(authCookieName, "", -1, "/", "", authSecureCookiesEnabled(), true)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
