@@ -3012,6 +3012,96 @@ func TestResponsesHandlerFallsBackToNextProviderOnTransportFailure(t *testing.T)
 	}
 }
 
+func TestResponsesHandlerFallsBackToNextProviderOn404(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	firstHit := false
+	secondHit := false
+	client := &sequenceHTTPClient{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusNotFound,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"model not found"}}`)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"id":"resp_123","status":"completed"}`)),
+			},
+		},
+	}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{
+				ID:           99,
+				Name:         "primary-provider",
+				URL:          "https://primary.example.com",
+				Key:          "provider-secret-1",
+				ProviderType: string(model.ProviderTypeCodex),
+				IsEnabled:    &enabled,
+			},
+			{
+				ID:           100,
+				Name:         "fallback-provider",
+				URL:          "https://fallback.example.com",
+				Key:          "provider-secret-2",
+				ProviderType: string(model.ProviderTypeCodex),
+				IsEnabled:    &enabled,
+			},
+		}},
+		requestLogs,
+		httpDoerFunc(func(req *http.Request) (*http.Response, error) {
+			if req.Header.Get("Authorization") == "Bearer provider-secret-1" {
+				firstHit = true
+			}
+			if req.Header.Get("Authorization") == "Bearer provider-secret-2" {
+				secondHit = true
+			}
+			return client.Do(req)
+		}),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !firstHit || !secondHit {
+		t.Fatalf("expected both primary and fallback providers to be attempted, first=%v second=%v", firstHit, secondHit)
+	}
+	if len(requestLogs.updated) != 1 {
+		t.Fatalf("expected one terminal update, got %+v", requestLogs.updated)
+	}
+	chain := requestLogs.updated[0].update.ProviderChain
+	if len(chain) < 2 {
+		t.Fatalf("expected fallback provider chain, got %+v", chain)
+	}
+	if chain[1].Reason == nil || *chain[1].Reason != "resource_not_found" {
+		t.Fatalf("expected fallback chain item marked as resource_not_found, got %+v", chain[1])
+	}
+}
+
 func TestResponsesHandlerSkipsOpenCircuitProvider(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	circuitbreakersvc.ResetForTest()

@@ -735,6 +735,37 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 				})
 			}
 		}
+		if lastTransportErr == nil && upstreamResp != nil && upstreamResp.StatusCode == http.StatusNotFound && providerIndex < len(candidates)-1 {
+			responseBody, err := io.ReadAll(upstreamResp.Body)
+			if err != nil {
+				errorMessage := "读取上游响应失败"
+				h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+					StatusCode:    http.StatusBadGateway,
+					DurationMs:    int(time.Since(startedAt).Milliseconds()),
+					ErrorMessage:  &errorMessage,
+					ProviderChain: finalizeProviderChain(providerChain, http.StatusBadGateway, &errorMessage),
+				})
+				writeAppError(c, appErrors.NewProviderError(errorMessage, appErrors.CodeProviderError).WithError(err))
+				return
+			}
+			providerChain = append(providerChain, model.ProviderChainItem{
+				ID:              provider.ID,
+				Name:            provider.Name,
+				ProviderType:    stringPointer(provider.ProviderType),
+				EndpointURL:     stringPointer(provider.URL),
+				Reason:          stringPointer("resource_not_found"),
+				SelectionMethod: stringPointer("fallback"),
+				Priority:        provider.Priority,
+				Weight:          provider.Weight,
+				CostMultiplier:  providerCostMultiplier(provider),
+				Timestamp:       int64Pointer(time.Now().UnixMilli()),
+				StatusCode:      intPointer(http.StatusNotFound),
+				ErrorMessage:    stringPointer(extractErrorMessageOrBody(responseBody)),
+			})
+			upstreamResp.Body.Close()
+			upstreamResp = nil
+			continue
+		}
 		if upstreamResp != nil {
 			break
 		}
@@ -1423,6 +1454,19 @@ func shouldCountFailureForCircuit(statusCode int) bool {
 		return false
 	}
 	return statusCode >= http.StatusBadRequest
+}
+
+func extractErrorMessageOrBody(responseBody []byte) string {
+	if len(bytes.TrimSpace(responseBody)) == 0 {
+		return "not found"
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(responseBody, &payload); err == nil {
+		if message := extractErrorMessage(payload); message != "" {
+			return message
+		}
+	}
+	return strings.TrimSpace(string(responseBody))
 }
 
 func detectFake200HTMLResponse(statusCode int, responseBody []byte) (int, string, bool) {
