@@ -82,25 +82,40 @@ func (h *PlatformHandler) ready(c *gin.Context) {
 
 func (h *PlatformHandler) versionInfo(c *gin.Context) {
 	version := resolveCurrentVersion(h.version)
-	latest := version
+	info, err := fetchLatestVersionInfo()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"current":   version,
+			"latest":    nil,
+			"hasUpdate": false,
+			"error":     "无法获取最新版本信息",
+		})
+		return
+	}
+	if info.Latest == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"current":   version,
+			"latest":    nil,
+			"hasUpdate": false,
+			"message":   "暂无发布版本",
+		})
+		return
+	}
+
 	releaseURL := any(nil)
 	publishedAt := any(nil)
-	hasUpdate := false
-	if info, err := fetchLatestVersionInfo(); err == nil && info.Latest != "" {
-		latest = info.Latest
-		if info.ReleaseURL != "" {
-			releaseURL = info.ReleaseURL
-		}
-		if info.PublishedAt != "" {
-			publishedAt = info.PublishedAt
-		}
-		hasUpdate = compareSemverLike(version, latest) < 0
+	if info.ReleaseURL != "" {
+		releaseURL = info.ReleaseURL
 	}
+	if info.PublishedAt != "" {
+		publishedAt = info.PublishedAt
+	}
+	hasUpdate := compareSemverLike(version, info.Latest) < 0
 	c.JSON(http.StatusOK, gin.H{
 		"name":        "claude-code-hub-go-rewrite",
 		"version":     version,
 		"current":     version,
-		"latest":      latest,
+		"latest":      info.Latest,
 		"hasUpdate":   hasUpdate,
 		"releaseUrl":  releaseURL,
 		"publishedAt": publishedAt,
