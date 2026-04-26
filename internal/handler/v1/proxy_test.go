@@ -100,6 +100,24 @@ func (genericFailHTTPClient) Do(*http.Request) (*http.Response, error) {
 	return nil, errors.New("boom")
 }
 
+type sequenceHTTPClient struct {
+	responses []*http.Response
+	errors    []error
+	index     int
+}
+
+func (c *sequenceHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	i := c.index
+	c.index++
+	if i < len(c.errors) && c.errors[i] != nil {
+		return nil, c.errors[i]
+	}
+	if i < len(c.responses) && c.responses[i] != nil {
+		return c.responses[i], nil
+	}
+	return nil, errors.New("unexpected sequence")
+}
+
 func (f *fakeProviderRepo) GetActiveProviders(_ context.Context) ([]*model.Provider, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -2566,6 +2584,72 @@ func TestResponsesHandlerReturns504ForUpstreamTimeout(t *testing.T) {
 	}
 	if requestLogs.updated[0].update.ProviderChain[0].ErrorMessage == nil || !strings.Contains(*requestLogs.updated[0].update.ProviderChain[0].ErrorMessage, "请求超时") {
 		t.Fatalf("expected timeout error recorded on provider chain, got %+v", requestLogs.updated[0].update.ProviderChain[0].ErrorMessage)
+	}
+}
+
+func TestResponsesHandlerRetriesSameProviderOnTransportFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	maxRetryAttempts := 2
+	requestLogs := &fakeMessageRequestRepo{}
+	client := &sequenceHTTPClient{
+		errors: []error{context.DeadlineExceeded},
+		responses: []*http.Response{nil, {
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_123","status":"completed"}`)),
+		}},
+	}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:               99,
+			Name:             "codex-upstream",
+			URL:              "https://example.com",
+			Key:              "provider-secret",
+			ProviderType:     string(model.ProviderTypeCodex),
+			IsEnabled:        &enabled,
+			MaxRetryAttempts: &maxRetryAttempts,
+		}}},
+		requestLogs,
+		client,
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(requestLogs.updated) != 1 {
+		t.Fatalf("expected one terminal update, got %+v", requestLogs.updated)
+	}
+	chain := requestLogs.updated[0].update.ProviderChain
+	if len(chain) != 3 {
+		t.Fatalf("expected retry-annotated provider chain, got %+v", chain)
+	}
+	if chain[1].Reason == nil || *chain[1].Reason != "retry_failed" {
+		t.Fatalf("expected retry_failed chain item, got %+v", chain[1])
+	}
+	if chain[2].Reason == nil || *chain[2].Reason != "retry_success" {
+		t.Fatalf("expected retry_success chain item, got %+v", chain[2])
 	}
 }
 

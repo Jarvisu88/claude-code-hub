@@ -556,24 +556,68 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 		return
 	}
 
-	upstreamReq, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, upstreamURL, bytes.NewReader(requestBodyBytes))
-	if err != nil {
-		errorMessage := "构建上游请求失败"
-		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
-			StatusCode:    http.StatusInternalServerError,
-			DurationMs:    int(time.Since(startedAt).Milliseconds()),
-			ErrorMessage:  &errorMessage,
-			ProviderChain: finalizeProviderChain(baseProviderChain, http.StatusInternalServerError, &errorMessage),
-		})
-		writeAppError(c, appErrors.NewInternalError("构建上游请求失败").WithError(err))
-		return
+	maxAttempts := 1
+	if provider.MaxRetryAttempts != nil && *provider.MaxRetryAttempts > 1 {
+		maxAttempts = *provider.MaxRetryAttempts
 	}
 
-	copyProxyRequestHeaders(upstreamReq.Header, c.Request.Header)
-	applyProviderAuthHeaders(upstreamReq.Header, provider, endpointKind)
+	var upstreamResp *http.Response
+	var lastTransportErr error
+	providerChain := append([]model.ProviderChainItem(nil), baseProviderChain...)
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		upstreamReq, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, upstreamURL, bytes.NewReader(requestBodyBytes))
+		if err != nil {
+			errorMessage := "构建上游请求失败"
+			h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+				StatusCode:    http.StatusInternalServerError,
+				DurationMs:    int(time.Since(startedAt).Milliseconds()),
+				ErrorMessage:  &errorMessage,
+				ProviderChain: finalizeProviderChain(providerChain, http.StatusInternalServerError, &errorMessage),
+			})
+			writeAppError(c, appErrors.NewInternalError("构建上游请求失败").WithError(err))
+			return
+		}
 
-	upstreamResp, err := h.http.Do(upstreamReq)
-	if err != nil {
+		copyProxyRequestHeaders(upstreamReq.Header, c.Request.Header)
+		applyProviderAuthHeaders(upstreamReq.Header, provider, endpointKind)
+
+		upstreamResp, err = h.http.Do(upstreamReq)
+		if err == nil {
+			if attempt > 1 {
+				providerChain = append(providerChain, model.ProviderChainItem{
+					ID:              provider.ID,
+					Name:            provider.Name,
+					ProviderType:    stringPointer(provider.ProviderType),
+					EndpointURL:     stringPointer(provider.URL),
+					Reason:          stringPointer("retry_success"),
+					SelectionMethod: stringPointer("same_provider_retry"),
+					Priority:        provider.Priority,
+					Weight:          provider.Weight,
+					CostMultiplier:  providerCostMultiplier(provider),
+					Timestamp:       int64Pointer(time.Now().UnixMilli()),
+				})
+			}
+			break
+		}
+		lastTransportErr = err
+		if attempt < maxAttempts {
+			providerChain = append(providerChain, model.ProviderChainItem{
+				ID:              provider.ID,
+				Name:            provider.Name,
+				ProviderType:    stringPointer(provider.ProviderType),
+				EndpointURL:     stringPointer(provider.URL),
+				Reason:          stringPointer("retry_failed"),
+				SelectionMethod: stringPointer("same_provider_retry"),
+				Priority:        provider.Priority,
+				Weight:          provider.Weight,
+				CostMultiplier:  providerCostMultiplier(provider),
+				Timestamp:       int64Pointer(time.Now().UnixMilli()),
+				ErrorMessage:    stringPointer(err.Error()),
+			})
+			continue
+		}
+	}
+	if lastTransportErr != nil && upstreamResp == nil {
 		errMsg := "上游 Responses 供应商请求失败"
 		if endpointKind == proxyEndpointMessages {
 			errMsg = "上游 Messages 供应商请求失败"
@@ -584,29 +628,29 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 		if endpointKind == proxyEndpointChatCompletions {
 			errMsg = "上游 Chat Completions 供应商请求失败"
 		}
-		if isTimeoutError(err) {
+		if isTimeoutError(lastTransportErr) {
 			timeoutMessage := errMsg + "：请求超时"
 			h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
 				StatusCode:    http.StatusGatewayTimeout,
 				DurationMs:    int(time.Since(startedAt).Milliseconds()),
 				ErrorMessage:  &timeoutMessage,
-				ProviderChain: finalizeProviderChain(baseProviderChain, http.StatusGatewayTimeout, &timeoutMessage),
+				ProviderChain: finalizeProviderChain(providerChain, http.StatusGatewayTimeout, &timeoutMessage),
 			})
 			writeAppError(c, (&appErrors.AppError{
 				Type:       appErrors.ErrorTypeProviderError,
 				Message:    timeoutMessage,
 				Code:       appErrors.CodeProviderTimeout,
 				HTTPStatus: http.StatusGatewayTimeout,
-			}).WithError(err))
+			}).WithError(lastTransportErr))
 			return
 		}
 		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
 			StatusCode:    http.StatusBadGateway,
 			DurationMs:    int(time.Since(startedAt).Milliseconds()),
 			ErrorMessage:  &errMsg,
-			ProviderChain: finalizeProviderChain(baseProviderChain, http.StatusBadGateway, &errMsg),
+			ProviderChain: finalizeProviderChain(providerChain, http.StatusBadGateway, &errMsg),
 		})
-		writeAppError(c, appErrors.NewProviderError(errMsg, appErrors.CodeProviderError).WithError(err))
+		writeAppError(c, appErrors.NewProviderError(errMsg, appErrors.CodeProviderError).WithError(lastTransportErr))
 		return
 	}
 	defer upstreamResp.Body.Close()
@@ -639,7 +683,7 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 			StatusCode:    http.StatusBadGateway,
 			DurationMs:    int(time.Since(startedAt).Milliseconds()),
 			ErrorMessage:  &errorMessage,
-			ProviderChain: finalizeProviderChain(baseProviderChain, http.StatusBadGateway, &errorMessage),
+			ProviderChain: finalizeProviderChain(providerChain, http.StatusBadGateway, &errorMessage),
 		})
 		writeAppError(c, appErrors.NewProviderError(errorMessage, appErrors.CodeProviderError).WithError(err))
 		return
@@ -650,7 +694,7 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 		}
 	}
 	terminalUpdate := buildTerminalUpdate(endpointKind, upstreamResp.StatusCode, time.Since(startedAt), responseBody)
-	terminalUpdate.ProviderChain = finalizeProviderChain(baseProviderChain, terminalUpdate.StatusCode, terminalUpdate.ErrorMessage)
+	terminalUpdate.ProviderChain = finalizeProviderChain(providerChain, terminalUpdate.StatusCode, terminalUpdate.ErrorMessage)
 	finalStatusCode := terminalUpdate.StatusCode
 	c.Status(finalStatusCode)
 	if finalStatusCode != upstreamResp.StatusCode {
