@@ -507,11 +507,12 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 	}
 
 	originalModel := requestStringValue(requestBody["model"])
-	provider, err := h.selectProviderForEndpoint(c.Request.Context(), endpointKind, originalModel)
+	candidates, err := h.selectProvidersForEndpoint(c.Request.Context(), endpointKind, originalModel)
 	if err != nil {
 		writeAppError(c, err)
 		return
 	}
+	provider := candidates[0]
 	baseProviderChain := buildInitialProviderChain(provider)
 	effectiveModel := originalModel
 	if redirectedModel := provider.GetRedirectedModel(originalModel); redirectedModel != "" && redirectedModel != originalModel {
@@ -543,78 +544,102 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 	startedAt := time.Now()
 	messageRequestID := h.createMessageRequest(c, authResult, provider, baseProviderChain, requestBody, originalModel, effectiveModel, sessionID, requestSequence)
 
-	upstreamURL, err := buildProxyURL(provider.URL, c.Request.URL)
-	if err != nil {
-		errorMessage := "构建上游代理地址失败"
-		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
-			StatusCode:    http.StatusInternalServerError,
-			DurationMs:    int(time.Since(startedAt).Milliseconds()),
-			ErrorMessage:  &errorMessage,
-			ProviderChain: finalizeProviderChain(baseProviderChain, http.StatusInternalServerError, &errorMessage),
-		})
-		writeAppError(c, appErrors.NewInternalError("构建上游代理地址失败").WithError(err))
-		return
-	}
-
-	maxAttempts := 1
-	if provider.MaxRetryAttempts != nil && *provider.MaxRetryAttempts > 1 {
-		maxAttempts = *provider.MaxRetryAttempts
-	}
-
 	var upstreamResp *http.Response
 	var lastTransportErr error
 	providerChain := append([]model.ProviderChainItem(nil), baseProviderChain...)
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		upstreamReq, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, upstreamURL, bytes.NewReader(requestBodyBytes))
+	for providerIndex, candidate := range candidates {
+		provider = candidate
+		if providerIndex > 0 {
+			providerChain = append(providerChain, model.ProviderChainItem{
+				ID:              provider.ID,
+				Name:            provider.Name,
+				ProviderType:    stringPointer(provider.ProviderType),
+				EndpointURL:     stringPointer(provider.URL),
+				Reason:          stringPointer("system_error"),
+				SelectionMethod: stringPointer("fallback"),
+				Priority:        provider.Priority,
+				Weight:          provider.Weight,
+				CostMultiplier:  providerCostMultiplier(provider),
+				Timestamp:       int64Pointer(time.Now().UnixMilli()),
+			})
+			if sessionID != "" && h.sessions != nil {
+				h.sessions.BindProvider(c.Request.Context(), sessionID, provider.ID)
+			}
+		}
+
+		upstreamURL, err := buildProxyURL(provider.URL, c.Request.URL)
 		if err != nil {
-			errorMessage := "构建上游请求失败"
+			errorMessage := "构建上游代理地址失败"
 			h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
 				StatusCode:    http.StatusInternalServerError,
 				DurationMs:    int(time.Since(startedAt).Milliseconds()),
 				ErrorMessage:  &errorMessage,
 				ProviderChain: finalizeProviderChain(providerChain, http.StatusInternalServerError, &errorMessage),
 			})
-			writeAppError(c, appErrors.NewInternalError("构建上游请求失败").WithError(err))
+			writeAppError(c, appErrors.NewInternalError("构建上游代理地址失败").WithError(err))
 			return
 		}
 
-		copyProxyRequestHeaders(upstreamReq.Header, c.Request.Header)
-		applyProviderAuthHeaders(upstreamReq.Header, provider, endpointKind)
+		maxAttempts := 1
+		if provider.MaxRetryAttempts != nil && *provider.MaxRetryAttempts > 1 {
+			maxAttempts = *provider.MaxRetryAttempts
+		}
+		upstreamResp = nil
+		lastTransportErr = nil
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			upstreamReq, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, upstreamURL, bytes.NewReader(requestBodyBytes))
+			if err != nil {
+				errorMessage := "构建上游请求失败"
+				h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+					StatusCode:    http.StatusInternalServerError,
+					DurationMs:    int(time.Since(startedAt).Milliseconds()),
+					ErrorMessage:  &errorMessage,
+					ProviderChain: finalizeProviderChain(providerChain, http.StatusInternalServerError, &errorMessage),
+				})
+				writeAppError(c, appErrors.NewInternalError("构建上游请求失败").WithError(err))
+				return
+			}
 
-		upstreamResp, err = h.http.Do(upstreamReq)
-		if err == nil {
-			if attempt > 1 {
+			copyProxyRequestHeaders(upstreamReq.Header, c.Request.Header)
+			applyProviderAuthHeaders(upstreamReq.Header, provider, endpointKind)
+
+			upstreamResp, err = h.http.Do(upstreamReq)
+			if err == nil {
+				if attempt > 1 {
+					providerChain = append(providerChain, model.ProviderChainItem{
+						ID:              provider.ID,
+						Name:            provider.Name,
+						ProviderType:    stringPointer(provider.ProviderType),
+						EndpointURL:     stringPointer(provider.URL),
+						Reason:          stringPointer("retry_success"),
+						SelectionMethod: stringPointer("same_provider_retry"),
+						Priority:        provider.Priority,
+						Weight:          provider.Weight,
+						CostMultiplier:  providerCostMultiplier(provider),
+						Timestamp:       int64Pointer(time.Now().UnixMilli()),
+					})
+				}
+				break
+			}
+			lastTransportErr = err
+			if attempt < maxAttempts {
 				providerChain = append(providerChain, model.ProviderChainItem{
 					ID:              provider.ID,
 					Name:            provider.Name,
 					ProviderType:    stringPointer(provider.ProviderType),
 					EndpointURL:     stringPointer(provider.URL),
-					Reason:          stringPointer("retry_success"),
+					Reason:          stringPointer("retry_failed"),
 					SelectionMethod: stringPointer("same_provider_retry"),
 					Priority:        provider.Priority,
 					Weight:          provider.Weight,
 					CostMultiplier:  providerCostMultiplier(provider),
 					Timestamp:       int64Pointer(time.Now().UnixMilli()),
+					ErrorMessage:    stringPointer(err.Error()),
 				})
 			}
-			break
 		}
-		lastTransportErr = err
-		if attempt < maxAttempts {
-			providerChain = append(providerChain, model.ProviderChainItem{
-				ID:              provider.ID,
-				Name:            provider.Name,
-				ProviderType:    stringPointer(provider.ProviderType),
-				EndpointURL:     stringPointer(provider.URL),
-				Reason:          stringPointer("retry_failed"),
-				SelectionMethod: stringPointer("same_provider_retry"),
-				Priority:        provider.Priority,
-				Weight:          provider.Weight,
-				CostMultiplier:  providerCostMultiplier(provider),
-				Timestamp:       int64Pointer(time.Now().UnixMilli()),
-				ErrorMessage:    stringPointer(err.Error()),
-			})
-			continue
+		if upstreamResp != nil {
+			break
 		}
 	}
 	if lastTransportErr != nil && upstreamResp == nil {
@@ -853,6 +878,14 @@ func randomWarmupSuffix() string {
 }
 
 func (h *Handler) selectProviderForEndpoint(ctx context.Context, endpointKind proxyEndpointKind, requestedModel string) (*model.Provider, error) {
+	candidates, err := h.selectProvidersForEndpoint(ctx, endpointKind, requestedModel)
+	if err != nil {
+		return nil, err
+	}
+	return candidates[0], nil
+}
+
+func (h *Handler) selectProvidersForEndpoint(ctx context.Context, endpointKind proxyEndpointKind, requestedModel string) ([]*model.Provider, error) {
 	providers, err := h.providers.GetActiveProviders(ctx)
 	if err != nil {
 		return nil, err
@@ -957,7 +990,7 @@ func (h *Handler) selectProviderForEndpoint(ctx context.Context, endpointKind pr
 		})
 	}
 
-	return candidates[0], nil
+	return candidates, nil
 }
 
 func buildProxyURL(baseURL string, requestURL *url.URL) (string, error) {
