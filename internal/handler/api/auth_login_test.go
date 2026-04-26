@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -40,6 +41,9 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enabled := true
 	description := "dashboard user"
+	oldSecureCookies := os.Getenv("ENABLE_SECURE_COOKIES")
+	t.Cleanup(func() { _ = os.Setenv("ENABLE_SECURE_COOKIES", oldSecureCookies) })
+	_ = os.Setenv("ENABLE_SECURE_COOKIES", "true")
 	router := gin.New()
 
 	NewAuthHandler(fakeLoginAuth{
@@ -67,12 +71,24 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	if !strings.Contains(strings.Join(loginResp.Result().Header.Values("Set-Cookie"), ";"), authCookieName+"=sk-user") {
 		t.Fatalf("expected auth cookie to be set, got %+v", loginResp.Result().Header.Values("Set-Cookie"))
 	}
+	if got := loginResp.Header().Get("Cache-Control"); got != "no-store, no-cache, must-revalidate" {
+		t.Fatalf("expected no-store cache control, got %q", got)
+	}
+	if got := loginResp.Header().Get("Content-Security-Policy-Report-Only"); got != authCSPReportOnlyValue {
+		t.Fatalf("expected auth CSP report-only header, got %q", got)
+	}
+	if got := loginResp.Header().Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains" {
+		t.Fatalf("expected HSTS header, got %q", got)
+	}
 
 	logoutReq := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
 	logoutResp := httptest.NewRecorder()
 	router.ServeHTTP(logoutResp, logoutReq)
 	if logoutResp.Code != http.StatusOK || !strings.Contains(logoutResp.Body.String(), `"ok":true`) {
 		t.Fatalf("expected logout ok payload, got %d: %s", logoutResp.Code, logoutResp.Body.String())
+	}
+	if got := logoutResp.Header().Get("Pragma"); got != "no-cache" {
+		t.Fatalf("expected no-cache pragma, got %q", got)
 	}
 }
 
@@ -131,6 +147,9 @@ func TestAuthLoginRejectsInvalidKey(t *testing.T) {
 	}
 	if !strings.Contains(resp.Body.String(), `"errorCode":"KEY_INVALID"`) {
 		t.Fatalf("expected KEY_INVALID error code, got %s", resp.Body.String())
+	}
+	if got := resp.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("expected auth security headers on failure response, got %q", got)
 	}
 }
 

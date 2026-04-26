@@ -36,6 +36,7 @@ func (h *AuthHandler) login(c *gin.Context) {
 		writeAdminError(c, appErrors.NewInternalError("登录服务未初始化"))
 		return
 	}
+	applyAuthResponseHeaders(c)
 	var input struct {
 		Key string `json:"key"`
 	}
@@ -95,6 +96,7 @@ func (h *AuthHandler) login(c *gin.Context) {
 }
 
 func (h *AuthHandler) logout(c *gin.Context) {
+	applyAuthResponseHeaders(c)
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(authCookieName, "", -1, "/", "", false, true)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
