@@ -19,11 +19,16 @@ type loginAuthenticator interface {
 }
 
 type AuthHandler struct {
-	auth loginAuthenticator
+	auth     loginAuthenticator
+	sessions authSessionRevoker
 }
 
-func NewAuthHandler(auth loginAuthenticator) *AuthHandler {
-	return &AuthHandler{auth: auth}
+func NewAuthHandler(auth loginAuthenticator, sessions ...authSessionRevoker) *AuthHandler {
+	var sessionRevoker authSessionRevoker
+	if len(sessions) > 0 {
+		sessionRevoker = sessions[0]
+	}
+	return &AuthHandler{auth: auth, sessions: sessionRevoker}
 }
 
 func (h *AuthHandler) RegisterRoutes(router gin.IRouter) {
@@ -122,6 +127,11 @@ func isLoginInvalidCredentialError(err error) bool {
 
 func (h *AuthHandler) logout(c *gin.Context) {
 	applyAuthResponseHeaders(c)
+	if resolveSessionTokenModeFromEnv() != sessionTokenModeLegacy && h != nil && h.sessions != nil {
+		if sessionID, err := c.Cookie(authCookieName); err == nil {
+			_ = h.sessions.Revoke(c.Request.Context(), sessionID)
+		}
+	}
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(authCookieName, "", -1, "/", "", authSecureCookiesEnabled(), true)
 	c.JSON(http.StatusOK, gin.H{"ok": true})

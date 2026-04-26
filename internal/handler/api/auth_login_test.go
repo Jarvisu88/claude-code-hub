@@ -38,14 +38,28 @@ func (f fakeLoginAuth) AuthenticateProxy(_ context.Context, input authsvc.ProxyA
 	return f.proxyResult, f.proxyErr
 }
 
+type fakeSessionRevoker struct {
+	revoked []string
+	err     error
+}
+
+func (f *fakeSessionRevoker) Revoke(_ context.Context, sessionID string) error {
+	f.revoked = append(f.revoked, sessionID)
+	return f.err
+}
+
 func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enabled := true
 	description := "dashboard user"
 	oldSecureCookies := os.Getenv("ENABLE_SECURE_COOKIES")
+	oldSessionMode := os.Getenv("SESSION_TOKEN_MODE")
 	t.Cleanup(func() { _ = os.Setenv("ENABLE_SECURE_COOKIES", oldSecureCookies) })
+	t.Cleanup(func() { _ = os.Setenv("SESSION_TOKEN_MODE", oldSessionMode) })
 	_ = os.Setenv("ENABLE_SECURE_COOKIES", "true")
+	_ = os.Setenv("SESSION_TOKEN_MODE", "legacy")
 	router := gin.New()
+	sessionRevoker := &fakeSessionRevoker{}
 
 	NewAuthHandler(fakeLoginAuth{
 		adminToken: "admin-token",
@@ -56,7 +70,7 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 			Key:     &model.Key{ID: 1, Key: "sk-user", Name: "User Key", CanLoginWebUi: &enabled},
 			APIKey:  "sk-user",
 		},
-	}).RegisterRoutes(router)
+	}, sessionRevoker).RegisterRoutes(router)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"key":"sk-user"}`))
 	loginReq.Header.Set("Content-Type", "application/json")
@@ -86,6 +100,7 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	}
 
 	logoutReq := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	logoutReq.AddCookie(&http.Cookie{Name: authCookieName, Value: "opaque-session-token"})
 	logoutResp := httptest.NewRecorder()
 	router.ServeHTTP(logoutResp, logoutReq)
 	if logoutResp.Code != http.StatusOK || !strings.Contains(logoutResp.Body.String(), `"ok":true`) {
@@ -96,6 +111,9 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	}
 	if got := logoutResp.Header().Get("Pragma"); got != "no-cache" {
 		t.Fatalf("expected no-cache pragma, got %q", got)
+	}
+	if len(sessionRevoker.revoked) != 0 {
+		t.Fatalf("expected legacy mode logout not to revoke session, got %+v", sessionRevoker.revoked)
 	}
 }
 
@@ -223,5 +241,28 @@ func TestAuthLoginReturnsServerErrorForInternalAuthFailure(t *testing.T) {
 	}
 	if !strings.Contains(resp.Body.String(), `"errorCode":"SERVER_ERROR"`) {
 		t.Fatalf("expected SERVER_ERROR error code, got %s", resp.Body.String())
+	}
+}
+
+func TestAuthLogoutRevokesOpaqueSessionInNonLegacyModes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldMode := os.Getenv("SESSION_TOKEN_MODE")
+	t.Cleanup(func() { _ = os.Setenv("SESSION_TOKEN_MODE", oldMode) })
+	_ = os.Setenv("SESSION_TOKEN_MODE", "dual")
+
+	router := gin.New()
+	sessionRevoker := &fakeSessionRevoker{}
+	NewAuthHandler(fakeLoginAuth{}, sessionRevoker).RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	req.AddCookie(&http.Cookie{Name: authCookieName, Value: "sid_test_123"})
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(sessionRevoker.revoked) != 1 || sessionRevoker.revoked[0] != "sid_test_123" {
+		t.Fatalf("expected opaque session revocation, got %+v", sessionRevoker.revoked)
 	}
 }

@@ -126,7 +126,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 		},
 		"0.1.0",
 	).RegisterRoutes(router)
-	apihandler.NewAuthHandler(proxyAuthService).RegisterRoutes(router)
+	apihandler.NewAuthHandler(proxyAuthService, apihandler.NewRedisAuthSessionStore(rdb)).RegisterRoutes(router)
 	apihandler.NewAdminSystemConfigHandler(proxyAuthService, repoFactory.SystemSettings()).RegisterRoutes(router)
 	apihandler.NewAdminLogLevelHandler(proxyAuthService).RegisterRoutes(router)
 	apihandler.NewAdminDatabaseStatusHandler(proxyAuthService, apihandler.NewDatabaseStatusSource(db, cfg.Database)).RegisterRoutes(router)
