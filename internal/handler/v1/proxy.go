@@ -3,6 +3,8 @@ package v1
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	stderrors "errors"
@@ -44,6 +46,10 @@ type messageRequestRepository interface {
 	UpdateTerminal(ctx context.Context, id int, update repository.MessageRequestTerminalUpdate) error
 }
 
+type proxySystemSettingsStore interface {
+	Get(ctx context.Context) (*model.SystemSettings, error)
+}
+
 type httpDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
@@ -55,6 +61,7 @@ type Handler struct {
 	sessions    sessionManager
 	providers   providerRepository
 	requestLogs messageRequestRepository
+	settings    proxySystemSettingsStore
 	http        httpDoer
 }
 
@@ -67,15 +74,20 @@ const (
 	proxyEndpointChatCompletions proxyEndpointKind = "chat_completions"
 )
 
-func NewHandler(auth *authsvc.Service, sessions sessionManager, providers providerRepository, requestLogs messageRequestRepository, httpClient httpDoer) *Handler {
+func NewHandler(auth *authsvc.Service, sessions sessionManager, providers providerRepository, requestLogs messageRequestRepository, httpClient httpDoer, settings ...proxySystemSettingsStore) *Handler {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
+	}
+	var settingsStore proxySystemSettingsStore
+	if len(settings) > 0 {
+		settingsStore = settings[0]
 	}
 	return &Handler{
 		auth:        auth,
 		sessions:    sessions,
 		providers:   providers,
 		requestLogs: requestLogs,
+		settings:    settingsStore,
 		http:        httpClient,
 	}
 }
@@ -262,6 +274,19 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 	requestBody, requestBodyBytes, ok := decodeRequestBodyBytes(c)
 	if !ok {
 		writeAppError(c, appErrors.NewInvalidRequest("请求体不是合法 JSON"))
+		return
+	}
+	if h.shouldInterceptWarmup(c.Request.Context(), endpointKind, requestBody) {
+		warmupBody, err := json.Marshal(buildWarmupResponseBody(requestStringValue(requestBody["model"])))
+		if err != nil {
+			writeAppError(c, appErrors.NewInternalError("构建 Warmup 响应失败").WithError(err))
+			return
+		}
+		c.Header("Content-Type", "application/json; charset=utf-8")
+		c.Header("x-cch-intercepted", "warmup")
+		c.Header("x-cch-intercepted-by", "claude-code-hub")
+		c.Status(http.StatusOK)
+		_, _ = c.Writer.Write(warmupBody)
 		return
 	}
 
@@ -480,6 +505,79 @@ func extractRequestMessages(requestBody map[string]any) any {
 func requestStringValue(value any) string {
 	text, _ := value.(string)
 	return text
+}
+
+func (h *Handler) shouldInterceptWarmup(ctx context.Context, endpointKind proxyEndpointKind, requestBody map[string]any) bool {
+	if endpointKind != proxyEndpointMessages || h == nil || h.settings == nil {
+		return false
+	}
+	settings, err := h.settings.Get(ctx)
+	if err != nil || settings == nil || !settings.InterceptAnthropicWarmupRequests {
+		return false
+	}
+	return isWarmupMessagesRequest(requestBody)
+}
+
+func isWarmupMessagesRequest(requestBody map[string]any) bool {
+	if requestBody == nil {
+		return false
+	}
+	messages, ok := requestBody["messages"].([]any)
+	if !ok || len(messages) != 1 {
+		return false
+	}
+	firstMessage, ok := messages[0].(map[string]any)
+	if !ok || requestStringValue(firstMessage["role"]) != "user" {
+		return false
+	}
+	content, ok := firstMessage["content"].([]any)
+	if !ok || len(content) != 1 {
+		return false
+	}
+	firstBlock, ok := content[0].(map[string]any)
+	if !ok || requestStringValue(firstBlock["type"]) != "text" {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(requestStringValue(firstBlock["text"]))) != "warmup" {
+		return false
+	}
+	cacheControl, ok := firstBlock["cache_control"].(map[string]any)
+	if !ok {
+		return false
+	}
+	return requestStringValue(cacheControl["type"]) == "ephemeral"
+}
+
+func buildWarmupResponseBody(model string) map[string]any {
+	if strings.TrimSpace(model) == "" {
+		model = "unknown"
+	}
+	return map[string]any{
+		"model": model,
+		"id":    "msg_cch_" + randomWarmupSuffix(),
+		"type":  "message",
+		"role":  "assistant",
+		"content": []map[string]any{{
+			"type": "text",
+			"text": "I'm ready to help you.",
+		}},
+		"stop_reason":   "end_turn",
+		"stop_sequence": nil,
+		"usage": map[string]any{
+			"input_tokens":                0,
+			"output_tokens":               0,
+			"cache_creation_input_tokens": 0,
+			"cache_read_input_tokens":     0,
+		},
+	}
+}
+
+func randomWarmupSuffix() string {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return "warmup"
+	}
+	return hex.EncodeToString(buf[:])
 }
 
 func (h *Handler) selectProviderForEndpoint(ctx context.Context, endpointKind proxyEndpointKind, requestedModel string) (*model.Provider, error) {

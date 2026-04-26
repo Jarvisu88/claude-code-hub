@@ -64,6 +64,11 @@ type fakeMessageRequestRepo struct {
 	err error
 }
 
+type fakeProxySystemSettingsStore struct {
+	settings *model.SystemSettings
+	err      error
+}
+
 type timeoutHTTPClient struct{}
 
 func (timeoutHTTPClient) Do(*http.Request) (*http.Response, error) {
@@ -103,6 +108,16 @@ func (f *fakeMessageRequestRepo) UpdateTerminal(_ context.Context, id int, updat
 		update repository.MessageRequestTerminalUpdate
 	}{id: id, update: update})
 	return nil
+}
+
+func (f *fakeProxySystemSettingsStore) Get(_ context.Context) (*model.SystemSettings, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.settings == nil {
+		return &model.SystemSettings{ID: 1}, nil
+	}
+	return f.settings, nil
 }
 
 func (f *fakeSessionManager) ExtractClientSessionID(requestBody map[string]any, _ http.Header) sessionsvc.ClientSessionExtractionResult {
@@ -152,6 +167,15 @@ func newAuthorizedHandler(t *testing.T, sessionManager sessionManager) *Handler 
 			},
 		},
 	}, testUserRepo{}, ""), sessionManager, nil, nil, nil)
+}
+
+type failIfCalledHTTPClient struct {
+	t *testing.T
+}
+
+func (c failIfCalledHTTPClient) Do(*http.Request) (*http.Response, error) {
+	c.t.Fatal("expected upstream not to be called")
+	return nil, nil
 }
 
 func TestAuthMiddlewareStoresAuthResult(t *testing.T) {
@@ -279,6 +303,51 @@ func TestSessionLifecycleMiddlewareTracksConcurrentRequests(t *testing.T) {
 	}
 	if len(sessionManager.decrementCalls) != 1 || sessionManager.decrementCalls[0] != "sess_generated_123" {
 		t.Fatalf("unexpected decrement calls: %+v", sessionManager.decrementCalls)
+	}
+}
+
+func TestMessagesWarmupInterceptSkipsUpstreamWhenEnabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	sessionManager := &fakeSessionManager{
+		extractedSessionID: "sess_client_123",
+		generatedSessionID: "sess_generated_123",
+	}
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:        1,
+			UserID:    10,
+			Key:       "proxy-key",
+			Name:      "key-1",
+			IsEnabled: &enabled,
+			User: &model.User{
+				ID:        10,
+				Name:      "tester",
+				Role:      "user",
+				IsEnabled: &enabled,
+			},
+		},
+	}, testUserRepo{}, ""), sessionManager, &fakeProviderRepo{}, &fakeMessageRequestRepo{}, failIfCalledHTTPClient{t: t}, &fakeProxySystemSettingsStore{
+		settings: &model.SystemSettings{ID: 1, InterceptAnthropicWarmupRequests: true},
+	})
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewBufferString(`{"model":"claude-sonnet-4","messages":[{"role":"user","content":[{"type":"text","text":"Warmup","cache_control":{"type":"ephemeral"}}]}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"text":"I'm ready to help you."`) {
+		t.Fatalf("expected warmup response payload, got %s", resp.Body.String())
+	}
+	if got := resp.Header().Get("x-cch-intercepted"); got != "warmup" {
+		t.Fatalf("expected warmup intercept header, got %q", got)
 	}
 }
 

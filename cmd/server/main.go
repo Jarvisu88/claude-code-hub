@@ -150,7 +150,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	sessiontrackersvc.Configure(rdb, time.Duration(cfg.Session.TTL)*time.Second)
 	apihandler.ConfigureUsageLogsExportStore(rdb)
 	proxyHTTPClient := &http.Client{Timeout: cfg.Proxy.FetchBodyTimeout}
-	v1handler.NewHandler(proxyAuthService, proxySessionManager, repoFactory.Provider(), repoFactory.MessageRequest(), proxyHTTPClient).RegisterRoutes(router.Group("/v1"))
+	v1handler.NewHandler(proxyAuthService, proxySessionManager, repoFactory.Provider(), repoFactory.MessageRequest(), proxyHTTPClient, repoFactory.SystemSettings()).RegisterRoutes(router.Group("/v1"))
 	apihandler.NewProxyStatusHandler(proxyAuthService, repoFactory.User(), repoFactory.MessageRequest()).RegisterDirectRoutes(router)
 
 	// 管理 API 路由组
