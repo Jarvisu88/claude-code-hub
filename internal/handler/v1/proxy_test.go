@@ -77,20 +77,22 @@ type fakeProxySystemSettingsStore struct {
 }
 
 type fakeProxyStatisticsStore struct {
-	userTotal     udecimal.Decimal
-	keyTotal      udecimal.Decimal
-	user5h        udecimal.Decimal
-	key5h         udecimal.Decimal
-	userDaily     udecimal.Decimal
-	keyDaily      udecimal.Decimal
-	userWeekly    udecimal.Decimal
-	keyWeekly     udecimal.Decimal
-	userMonthly   udecimal.Decimal
-	keyMonthly    udecimal.Decimal
-	provider5h    udecimal.Decimal
-	providerDaily udecimal.Decimal
-	providerTotal udecimal.Decimal
-	err           error
+	userTotal       udecimal.Decimal
+	keyTotal        udecimal.Decimal
+	user5h          udecimal.Decimal
+	key5h           udecimal.Decimal
+	userDaily       udecimal.Decimal
+	keyDaily        udecimal.Decimal
+	userWeekly      udecimal.Decimal
+	keyWeekly       udecimal.Decimal
+	userMonthly     udecimal.Decimal
+	keyMonthly      udecimal.Decimal
+	provider5h      udecimal.Decimal
+	providerDaily   udecimal.Decimal
+	providerWeekly  udecimal.Decimal
+	providerMonthly udecimal.Decimal
+	providerTotal   udecimal.Decimal
+	err             error
 }
 
 type timeoutHTTPClient struct{}
@@ -240,6 +242,12 @@ func (f *fakeProxyStatisticsStore) SumProviderCostInTimeRange(_ context.Context,
 	}
 	if isAbout5hWindow(startTime, endTime) {
 		return f.provider5h, nil
+	}
+	if isAboutWeeklyWindow(startTime, endTime) {
+		return f.providerWeekly, nil
+	}
+	if isAboutMonthlyWindow(startTime, endTime) {
+		return f.providerMonthly, nil
 	}
 	return f.providerDaily, nil
 }
@@ -2580,6 +2588,154 @@ func TestResponsesHandlerSkipsProviderWhenDailyCostLimitReached(t *testing.T) {
 	}
 	if capturedAuthHeader != "Bearer fallback-secret" {
 		t.Fatalf("expected fallback provider when first provider daily limit is reached, got auth header %q", capturedAuthHeader)
+	}
+}
+
+func TestResponsesHandlerSkipsProviderWhenWeeklyCostLimitReached(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var capturedAuthHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	priority := 10
+	limit := udecimal.MustParse("6")
+	current := udecimal.MustParse("6")
+	cheapCost := udecimal.MustParse("0.8")
+	expensiveCost := udecimal.MustParse("1.5")
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{
+				ID:             1,
+				Name:           "cheap-but-weekly-capped",
+				URL:            upstream.URL,
+				Key:            "cheap-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				CostMultiplier: &cheapCost,
+				LimitWeeklyUSD: &limit,
+			},
+			{
+				ID:             2,
+				Name:           "fallback-provider",
+				URL:            upstream.URL,
+				Key:            "fallback-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				CostMultiplier: &expensiveCost,
+			},
+		}},
+		nil,
+		upstream.Client(),
+		&fakeProxyStatisticsStore{providerWeekly: current},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedAuthHeader != "Bearer fallback-secret" {
+		t.Fatalf("expected fallback provider when first provider weekly limit is reached, got auth header %q", capturedAuthHeader)
+	}
+}
+
+func TestResponsesHandlerSkipsProviderWhenMonthlyCostLimitReached(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var capturedAuthHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	priority := 10
+	limit := udecimal.MustParse("7")
+	current := udecimal.MustParse("7")
+	cheapCost := udecimal.MustParse("0.8")
+	expensiveCost := udecimal.MustParse("1.5")
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{
+				ID:              1,
+				Name:            "cheap-but-monthly-capped",
+				URL:             upstream.URL,
+				Key:             "cheap-secret",
+				ProviderType:    string(model.ProviderTypeCodex),
+				IsEnabled:       &enabled,
+				Priority:        &priority,
+				CostMultiplier:  &cheapCost,
+				LimitMonthlyUSD: &limit,
+			},
+			{
+				ID:             2,
+				Name:           "fallback-provider",
+				URL:            upstream.URL,
+				Key:            "fallback-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				CostMultiplier: &expensiveCost,
+			},
+		}},
+		nil,
+		upstream.Client(),
+		&fakeProxyStatisticsStore{providerMonthly: current},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedAuthHeader != "Bearer fallback-secret" {
+		t.Fatalf("expected fallback provider when first provider monthly limit is reached, got auth header %q", capturedAuthHeader)
 	}
 }
 

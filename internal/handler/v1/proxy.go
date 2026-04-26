@@ -1025,6 +1025,22 @@ func (h *Handler) selectProvidersForEndpoint(ctx context.Context, endpointKind p
 					}
 				}
 			}
+			if provider.LimitWeeklyUSD != nil && provider.LimitWeeklyUSD.GreaterThan(udecimal.Zero) {
+				startTime, endTime := weeklyWindowBounds(h.settings)
+				if current, err := h.stats.SumProviderCostInTimeRange(ctx, provider.ID, startTime, endTime); err == nil {
+					if current.GreaterThan(*provider.LimitWeeklyUSD) || current.Equal(*provider.LimitWeeklyUSD) {
+						continue
+					}
+				}
+			}
+			if provider.LimitMonthlyUSD != nil && provider.LimitMonthlyUSD.GreaterThan(udecimal.Zero) {
+				startTime, endTime := monthlyWindowBounds(h.settings)
+				if current, err := h.stats.SumProviderCostInTimeRange(ctx, provider.ID, startTime, endTime); err == nil {
+					if current.GreaterThan(*provider.LimitMonthlyUSD) || current.Equal(*provider.LimitMonthlyUSD) {
+						continue
+					}
+				}
+			}
 			if provider.LimitTotalUSD != nil && provider.LimitTotalUSD.GreaterThan(udecimal.Zero) {
 				if current, err := h.stats.SumProviderTotalCost(ctx, provider.ID, provider.TotalCostResetAt); err == nil {
 					if current.GreaterThan(*provider.LimitTotalUSD) || current.Equal(*provider.LimitTotalUSD) {
