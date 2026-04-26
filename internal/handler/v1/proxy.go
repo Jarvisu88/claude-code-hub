@@ -239,6 +239,18 @@ func (h *Handler) SessionLifecycleMiddleware() gin.HandlerFunc {
 			}))
 			return
 		}
+		if exceeded, limit, current := exceedsDailyCostLimit(c.Request.Context(), h.stats, h.settings, authResult); exceeded {
+			writeAppError(c, (&appErrors.AppError{
+				Type:       appErrors.ErrorTypeRateLimitError,
+				Message:    "每日费用额度已达上限：当前 " + current.String() + "，上限 " + limit.String(),
+				Code:       appErrors.CodeDailyLimitExceeded,
+				HTTPStatus: http.StatusPaymentRequired,
+			}).WithDetails(map[string]any{
+				"current": current.String(),
+				"limit":   limit.String(),
+			}))
+			return
+		}
 
 		c.Set(proxySessionIDContextKey, sessionID)
 		h.sessions.IncrementConcurrentCount(c.Request.Context(), sessionID)
@@ -312,6 +324,78 @@ func exceeds5hCostLimit(ctx context.Context, stats proxyStatisticsStore, authRes
 		}
 	}
 	return false, udecimal.Zero, udecimal.Zero
+}
+
+func exceedsDailyCostLimit(ctx context.Context, stats proxyStatisticsStore, settings proxySystemSettingsStore, authResult *authsvc.AuthResult) (bool, udecimal.Decimal, udecimal.Decimal) {
+	if stats == nil || authResult == nil || authResult.Key == nil || authResult.User == nil {
+		return false, udecimal.Zero, udecimal.Zero
+	}
+	startTime, endTime := dailyWindowBounds(settings, authResult)
+	if authResult.Key.LimitDailyUSD != nil && authResult.Key.LimitDailyUSD.GreaterThan(udecimal.Zero) {
+		current, err := lookupDailyCost(ctx, stats, true, authResult.Key.Key, authResult.User.ID, startTime, endTime)
+		if err == nil && (current.GreaterThan(*authResult.Key.LimitDailyUSD) || current.Equal(*authResult.Key.LimitDailyUSD)) {
+			return true, *authResult.Key.LimitDailyUSD, current
+		}
+		return false, udecimal.Zero, udecimal.Zero
+	}
+	if authResult.User.DailyLimitUSD != nil && authResult.User.DailyLimitUSD.GreaterThan(udecimal.Zero) {
+		current, err := lookupDailyCost(ctx, stats, false, authResult.Key.Key, authResult.User.ID, startTime, endTime)
+		if err == nil && (current.GreaterThan(*authResult.User.DailyLimitUSD) || current.Equal(*authResult.User.DailyLimitUSD)) {
+			return true, *authResult.User.DailyLimitUSD, current
+		}
+	}
+	return false, udecimal.Zero, udecimal.Zero
+}
+
+func lookupDailyCost(ctx context.Context, stats proxyStatisticsStore, keyScoped bool, keyString string, userID int, startTime, endTime time.Time) (udecimal.Decimal, error) {
+	if keyScoped {
+		return stats.SumKeyCostInTimeRangeByKeyString(ctx, keyString, startTime, endTime)
+	}
+	return stats.SumUserCostInTimeRange(ctx, userID, startTime, endTime)
+}
+
+func dailyWindowBounds(settings proxySystemSettingsStore, authResult *authsvc.AuthResult) (time.Time, time.Time) {
+	now := time.Now()
+	mode := "fixed"
+	resetTime := "00:00"
+	if authResult != nil && authResult.Key != nil && authResult.Key.LimitDailyUSD != nil && authResult.Key.LimitDailyUSD.GreaterThan(udecimal.Zero) {
+		mode = authResult.Key.DailyResetMode
+		resetTime = authResult.Key.DailyResetTime
+	} else if authResult != nil && authResult.User != nil {
+		mode = authResult.User.DailyResetMode
+		resetTime = authResult.User.DailyResetTime
+	}
+	if strings.EqualFold(strings.TrimSpace(mode), string(model.DailyResetModeRolling)) {
+		return now.Add(-24 * time.Hour), now
+	}
+
+	timezone := repository.DefaultTimezone
+	if settings != nil {
+		if systemSettings, err := settings.Get(context.Background()); err == nil && systemSettings != nil && systemSettings.Timezone != nil {
+			timezone = repository.ValidateTimezone(strings.TrimSpace(*systemSettings.Timezone))
+		}
+	}
+	location, _ := time.LoadLocation(repository.ValidateTimezone(timezone))
+	zonedNow := now.In(location)
+	hour, minute := parseDailyResetTime(resetTime)
+	startOfWindow := time.Date(zonedNow.Year(), zonedNow.Month(), zonedNow.Day(), hour, minute, 0, 0, location)
+	if zonedNow.Before(startOfWindow) {
+		startOfWindow = startOfWindow.Add(-24 * time.Hour)
+	}
+	return startOfWindow.UTC(), now
+}
+
+func parseDailyResetTime(value string) (int, int) {
+	parts := strings.Split(strings.TrimSpace(value), ":")
+	if len(parts) != 2 {
+		return 0, 0
+	}
+	hour, errHour := strconv.Atoi(parts[0])
+	minute, errMinute := strconv.Atoi(parts[1])
+	if errHour != nil || errMinute != nil || hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return 0, 0
+	}
+	return hour, minute
 }
 
 func (h *Handler) notImplemented(c *gin.Context) {

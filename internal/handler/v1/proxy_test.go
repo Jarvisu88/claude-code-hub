@@ -80,6 +80,8 @@ type fakeProxyStatisticsStore struct {
 	keyTotal  udecimal.Decimal
 	user5h    udecimal.Decimal
 	key5h     udecimal.Decimal
+	userDaily udecimal.Decimal
+	keyDaily  udecimal.Decimal
 	err       error
 }
 
@@ -148,18 +150,29 @@ func (f *fakeProxyStatisticsStore) SumKeyTotalCost(_ context.Context, _ string, 
 	return f.keyTotal, nil
 }
 
-func (f *fakeProxyStatisticsStore) SumUserCostInTimeRange(_ context.Context, _ int, _ time.Time, _ time.Time) (udecimal.Decimal, error) {
-	if f.err != nil {
-		return udecimal.Zero, f.err
-	}
-	return f.user5h, nil
+func isAbout5hWindow(startTime, endTime time.Time) bool {
+	duration := endTime.Sub(startTime)
+	return duration >= 5*time.Hour-2*time.Minute && duration <= 5*time.Hour+2*time.Minute
 }
 
-func (f *fakeProxyStatisticsStore) SumKeyCostInTimeRangeByKeyString(_ context.Context, _ string, _ time.Time, _ time.Time) (udecimal.Decimal, error) {
+func (f *fakeProxyStatisticsStore) SumUserCostInTimeRange(_ context.Context, _ int, startTime, endTime time.Time) (udecimal.Decimal, error) {
 	if f.err != nil {
 		return udecimal.Zero, f.err
 	}
-	return f.key5h, nil
+	if isAbout5hWindow(startTime, endTime) {
+		return f.user5h, nil
+	}
+	return f.userDaily, nil
+}
+
+func (f *fakeProxyStatisticsStore) SumKeyCostInTimeRangeByKeyString(_ context.Context, _ string, startTime, endTime time.Time) (udecimal.Decimal, error) {
+	if f.err != nil {
+		return udecimal.Zero, f.err
+	}
+	if isAbout5hWindow(startTime, endTime) {
+		return f.key5h, nil
+	}
+	return f.keyDaily, nil
 }
 
 func (f *fakeSessionManager) ExtractClientSessionID(requestBody map[string]any, _ http.Header) sessionsvc.ClientSessionExtractionResult {
@@ -1044,6 +1057,127 @@ func TestSessionLifecycleMiddlewareFailsOpenWhen5hCostLookupFails(t *testing.T) 
 			User:       &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
 		},
 	}, testUserRepo{}, ""), sessionManager, nil, nil, nil, &fakeProxyStatisticsStore{err: errors.New("db down")})
+
+	router := gin.New()
+	group := router.Group("/v1")
+	group.Use(handler.AuthMiddleware(), handler.SessionLifecycleMiddleware())
+	group.POST("/responses", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusNoContent {
+		t.Fatalf("expected fail-open 204, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestSessionLifecycleMiddlewareRejectsKeyDailyLimitExceededFixed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	limit := udecimal.MustParse("8")
+	current := udecimal.MustParse("8")
+	sessionManager := &fakeSessionManager{
+		extractedSessionID: "sess_client_123",
+		generatedSessionID: "sess_generated_123",
+	}
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:             1,
+			UserID:         10,
+			Key:            "proxy-key",
+			Name:           "key-1",
+			IsEnabled:      &enabled,
+			LimitDailyUSD:  &limit,
+			DailyResetMode: "fixed",
+			DailyResetTime: "00:00",
+			User:           &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+		},
+	}, testUserRepo{}, ""), sessionManager, nil, nil, nil, &fakeProxySystemSettingsStore{settings: &model.SystemSettings{ID: 1}}, &fakeProxyStatisticsStore{keyDaily: current})
+
+	router := gin.New()
+	group := router.Group("/v1")
+	group.Use(handler.AuthMiddleware(), handler.SessionLifecycleMiddleware())
+	group.POST("/responses", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestSessionLifecycleMiddlewareRejectsUserDailyLimitExceededRolling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	userLimit := udecimal.MustParse("4")
+	current := udecimal.MustParse("5")
+	sessionManager := &fakeSessionManager{
+		extractedSessionID: "sess_client_123",
+		generatedSessionID: "sess_generated_123",
+	}
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:        1,
+			UserID:    10,
+			Key:       "proxy-key",
+			Name:      "key-1",
+			IsEnabled: &enabled,
+			User: &model.User{
+				ID:             10,
+				Name:           "tester",
+				Role:           "user",
+				IsEnabled:      &enabled,
+				DailyLimitUSD:  &userLimit,
+				DailyResetMode: "rolling",
+			},
+		},
+	}, testUserRepo{}, ""), sessionManager, nil, nil, nil, &fakeProxySystemSettingsStore{settings: &model.SystemSettings{ID: 1}}, &fakeProxyStatisticsStore{userDaily: current})
+
+	router := gin.New()
+	group := router.Group("/v1")
+	group.Use(handler.AuthMiddleware(), handler.SessionLifecycleMiddleware())
+	group.POST("/responses", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusPaymentRequired {
+		t.Fatalf("expected 402, got %d: %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestSessionLifecycleMiddlewareFailsOpenWhenDailyCostLookupFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	limit := udecimal.MustParse("1")
+	sessionManager := &fakeSessionManager{
+		extractedSessionID: "sess_client_123",
+		generatedSessionID: "sess_generated_123",
+	}
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:            1,
+			UserID:        10,
+			Key:           "proxy-key",
+			Name:          "key-1",
+			IsEnabled:     &enabled,
+			LimitDailyUSD: &limit,
+			User:          &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+		},
+	}, testUserRepo{}, ""), sessionManager, nil, nil, nil, &fakeProxySystemSettingsStore{settings: &model.SystemSettings{ID: 1}}, &fakeProxyStatisticsStore{err: errors.New("db down")})
 
 	router := gin.New()
 	group := router.Group("/v1")
