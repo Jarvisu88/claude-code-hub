@@ -405,6 +405,13 @@ func (m *Manager) IncrementConcurrentCount(ctx context.Context, sessionID string
 	m.tracker.IncrementConcurrentCount(ctx, sessionID)
 }
 
+func (m *Manager) GetConcurrentCount(ctx context.Context, sessionID string) int {
+	if m == nil || m.tracker == nil {
+		return 0
+	}
+	return m.tracker.GetConcurrentCount(ctx, sessionID)
+}
+
 func (m *Manager) DecrementConcurrentCount(ctx context.Context, sessionID string) {
 	if m == nil || m.tracker == nil {
 		return

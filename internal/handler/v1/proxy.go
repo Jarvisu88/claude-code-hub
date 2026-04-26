@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,7 @@ type sessionManager interface {
 	GetNextRequestSequence(ctx context.Context, sessionID string) int
 	BindProvider(ctx context.Context, sessionID string, providerID int)
 	UpdateCodexSessionWithPromptCacheKey(ctx context.Context, currentSessionID, promptCacheKey string, providerID int) string
+	GetConcurrentCount(ctx context.Context, sessionID string) int
 	IncrementConcurrentCount(ctx context.Context, sessionID string)
 	DecrementConcurrentCount(ctx context.Context, sessionID string)
 }
@@ -180,6 +182,18 @@ func (h *Handler) SessionLifecycleMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		if exceeded, limit, current := exceedsConcurrentSessionLimit(authResult, h.sessions.GetConcurrentCount(c.Request.Context(), sessionID)); exceeded {
+			writeAppError(c, (&appErrors.AppError{
+				Type:       appErrors.ErrorTypeRateLimitError,
+				Message:    "并发会话数超出限制：当前 " + strconv.Itoa(current) + "，上限 " + strconv.Itoa(limit),
+				Code:       appErrors.CodeConcurrentSessionsExceeded,
+				HTTPStatus: http.StatusTooManyRequests,
+			}).WithDetails(map[string]any{
+				"current": current,
+				"limit":   limit,
+			}))
+			return
+		}
 
 		c.Set(proxySessionIDContextKey, sessionID)
 		h.sessions.IncrementConcurrentCount(c.Request.Context(), sessionID)
@@ -187,6 +201,30 @@ func (h *Handler) SessionLifecycleMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func exceedsConcurrentSessionLimit(authResult *authsvc.AuthResult, currentCount int) (bool, int, int) {
+	if authResult == nil {
+		return false, 0, currentCount
+	}
+	limit := 0
+	if authResult.Key != nil {
+		limit = normalizeConcurrentSessionLimit(authResult.Key.LimitConcurrentSessions)
+	}
+	if limit <= 0 && authResult.User != nil {
+		limit = normalizeConcurrentSessionLimit(authResult.User.LimitConcurrentSessions)
+	}
+	if limit <= 0 {
+		return false, 0, currentCount
+	}
+	return currentCount >= limit, limit, currentCount
+}
+
+func normalizeConcurrentSessionLimit(value *int) int {
+	if value == nil || *value <= 0 {
+		return 0
+	}
+	return *value
 }
 
 func (h *Handler) notImplemented(c *gin.Context) {

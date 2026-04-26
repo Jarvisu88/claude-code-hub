@@ -54,6 +54,7 @@ func (paritySessionManager) BindProvider(_ context.Context, _ string, _ int)    
 func (paritySessionManager) UpdateCodexSessionWithPromptCacheKey(_ context.Context, currentSessionID, _ string, _ int) string {
 	return currentSessionID
 }
+func (paritySessionManager) GetConcurrentCount(_ context.Context, _ string) int   { return 0 }
 func (paritySessionManager) IncrementConcurrentCount(_ context.Context, _ string) {}
 func (paritySessionManager) DecrementConcurrentCount(_ context.Context, _ string) {}
 

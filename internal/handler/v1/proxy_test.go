@@ -43,6 +43,7 @@ type fakeSessionManager struct {
 	updatedCodexSessionID string
 	updatedPromptCacheKey string
 	updatedProviderID     int
+	concurrentCount       int
 	extractCalls          int
 	getOrCreateCalls      int
 	incrementCalls        []string
@@ -148,6 +149,10 @@ func (f *fakeSessionManager) UpdateCodexSessionWithPromptCacheKey(_ context.Cont
 	f.updatedPromptCacheKey = promptCacheKey
 	f.updatedProviderID = providerID
 	return "codex_" + promptCacheKey
+}
+
+func (f *fakeSessionManager) GetConcurrentCount(_ context.Context, _ string) int {
+	return f.concurrentCount
 }
 
 func (f *fakeSessionManager) IncrementConcurrentCount(_ context.Context, sessionID string) {
@@ -686,6 +691,99 @@ func TestSessionLifecycleMiddlewareSkipsWhenSessionIDEmpty(t *testing.T) {
 	}
 	if len(sessionManager.incrementCalls) != 0 || len(sessionManager.decrementCalls) != 0 {
 		t.Fatalf("expected no concurrent count calls when session id empty, got increment=%+v decrement=%+v", sessionManager.incrementCalls, sessionManager.decrementCalls)
+	}
+}
+
+func TestSessionLifecycleMiddlewareRejectsConcurrentSessionLimitOnKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	keyLimit := 2
+	sessionManager := &fakeSessionManager{
+		extractedSessionID: "sess_client_123",
+		generatedSessionID: "sess_generated_123",
+		concurrentCount:    2,
+	}
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:                      1,
+			UserID:                  10,
+			Key:                     "proxy-key",
+			Name:                    "key-1",
+			IsEnabled:               &enabled,
+			LimitConcurrentSessions: &keyLimit,
+			User: &model.User{
+				ID:        10,
+				Name:      "tester",
+				Role:      "user",
+				IsEnabled: &enabled,
+			},
+		},
+	}, testUserRepo{}, ""), sessionManager, nil, nil, nil)
+
+	router := gin.New()
+	group := router.Group("/v1")
+	group.Use(handler.AuthMiddleware(), handler.SessionLifecycleMiddleware())
+	group.POST("/responses", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(sessionManager.incrementCalls) != 0 || len(sessionManager.decrementCalls) != 0 {
+		t.Fatalf("expected no concurrent count mutation on rejection, got increment=%+v decrement=%+v", sessionManager.incrementCalls, sessionManager.decrementCalls)
+	}
+}
+
+func TestSessionLifecycleMiddlewareFallsBackToUserConcurrentLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	userLimit := 1
+	sessionManager := &fakeSessionManager{
+		extractedSessionID: "sess_client_123",
+		generatedSessionID: "sess_generated_123",
+		concurrentCount:    1,
+	}
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:        1,
+			UserID:    10,
+			Key:       "proxy-key",
+			Name:      "key-1",
+			IsEnabled: &enabled,
+			User: &model.User{
+				ID:                      10,
+				Name:                    "tester",
+				Role:                    "user",
+				IsEnabled:               &enabled,
+				LimitConcurrentSessions: &userLimit,
+			},
+		},
+	}, testUserRepo{}, ""), sessionManager, nil, nil, nil)
+
+	router := gin.New()
+	group := router.Group("/v1")
+	group.Use(handler.AuthMiddleware(), handler.SessionLifecycleMiddleware())
+	group.POST("/responses", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", resp.Code, resp.Body.String())
 	}
 }
 
