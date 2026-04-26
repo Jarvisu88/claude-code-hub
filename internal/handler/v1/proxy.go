@@ -587,6 +587,7 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 		return
 	}
 	if h.shouldInterceptWarmup(c.Request.Context(), endpointKind, requestBody) {
+		h.logWarmupIntercept(c, authResult, requestBody)
 		warmupBody, err := json.Marshal(buildWarmupResponseBody(requestStringValue(requestBody["model"])))
 		if err != nil {
 			writeAppError(c, appErrors.NewInternalError("构建 Warmup 响应失败").WithError(err))
@@ -939,6 +940,56 @@ func isWarmupMessagesRequest(requestBody map[string]any) bool {
 		return false
 	}
 	return requestStringValue(cacheControl["type"]) == "ephemeral"
+}
+
+func (h *Handler) logWarmupIntercept(c *gin.Context, authResult *authsvc.AuthResult, requestBody map[string]any) {
+	if h == nil || h.requestLogs == nil || authResult == nil || authResult.User == nil || authResult.Key == nil {
+		return
+	}
+
+	sessionID, _ := GetProxySessionID(c)
+	requestSequence := 1
+	if sessionID != "" && h.sessions != nil {
+		requestSequence = h.sessions.GetNextRequestSequence(c.Request.Context(), sessionID)
+	}
+
+	endpoint := ""
+	userAgent := ""
+	clientIP := ""
+	messagesCount := countRequestPayloadItems(extractRequestMessages(requestBody))
+	if c != nil {
+		if c.FullPath() != "" {
+			endpoint = c.FullPath()
+		}
+		if c.Request != nil {
+			userAgent = c.Request.UserAgent()
+			clientIP = c.ClientIP()
+		}
+	}
+
+	blockedBy := "warmup"
+	blockedReason := `{"reason":"anthropic_warmup_intercepted","note":"已由 CCH 抢答，未转发上游，不计费/不限流/不计入统计"}`
+	durationMs := 0
+	statusCode := http.StatusOK
+
+	messageRequest := &model.MessageRequest{
+		ProviderID:      0,
+		UserID:          authResult.User.ID,
+		Key:             authResult.Key.Key,
+		Model:           requestStringValue(requestBody["model"]),
+		SessionID:       stringPointer(sessionID),
+		RequestSequence: requestSequence,
+		ApiType:         stringPointer(string(resolveAPIType(endpoint))),
+		Endpoint:        stringPointer(endpoint),
+		UserAgent:       stringPointer(userAgent),
+		ClientIP:        stringPointer(clientIP),
+		MessagesCount:   intPointer(messagesCount),
+		StatusCode:      &statusCode,
+		DurationMs:      &durationMs,
+		BlockedBy:       &blockedBy,
+		BlockedReason:   &blockedReason,
+	}
+	_, _ = h.requestLogs.Create(c.Request.Context(), messageRequest)
 }
 
 func buildWarmupResponseBody(model string) map[string]any {

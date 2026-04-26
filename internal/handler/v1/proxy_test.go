@@ -457,6 +457,7 @@ func TestMessagesWarmupInterceptSkipsUpstreamWhenEnabled(t *testing.T) {
 		extractedSessionID: "sess_client_123",
 		generatedSessionID: "sess_generated_123",
 	}
+	requestLogs := &fakeMessageRequestRepo{}
 	handler := NewHandler(authsvc.NewService(&testKeyRepo{
 		key: &model.Key{
 			ID:        1,
@@ -471,7 +472,7 @@ func TestMessagesWarmupInterceptSkipsUpstreamWhenEnabled(t *testing.T) {
 				IsEnabled: &enabled,
 			},
 		},
-	}, testUserRepo{}, ""), sessionManager, &fakeProviderRepo{}, &fakeMessageRequestRepo{}, failIfCalledHTTPClient{t: t}, &fakeProxySystemSettingsStore{
+	}, testUserRepo{}, ""), sessionManager, &fakeProviderRepo{}, requestLogs, failIfCalledHTTPClient{t: t}, &fakeProxySystemSettingsStore{
 		settings: &model.SystemSettings{ID: 1, InterceptAnthropicWarmupRequests: true},
 	})
 
@@ -491,6 +492,15 @@ func TestMessagesWarmupInterceptSkipsUpstreamWhenEnabled(t *testing.T) {
 	}
 	if got := resp.Header().Get("x-cch-intercepted"); got != "warmup" {
 		t.Fatalf("expected warmup intercept header, got %q", got)
+	}
+	if len(requestLogs.created) != 1 {
+		t.Fatalf("expected one warmup request log, got %+v", requestLogs.created)
+	}
+	if requestLogs.created[0].BlockedBy == nil || *requestLogs.created[0].BlockedBy != "warmup" {
+		t.Fatalf("expected warmup blockedBy, got %+v", requestLogs.created[0].BlockedBy)
+	}
+	if requestLogs.created[0].BlockedReason == nil || !strings.Contains(*requestLogs.created[0].BlockedReason, "anthropic_warmup_intercepted") {
+		t.Fatalf("expected warmup blockedReason, got %+v", requestLogs.created[0].BlockedReason)
 	}
 }
 

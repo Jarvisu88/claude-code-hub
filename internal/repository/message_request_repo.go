@@ -131,6 +131,8 @@ type MessageRequestTerminalUpdate struct {
 	StatusCode                 int                       `json:"statusCode"`
 	DurationMs                 int                       `json:"durationMs"`
 	ErrorMessage               *string                   `json:"errorMessage,omitempty"`
+	BlockedBy                  *string                   `json:"blockedBy,omitempty"`
+	BlockedReason              *string                   `json:"blockedReason,omitempty"`
 	ProviderChain              []model.ProviderChainItem `json:"providerChain,omitempty"`
 	InputTokens                *int                      `json:"inputTokens,omitempty"`
 	OutputTokens               *int                      `json:"outputTokens,omitempty"`
@@ -306,6 +308,12 @@ func (r *messageRequestRepository) UpdateTerminal(ctx context.Context, id int, u
 	} else {
 		updateFields["error_message"] = nil
 	}
+	if update.BlockedBy != nil {
+		updateFields["blocked_by"] = *update.BlockedBy
+	}
+	if update.BlockedReason != nil {
+		updateFields["blocked_reason"] = *update.BlockedReason
+	}
 	if update.InputTokens != nil {
 		updateFields["input_tokens"] = *update.InputTokens
 	}
@@ -334,6 +342,12 @@ func (r *messageRequestRepository) UpdateTerminal(ctx context.Context, id int, u
 		Set("duration_ms = ?", updateFields["duration_ms"]).
 		Set("error_message = ?", updateFields["error_message"]).
 		Set("updated_at = ?", updateFields["updated_at"])
+	if blockedBy, ok := updateFields["blocked_by"]; ok {
+		query = query.Set("blocked_by = ?", blockedBy)
+	}
+	if blockedReason, ok := updateFields["blocked_reason"]; ok {
+		query = query.Set("blocked_reason = ?", blockedReason)
+	}
 	if inputTokens, ok := updateFields["input_tokens"]; ok {
 		query = query.Set("input_tokens = ?", inputTokens)
 	}
