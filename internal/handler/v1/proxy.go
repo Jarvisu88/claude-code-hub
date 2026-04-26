@@ -21,6 +21,7 @@ import (
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
+	circuitbreakersvc "github.com/ding113/claude-code-hub/internal/service/circuitbreaker"
 	livechainsvc "github.com/ding113/claude-code-hub/internal/service/livechain"
 	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
@@ -605,6 +606,7 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 
 			upstreamResp, err = h.http.Do(upstreamReq)
 			if err == nil {
+				circuitbreakersvc.RecordSuccess(provider)
 				if attempt > 1 {
 					providerChain = append(providerChain, model.ProviderChainItem{
 						ID:              provider.ID,
@@ -622,6 +624,7 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 				break
 			}
 			lastTransportErr = err
+			circuitbreakersvc.RecordFailure(provider, true)
 			if attempt < maxAttempts {
 				providerChain = append(providerChain, model.ProviderChainItem{
 					ID:              provider.ID,
@@ -895,6 +898,9 @@ func (h *Handler) selectProvidersForEndpoint(ctx context.Context, endpointKind p
 	candidates := make([]*model.Provider, 0, len(providers))
 	for _, provider := range providers {
 		if provider == nil || !provider.IsActive() {
+			continue
+		}
+		if circuitbreakersvc.IsOpen(provider) {
 			continue
 		}
 		if !supportsEndpointKind(provider.ProviderType, endpointKind) {

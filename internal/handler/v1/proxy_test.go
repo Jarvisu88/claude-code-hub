@@ -15,6 +15,7 @@ import (
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
+	circuitbreakersvc "github.com/ding113/claude-code-hub/internal/service/circuitbreaker"
 	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
 	"github.com/gin-gonic/gin"
@@ -2741,6 +2742,106 @@ func TestResponsesHandlerFallsBackToNextProviderOnTransportFailure(t *testing.T)
 	}
 	if chain[1].Reason == nil || *chain[1].Reason != "system_error" {
 		t.Fatalf("expected fallback chain item marked as system_error, got %+v", chain[1])
+	}
+}
+
+func TestResponsesHandlerSkipsOpenCircuitProvider(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	circuitbreakersvc.ResetForTest()
+	t.Cleanup(circuitbreakersvc.ResetForTest)
+	circuitbreakersvc.SetOpenForTest(1, time.Now().Add(time.Hour))
+
+	var capturedAuthHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	priority := 10
+	cheapCost := udecimal.MustParse("0.8")
+	expensiveCost := udecimal.MustParse("1.5")
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{ID: 1, Name: "open-provider", URL: upstream.URL, Key: "open-secret", ProviderType: string(model.ProviderTypeCodex), IsEnabled: &enabled, Priority: &priority, CostMultiplier: &cheapCost},
+			{ID: 2, Name: "closed-provider", URL: upstream.URL, Key: "closed-secret", ProviderType: string(model.ProviderTypeCodex), IsEnabled: &enabled, Priority: &priority, CostMultiplier: &expensiveCost},
+		}},
+		nil,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedAuthHeader != "Bearer closed-secret" {
+		t.Fatalf("expected open provider to be skipped, got auth header %q", capturedAuthHeader)
+	}
+}
+
+func TestResponsesHandlerOpensCircuitAfterTransportFailures(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	circuitbreakersvc.ResetForTest()
+	circuitbreakersvc.Configure(true)
+	t.Cleanup(circuitbreakersvc.ResetForTest)
+
+	enabled := true
+	threshold := 1
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:                             1,
+			Name:                           "fragile-provider",
+			URL:                            "https://example.com",
+			Key:                            "provider-secret",
+			ProviderType:                   string(model.ProviderTypeCodex),
+			IsEnabled:                      &enabled,
+			CircuitBreakerFailureThreshold: &threshold,
+		}}},
+		&fakeMessageRequestRepo{},
+		genericFailHTTPClient{},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if !circuitbreakersvc.IsOpen(&model.Provider{ID: 1}) {
+		t.Fatalf("expected provider circuit to open after transport failure")
 	}
 }
 
