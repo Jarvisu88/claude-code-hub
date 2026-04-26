@@ -817,6 +817,11 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 	}
 	terminalUpdate := buildTerminalUpdate(endpointKind, upstreamResp.StatusCode, time.Since(startedAt), responseBody)
 	terminalUpdate.ProviderChain = finalizeProviderChain(providerChain, terminalUpdate.StatusCode, terminalUpdate.ErrorMessage)
+	if shouldCountFailureForCircuit(terminalUpdate.StatusCode) {
+		circuitbreakersvc.RecordFailure(provider, false)
+	} else if terminalUpdate.StatusCode >= http.StatusOK && terminalUpdate.StatusCode < http.StatusMultipleChoices {
+		circuitbreakersvc.RecordSuccess(provider)
+	}
 	finalStatusCode := terminalUpdate.StatusCode
 	c.Status(finalStatusCode)
 	if finalStatusCode != upstreamResp.StatusCode {
@@ -1411,6 +1416,13 @@ func buildTerminalUpdate(endpointKind proxyEndpointKind, statusCode int, duratio
 	}
 
 	return update
+}
+
+func shouldCountFailureForCircuit(statusCode int) bool {
+	if statusCode == http.StatusNotFound {
+		return false
+	}
+	return statusCode >= http.StatusBadRequest
 }
 
 func detectFake200HTMLResponse(statusCode int, responseBody []byte) (int, string, bool) {

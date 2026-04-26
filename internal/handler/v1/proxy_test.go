@@ -3187,6 +3187,80 @@ func TestResponsesHandlerReopensHalfOpenProviderOnFailure(t *testing.T) {
 	}
 }
 
+func TestResponsesHandlerCounts500TowardCircuitBreaker(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	circuitbreakersvc.ResetForTest()
+	t.Cleanup(circuitbreakersvc.ResetForTest)
+
+	enabled := true
+	threshold := 1
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"message":"upstream failed"}}`))
+	}))
+	defer upstream.Close()
+
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{ID: 1, UserID: 10, Key: "proxy-key", Name: "key-1", IsEnabled: &enabled, User: &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled}},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{ID: 1, Name: "fragile-provider", URL: upstream.URL, Key: "provider-secret", ProviderType: string(model.ProviderTypeCodex), IsEnabled: &enabled, CircuitBreakerFailureThreshold: &threshold}}},
+		&fakeMessageRequestRepo{},
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if !circuitbreakersvc.IsOpen(&model.Provider{ID: 1}) {
+		t.Fatalf("expected provider circuit to open after upstream 500")
+	}
+}
+
+func TestResponsesHandlerDoesNotCount404TowardCircuitBreaker(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	circuitbreakersvc.ResetForTest()
+	t.Cleanup(circuitbreakersvc.ResetForTest)
+
+	enabled := true
+	threshold := 1
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"message":"model not found"}}`))
+	}))
+	defer upstream.Close()
+
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{ID: 1, UserID: 10, Key: "proxy-key", Name: "key-1", IsEnabled: &enabled, User: &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled}},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{ID: 1, Name: "fragile-provider", URL: upstream.URL, Key: "provider-secret", ProviderType: string(model.ProviderTypeCodex), IsEnabled: &enabled, CircuitBreakerFailureThreshold: &threshold}}},
+		&fakeMessageRequestRepo{},
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if circuitbreakersvc.IsOpen(&model.Provider{ID: 1}) {
+		t.Fatalf("expected provider circuit to stay closed after upstream 404")
+	}
+}
+
 func TestResponsesHandlerReturns502ForGenericUpstreamError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
