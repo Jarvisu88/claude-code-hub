@@ -416,6 +416,65 @@ func TestResponsesProxyUpdatesCodexSessionFromPromptCacheKey(t *testing.T) {
 	}
 }
 
+func TestResponsesStreamingProxyUpdatesCodexSessionFromSSEPromptCacheKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	sessionManager := &fakeSessionManager{
+		extractedSessionID: "sess_client_123",
+		generatedSessionID: "sess_generated_123",
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("event: response.created\n"))
+		_, _ = w.Write([]byte("data: {\"response\":{\"id\":\"resp_123\",\"prompt_cache_key\":\"019b82ff-08ff-75a3-a203-7e10274fdbd8\"}}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer upstream.Close()
+
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:        1,
+			UserID:    10,
+			Key:       "proxy-key",
+			Name:      "key-1",
+			IsEnabled: &enabled,
+			User: &model.User{
+				ID:        10,
+				Name:      "tester",
+				Role:      "user",
+				IsEnabled: &enabled,
+			},
+		},
+	}, testUserRepo{}, ""), sessionManager, &fakeProviderRepo{providers: []*model.Provider{{
+		ID:           99,
+		Name:         "codex-upstream",
+		URL:          upstream.URL,
+		Key:          "provider-secret",
+		ProviderType: string(model.ProviderTypeCodex),
+		IsEnabled:    &enabled,
+	}}}, &fakeMessageRequestRepo{}, upstream.Client())
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":[{"type":"input_text","text":"hello"}]}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if sessionManager.updatedCodexSessionID != "sess_generated_123" || sessionManager.updatedPromptCacheKey != "019b82ff-08ff-75a3-a203-7e10274fdbd8" || sessionManager.updatedProviderID != 99 {
+		t.Fatalf("expected SSE codex session update to be recorded, got session=%q promptCacheKey=%q provider=%d", sessionManager.updatedCodexSessionID, sessionManager.updatedPromptCacheKey, sessionManager.updatedProviderID)
+	}
+	if !strings.Contains(resp.Body.String(), "\"prompt_cache_key\":\"019b82ff-08ff-75a3-a203-7e10274fdbd8\"") {
+		t.Fatalf("expected streamed response body to be preserved, got %s", resp.Body.String())
+	}
+}
+
 func TestSessionLifecycleMiddlewareSkipsModelsRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

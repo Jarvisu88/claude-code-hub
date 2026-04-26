@@ -398,9 +398,16 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 
 	copyProxyResponseHeaders(c.Writer.Header(), upstreamResp.Header)
 	if isStreamingResponse(upstreamResp.Header) {
+		var streamMirror bytes.Buffer
+		reader := io.TeeReader(upstreamResp.Body, &streamMirror)
 		c.Status(upstreamResp.StatusCode)
-		if _, err := io.Copy(c.Writer, upstreamResp.Body); err != nil {
+		if _, err := io.Copy(c.Writer, reader); err != nil {
 			c.Error(err)
+		}
+		if endpointKind == proxyEndpointResponses && sessionID != "" && h.sessions != nil {
+			if promptCacheKey := extractCodexPromptCacheKeyFromSSE(streamMirror.Bytes()); promptCacheKey != "" {
+				h.sessions.UpdateCodexSessionWithPromptCacheKey(c.Request.Context(), sessionID, promptCacheKey, provider.ID)
+			}
 		}
 		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
 			StatusCode:    upstreamResp.StatusCode,
@@ -1055,6 +1062,24 @@ func extractCodexPromptCacheKey(responseBody []byte) string {
 		}
 	}
 	return requestStringValue(payload["prompt_cache_key"])
+}
+
+func extractCodexPromptCacheKeyFromSSE(streamBody []byte) string {
+	lines := strings.Split(string(streamBody), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		if promptCacheKey := extractCodexPromptCacheKey([]byte(payload)); promptCacheKey != "" {
+			return promptCacheKey
+		}
+	}
+	return ""
 }
 
 func populateAnthropicUsageUpdate(update *repository.MessageRequestTerminalUpdate, payload map[string]any) {
