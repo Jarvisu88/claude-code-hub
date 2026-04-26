@@ -177,6 +177,76 @@ func TestPlatformVersionRouteReturns500WhenReleaseLookupFails(t *testing.T) {
 	}
 }
 
+func TestPlatformVersionRouteComparesDevBranchHead(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldVersion := os.Getenv("NEXT_PUBLIC_APP_VERSION")
+	oldCommitURL := os.Getenv("VERSION_COMMIT_API_URL")
+	t.Cleanup(func() {
+		_ = os.Setenv("NEXT_PUBLIC_APP_VERSION", oldVersion)
+		_ = os.Setenv("VERSION_COMMIT_API_URL", oldCommitURL)
+	})
+	_ = os.Setenv("NEXT_PUBLIC_APP_VERSION", "dev-1234567")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sha":"89abcdeffedcba9876543210","html_url":"https://example.com/commit/89abcde","commit":{"committer":{"date":"2026-04-26T00:00:00Z"}}}`))
+	}))
+	defer upstream.Close()
+	_ = os.Setenv("VERSION_COMMIT_API_URL", upstream.URL)
+
+	handler := NewPlatformHandler(
+		func(_ context.Context) error { return nil },
+		func(_ context.Context) error { return nil },
+		"test-version",
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK || !strings.Contains(body, "\"current\":\"dev-1234567\"") || !strings.Contains(body, "\"latest\":\"dev-89abcde\"") || !strings.Contains(body, "\"hasUpdate\":true") || !strings.Contains(body, "\"releaseUrl\":\"https://github.com/ding113/claude-code-hub/compare/1234567...89abcde\"") || !strings.Contains(body, "\"publishedAt\":\"2026-04-26T00:00:00Z\"") {
+		t.Fatalf("expected dev branch comparison payload, got %d: %s", resp.Code, body)
+	}
+}
+
+func TestPlatformVersionRouteUsesCommitURLWhenDevHeadMatches(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	oldVersion := os.Getenv("NEXT_PUBLIC_APP_VERSION")
+	oldCommitURL := os.Getenv("VERSION_COMMIT_API_URL")
+	t.Cleanup(func() {
+		_ = os.Setenv("NEXT_PUBLIC_APP_VERSION", oldVersion)
+		_ = os.Setenv("VERSION_COMMIT_API_URL", oldCommitURL)
+	})
+	_ = os.Setenv("NEXT_PUBLIC_APP_VERSION", "dev-89abcde")
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"sha":"89abcdeffedcba9876543210","html_url":"https://example.com/commit/89abcde","commit":{"author":{"date":"2026-04-26T01:00:00Z"}}}`))
+	}))
+	defer upstream.Close()
+	_ = os.Setenv("VERSION_COMMIT_API_URL", upstream.URL)
+
+	handler := NewPlatformHandler(
+		func(_ context.Context) error { return nil },
+		func(_ context.Context) error { return nil },
+		"test-version",
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK || !strings.Contains(body, "\"hasUpdate\":false") || !strings.Contains(body, "\"releaseUrl\":\"https://example.com/commit/89abcde\"") || !strings.Contains(body, "\"publishedAt\":\"2026-04-26T01:00:00Z\"") {
+		t.Fatalf("expected matching dev head payload, got %d: %s", resp.Code, body)
+	}
+}
+
 func TestPlatformReadyReturns503WhenDependencyFails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

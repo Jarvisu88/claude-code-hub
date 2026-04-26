@@ -82,6 +82,40 @@ func (h *PlatformHandler) ready(c *gin.Context) {
 
 func (h *PlatformHandler) versionInfo(c *gin.Context) {
 	version := resolveCurrentVersion(h.version)
+	if isDevBuild(version) {
+		latestCommit, err := fetchBranchHeadCommit("dev")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"current":   version,
+				"latest":    nil,
+				"hasUpdate": false,
+				"error":     "无法获取最新版本信息",
+			})
+			return
+		}
+		latest := "dev-" + latestCommit.ShortSHA
+		currentShortSHA := parseDevBuildShortSHA(version)
+		hasUpdate := currentShortSHA != latestCommit.ShortSHA
+		releaseURL := latestCommit.CommitURL
+		if currentShortSHA == "" {
+			hasUpdate = strings.ToLower(strings.TrimSpace(version)) != strings.ToLower(latest)
+		} else if hasUpdate {
+			releaseURL = "https://github.com/ding113/claude-code-hub/compare/" + currentShortSHA + "..." + latestCommit.ShortSHA
+		}
+		var publishedAt any
+		if latestCommit.PublishedAt != "" {
+			publishedAt = latestCommit.PublishedAt
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"current":     version,
+			"latest":      latest,
+			"hasUpdate":   hasUpdate,
+			"releaseUrl":  releaseURL,
+			"publishedAt": publishedAt,
+		})
+		return
+	}
+
 	info, err := fetchLatestVersionInfo()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -143,6 +177,36 @@ type latestVersionInfo struct {
 	PublishedAt string
 }
 
+type branchHeadCommitInfo struct {
+	ShortSHA    string
+	CommitURL   string
+	PublishedAt string
+}
+
+func isDevBuild(version string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(version)), "dev")
+}
+
+func parseDevBuildShortSHA(version string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(version))
+	if !strings.HasPrefix(trimmed, "dev-") {
+		return ""
+	}
+	sha := strings.TrimPrefix(trimmed, "dev-")
+	if len(sha) < 7 {
+		return ""
+	}
+	for _, ch := range sha {
+		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
+			return ""
+		}
+	}
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
 func fetchLatestVersionInfo() (latestVersionInfo, error) {
 	url := strings.TrimSpace(os.Getenv("VERSION_RELEASE_API_URL"))
 	if url == "" {
@@ -174,6 +238,63 @@ func fetchLatestVersionInfo() (latestVersionInfo, error) {
 		Latest:      normalizeVersionForDisplay(payload.TagName),
 		ReleaseURL:  strings.TrimSpace(payload.HTMLURL),
 		PublishedAt: strings.TrimSpace(payload.PublishedAt),
+	}, nil
+}
+
+func fetchBranchHeadCommit(branch string) (branchHeadCommitInfo, error) {
+	url := strings.TrimSpace(os.Getenv("VERSION_COMMIT_API_URL"))
+	if url == "" {
+		url = "https://api.github.com/repos/ding113/claude-code-hub/commits/" + branch
+	}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return branchHeadCommitInfo{}, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "claude-code-hub")
+	if token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else if token := strings.TrimSpace(os.Getenv("GH_TOKEN")); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := versionHTTPClient.Do(req)
+	if err != nil {
+		return branchHeadCommitInfo{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return branchHeadCommitInfo{}, appVersionHTTPError(resp.StatusCode)
+	}
+
+	var payload struct {
+		SHA     string `json:"sha"`
+		HTMLURL string `json:"html_url"`
+		Commit  struct {
+			Author struct {
+				Date string `json:"date"`
+			} `json:"author"`
+			Committer struct {
+				Date string `json:"date"`
+			} `json:"committer"`
+		} `json:"commit"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return branchHeadCommitInfo{}, err
+	}
+	shortSHA := strings.ToLower(strings.TrimSpace(payload.SHA))
+	if len(shortSHA) > 7 {
+		shortSHA = shortSHA[:7]
+	}
+	publishedAt := strings.TrimSpace(payload.Commit.Committer.Date)
+	if publishedAt == "" {
+		publishedAt = strings.TrimSpace(payload.Commit.Author.Date)
+	}
+
+	return branchHeadCommitInfo{
+		ShortSHA:    shortSHA,
+		CommitURL:   strings.TrimSpace(payload.HTMLURL),
+		PublishedAt: publishedAt,
 	}, nil
 }
 
