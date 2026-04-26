@@ -33,6 +33,7 @@ type sessionManager interface {
 	GetOrCreateSessionID(ctx context.Context, keyID int, messages any, clientSessionID string) string
 	GetNextRequestSequence(ctx context.Context, sessionID string) int
 	BindProvider(ctx context.Context, sessionID string, providerID int)
+	UpdateCodexSessionWithPromptCacheKey(ctx context.Context, currentSessionID, promptCacheKey string, providerID int) string
 	IncrementConcurrentCount(ctx context.Context, sessionID string)
 	DecrementConcurrentCount(ctx context.Context, sessionID string)
 }
@@ -420,6 +421,11 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 		})
 		writeAppError(c, appErrors.NewProviderError(errorMessage, appErrors.CodeProviderError).WithError(err))
 		return
+	}
+	if endpointKind == proxyEndpointResponses && sessionID != "" && h.sessions != nil {
+		if promptCacheKey := extractCodexPromptCacheKey(responseBody); promptCacheKey != "" {
+			h.sessions.UpdateCodexSessionWithPromptCacheKey(c.Request.Context(), sessionID, promptCacheKey, provider.ID)
+		}
 	}
 	terminalUpdate := buildTerminalUpdate(endpointKind, upstreamResp.StatusCode, time.Since(startedAt), responseBody)
 	terminalUpdate.ProviderChain = finalizeProviderChain(baseProviderChain, terminalUpdate.StatusCode, terminalUpdate.ErrorMessage)
@@ -1033,6 +1039,22 @@ func extractErrorMessage(payload map[string]any) string {
 		return strings.TrimSpace(message)
 	}
 	return ""
+}
+
+func extractCodexPromptCacheKey(responseBody []byte) string {
+	if len(bytes.TrimSpace(responseBody)) == 0 {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(responseBody, &payload); err != nil {
+		return ""
+	}
+	if response, ok := payload["response"].(map[string]any); ok {
+		if promptCacheKey := requestStringValue(response["prompt_cache_key"]); promptCacheKey != "" {
+			return promptCacheKey
+		}
+	}
+	return requestStringValue(payload["prompt_cache_key"])
 }
 
 func populateAnthropicUsageUpdate(update *repository.MessageRequestTerminalUpdate, payload map[string]any) {

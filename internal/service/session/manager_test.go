@@ -484,3 +484,35 @@ func TestTrackerDecrementConcurrentCountDeletesZeroValue(t *testing.T) {
 		t.Fatalf("unexpected del keys: %+v", store.delKeys)
 	}
 }
+
+func TestUpdateCodexSessionWithPromptCacheKeyCopiesBindings(t *testing.T) {
+	store := &fakeSessionStore{getValue: "42"}
+	manager := NewManager(config.SessionConfig{TTL: 300}, nil)
+	manager.store = store
+	manager.now = func() time.Time {
+		return time.UnixMilli(1713744000123)
+	}
+
+	updated := manager.UpdateCodexSessionWithPromptCacheKey(
+		context.Background(),
+		"sess_generated_123",
+		"019b82ff-08ff-75a3-a203-7e10274fdbd8",
+		99,
+	)
+
+	if updated != "codex_019b82ff-08ff-75a3-a203-7e10274fdbd8" {
+		t.Fatalf("expected codex session id, got %q", updated)
+	}
+	if len(store.setCalls) != 3 {
+		t.Fatalf("expected 3 set calls, got %+v", store.setCalls)
+	}
+	if store.setCalls[0].key != "session:codex_019b82ff-08ff-75a3-a203-7e10274fdbd8:provider" || store.setCalls[0].value != "99" {
+		t.Fatalf("unexpected provider set call: %+v", store.setCalls[0])
+	}
+	if store.setCalls[1].key != "session:codex_019b82ff-08ff-75a3-a203-7e10274fdbd8:key" || store.setCalls[1].value != "42" {
+		t.Fatalf("unexpected key copy call: %+v", store.setCalls[1])
+	}
+	if store.setCalls[2].key != "session:codex_019b82ff-08ff-75a3-a203-7e10274fdbd8:last_seen" || store.setCalls[2].value != "1713744000123" {
+		t.Fatalf("unexpected last_seen set call: %+v", store.setCalls[2])
+	}
+}

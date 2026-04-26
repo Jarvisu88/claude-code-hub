@@ -331,6 +331,30 @@ func (m *Manager) BindProvider(ctx context.Context, sessionID string, providerID
 	}
 }
 
+func (m *Manager) UpdateCodexSessionWithPromptCacheKey(ctx context.Context, currentSessionID, promptCacheKey string, providerID int) string {
+	currentSessionID = strings.TrimSpace(currentSessionID)
+	promptCacheKey = NormalizeCodexSessionID(promptCacheKey)
+	if m.store == nil || currentSessionID == "" || promptCacheKey == "" || providerID <= 0 {
+		return currentSessionID
+	}
+
+	codexSessionID := "codex_" + promptCacheKey
+	if err := m.store.SetEX(ctx, sessionKeyPrefix+codexSessionID+sessionKeySuffixProvider, strconv.Itoa(providerID), m.ttl); err != nil {
+		logger.Warn().Err(err).Str("sessionId", codexSessionID).Int("providerId", providerID).Msg("SessionManager: failed to bind codex prompt_cache_key provider")
+		return currentSessionID
+	}
+
+	if keyID, err := m.store.Get(ctx, sessionKeyPrefix+currentSessionID+sessionKeySuffixKey); err == nil && strings.TrimSpace(keyID) != "" {
+		if err := m.store.SetEX(ctx, sessionKeyPrefix+codexSessionID+sessionKeySuffixKey, keyID, m.ttl); err != nil {
+			logger.Warn().Err(err).Str("sessionId", codexSessionID).Msg("SessionManager: failed to copy key binding for codex session")
+		}
+	}
+	if err := m.store.SetEX(ctx, sessionKeyPrefix+codexSessionID+sessionKeySuffixLastSeen, strconv.FormatInt(m.now().UnixMilli(), 10), m.ttl); err != nil {
+		logger.Warn().Err(err).Str("sessionId", codexSessionID).Msg("SessionManager: failed to refresh last_seen for codex session")
+	}
+	return codexSessionID
+}
+
 func (m *Manager) GetNextRequestSequence(ctx context.Context, sessionID string) int {
 	if strings.TrimSpace(sessionID) == "" {
 		return m.fallbackSequence("")

@@ -40,6 +40,9 @@ func (testUserRepo) MarkUserExpired(_ context.Context, _ int) (bool, error) {
 type fakeSessionManager struct {
 	extractedSessionID    string
 	generatedSessionID    string
+	updatedCodexSessionID string
+	updatedPromptCacheKey string
+	updatedProviderID     int
 	extractCalls          int
 	getOrCreateCalls      int
 	incrementCalls        []string
@@ -139,6 +142,13 @@ func (f *fakeSessionManager) GetNextRequestSequence(_ context.Context, _ string)
 }
 
 func (f *fakeSessionManager) BindProvider(_ context.Context, _ string, _ int) {}
+
+func (f *fakeSessionManager) UpdateCodexSessionWithPromptCacheKey(_ context.Context, currentSessionID, promptCacheKey string, providerID int) string {
+	f.updatedCodexSessionID = currentSessionID
+	f.updatedPromptCacheKey = promptCacheKey
+	f.updatedProviderID = providerID
+	return "codex_" + promptCacheKey
+}
 
 func (f *fakeSessionManager) IncrementConcurrentCount(_ context.Context, sessionID string) {
 	f.incrementCalls = append(f.incrementCalls, sessionID)
@@ -348,6 +358,61 @@ func TestMessagesWarmupInterceptSkipsUpstreamWhenEnabled(t *testing.T) {
 	}
 	if got := resp.Header().Get("x-cch-intercepted"); got != "warmup" {
 		t.Fatalf("expected warmup intercept header, got %q", got)
+	}
+}
+
+func TestResponsesProxyUpdatesCodexSessionFromPromptCacheKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	sessionManager := &fakeSessionManager{
+		extractedSessionID: "sess_client_123",
+		generatedSessionID: "sess_generated_123",
+	}
+	requestLogs := &fakeMessageRequestRepo{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"resp_123","status":"completed","prompt_cache_key":"019b82ff-08ff-75a3-a203-7e10274fdbd8"}`))
+	}))
+	defer upstream.Close()
+
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:        1,
+			UserID:    10,
+			Key:       "proxy-key",
+			Name:      "key-1",
+			IsEnabled: &enabled,
+			User: &model.User{
+				ID:        10,
+				Name:      "tester",
+				Role:      "user",
+				IsEnabled: &enabled,
+			},
+		},
+	}, testUserRepo{}, ""), sessionManager, &fakeProviderRepo{providers: []*model.Provider{{
+		ID:           99,
+		Name:         "codex-upstream",
+		URL:          upstream.URL,
+		Key:          "provider-secret",
+		ProviderType: string(model.ProviderTypeCodex),
+		IsEnabled:    &enabled,
+	}}}, requestLogs, upstream.Client())
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":[{"type":"input_text","text":"hello"}]}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if sessionManager.updatedCodexSessionID != "sess_generated_123" || sessionManager.updatedPromptCacheKey != "019b82ff-08ff-75a3-a203-7e10274fdbd8" || sessionManager.updatedProviderID != 99 {
+		t.Fatalf("expected codex session update to be recorded, got session=%q promptCacheKey=%q provider=%d", sessionManager.updatedCodexSessionID, sessionManager.updatedPromptCacheKey, sessionManager.updatedProviderID)
 	}
 }
 
