@@ -22,6 +22,7 @@ import (
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	livechainsvc "github.com/ding113/claude-code-hub/internal/service/livechain"
+	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
 	"github.com/gin-gonic/gin"
 )
@@ -636,6 +637,7 @@ func (h *Handler) selectProviderForEndpoint(ctx context.Context, endpointKind pr
 	if err != nil {
 		return nil, err
 	}
+	providerConcurrentCounts, _ := providertrackersvc.Count(ctx)
 
 	candidates := make([]*model.Provider, 0, len(providers))
 	for _, provider := range providers {
@@ -647,6 +649,11 @@ func (h *Handler) selectProviderForEndpoint(ctx context.Context, endpointKind pr
 		}
 		if requestedModel != "" && !provider.SupportsModel(requestedModel) {
 			continue
+		}
+		if limit := normalizeConcurrentSessionLimit(provider.LimitConcurrentSessions); limit > 0 {
+			if providerConcurrentCounts != nil && providerConcurrentCounts[provider.ID] >= limit {
+				continue
+			}
 		}
 		candidates = append(candidates, provider)
 	}

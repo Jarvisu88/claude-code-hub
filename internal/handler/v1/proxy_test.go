@@ -14,6 +14,7 @@ import (
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	"github.com/ding113/claude-code-hub/internal/repository"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
+	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
 	"github.com/gin-gonic/gin"
 	"github.com/quagmt/udecimal"
@@ -1608,6 +1609,141 @@ func TestResponsesHandlerPrefersLowerCostMultiplierWithinSamePriority(t *testing
 	}
 	if capturedAuthHeader != "Bearer cheap-secret" {
 		t.Fatalf("expected lower-cost provider to win within same priority, got auth header %q", capturedAuthHeader)
+	}
+}
+
+func TestResponsesHandlerSkipsProviderWhenConcurrentLimitReached(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	providertrackersvc.SetCountsForTest(map[int]int{1: 1})
+	t.Cleanup(providertrackersvc.ResetForTest)
+
+	var capturedAuthHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	priority := 10
+	limit := 1
+	cheapCost := udecimal.MustParse("0.8")
+	expensiveCost := udecimal.MustParse("1.5")
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{
+				ID:                      1,
+				Name:                    "cheap-but-full",
+				URL:                     upstream.URL,
+				Key:                     "cheap-secret",
+				ProviderType:            string(model.ProviderTypeCodex),
+				IsEnabled:               &enabled,
+				Priority:                &priority,
+				CostMultiplier:          &cheapCost,
+				LimitConcurrentSessions: &limit,
+			},
+			{
+				ID:             2,
+				Name:           "fallback-provider",
+				URL:            upstream.URL,
+				Key:            "fallback-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				CostMultiplier: &expensiveCost,
+			},
+		}},
+		nil,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedAuthHeader != "Bearer fallback-secret" {
+		t.Fatalf("expected fallback provider when first provider concurrent limit is reached, got auth header %q", capturedAuthHeader)
+	}
+}
+
+func TestResponsesHandlerFailsOpenWhenProviderConcurrentCountUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	providertrackersvc.SetCounterForTest(nil)
+	t.Cleanup(providertrackersvc.ResetForTest)
+
+	var capturedAuthHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	priority := 10
+	limit := 1
+	cheapCost := udecimal.MustParse("0.8")
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:                      1,
+			Name:                    "cheap-provider",
+			URL:                     upstream.URL,
+			Key:                     "cheap-secret",
+			ProviderType:            string(model.ProviderTypeCodex),
+			IsEnabled:               &enabled,
+			Priority:                &priority,
+			CostMultiplier:          &cheapCost,
+			LimitConcurrentSessions: &limit,
+		}}},
+		nil,
+		upstream.Client(),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedAuthHeader != "Bearer cheap-secret" {
+		t.Fatalf("expected fail-open to keep provider available when concurrent count unavailable, got auth header %q", capturedAuthHeader)
 	}
 }
 
