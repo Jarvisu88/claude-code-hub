@@ -60,6 +60,7 @@ type proxyStatisticsStore interface {
 	SumKeyTotalCost(ctx context.Context, keyStr string, maxAgeDays int) (udecimal.Decimal, error)
 	SumUserCostInTimeRange(ctx context.Context, userID int, startTime, endTime time.Time) (udecimal.Decimal, error)
 	SumKeyCostInTimeRangeByKeyString(ctx context.Context, keyStr string, startTime, endTime time.Time) (udecimal.Decimal, error)
+	SumProviderCostInTimeRange(ctx context.Context, providerID int, startTime, endTime time.Time) (udecimal.Decimal, error)
 	SumProviderTotalCost(ctx context.Context, providerID int, resetAt *time.Time) (udecimal.Decimal, error)
 }
 
@@ -356,7 +357,6 @@ func lookupDailyCost(ctx context.Context, stats proxyStatisticsStore, keyScoped 
 }
 
 func dailyWindowBounds(settings proxySystemSettingsStore, authResult *authsvc.AuthResult) (time.Time, time.Time) {
-	now := time.Now()
 	mode := "fixed"
 	resetTime := "00:00"
 	if authResult != nil && authResult.Key != nil && authResult.Key.LimitDailyUSD != nil && authResult.Key.LimitDailyUSD.GreaterThan(udecimal.Zero) {
@@ -366,6 +366,11 @@ func dailyWindowBounds(settings proxySystemSettingsStore, authResult *authsvc.Au
 		mode = authResult.User.DailyResetMode
 		resetTime = authResult.User.DailyResetTime
 	}
+	return dailyWindowBoundsForMode(settings, mode, resetTime)
+}
+
+func dailyWindowBoundsForMode(settings proxySystemSettingsStore, mode string, resetTime string) (time.Time, time.Time) {
+	now := time.Now()
 	if strings.EqualFold(strings.TrimSpace(mode), string(model.DailyResetModeRolling)) {
 		return now.Add(-24 * time.Hour), now
 	}
@@ -826,10 +831,29 @@ func (h *Handler) selectProviderForEndpoint(ctx context.Context, endpointKind pr
 				continue
 			}
 		}
-		if h != nil && h.stats != nil && provider.LimitTotalUSD != nil && provider.LimitTotalUSD.GreaterThan(udecimal.Zero) {
-			if current, err := h.stats.SumProviderTotalCost(ctx, provider.ID, provider.TotalCostResetAt); err == nil {
-				if current.GreaterThan(*provider.LimitTotalUSD) || current.Equal(*provider.LimitTotalUSD) {
-					continue
+		if h != nil && h.stats != nil {
+			if provider.Limit5hUSD != nil && provider.Limit5hUSD.GreaterThan(udecimal.Zero) {
+				endTime := time.Now()
+				startTime := endTime.Add(-5 * time.Hour)
+				if current, err := h.stats.SumProviderCostInTimeRange(ctx, provider.ID, startTime, endTime); err == nil {
+					if current.GreaterThan(*provider.Limit5hUSD) || current.Equal(*provider.Limit5hUSD) {
+						continue
+					}
+				}
+			}
+			if provider.LimitDailyUSD != nil && provider.LimitDailyUSD.GreaterThan(udecimal.Zero) {
+				startTime, endTime := dailyWindowBoundsForMode(h.settings, provider.DailyResetMode, provider.DailyResetTime)
+				if current, err := h.stats.SumProviderCostInTimeRange(ctx, provider.ID, startTime, endTime); err == nil {
+					if current.GreaterThan(*provider.LimitDailyUSD) || current.Equal(*provider.LimitDailyUSD) {
+						continue
+					}
+				}
+			}
+			if provider.LimitTotalUSD != nil && provider.LimitTotalUSD.GreaterThan(udecimal.Zero) {
+				if current, err := h.stats.SumProviderTotalCost(ctx, provider.ID, provider.TotalCostResetAt); err == nil {
+					if current.GreaterThan(*provider.LimitTotalUSD) || current.Equal(*provider.LimitTotalUSD) {
+						continue
+					}
 				}
 			}
 		}

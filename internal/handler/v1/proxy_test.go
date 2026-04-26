@@ -82,6 +82,8 @@ type fakeProxyStatisticsStore struct {
 	key5h         udecimal.Decimal
 	userDaily     udecimal.Decimal
 	keyDaily      udecimal.Decimal
+	provider5h    udecimal.Decimal
+	providerDaily udecimal.Decimal
 	providerTotal udecimal.Decimal
 	err           error
 }
@@ -181,6 +183,16 @@ func (f *fakeProxyStatisticsStore) SumProviderTotalCost(_ context.Context, _ int
 		return udecimal.Zero, f.err
 	}
 	return f.providerTotal, nil
+}
+
+func (f *fakeProxyStatisticsStore) SumProviderCostInTimeRange(_ context.Context, _ int, startTime, endTime time.Time) (udecimal.Decimal, error) {
+	if f.err != nil {
+		return udecimal.Zero, f.err
+	}
+	if isAbout5hWindow(startTime, endTime) {
+		return f.provider5h, nil
+	}
+	return f.providerDaily, nil
 }
 
 func (f *fakeSessionManager) ExtractClientSessionID(requestBody map[string]any, _ http.Header) sessionsvc.ClientSessionExtractionResult {
@@ -2293,6 +2305,157 @@ func TestResponsesHandlerFailsOpenWhenProviderTotalLookupFails(t *testing.T) {
 	}
 	if capturedAuthHeader != "Bearer cheap-secret" {
 		t.Fatalf("expected fail-open to keep provider available when total lookup fails, got auth header %q", capturedAuthHeader)
+	}
+}
+
+func TestResponsesHandlerSkipsProviderWhen5hCostLimitReached(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var capturedAuthHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	priority := 10
+	limit := udecimal.MustParse("2")
+	current := udecimal.MustParse("2")
+	cheapCost := udecimal.MustParse("0.8")
+	expensiveCost := udecimal.MustParse("1.5")
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{
+				ID:             1,
+				Name:           "cheap-but-5h-capped",
+				URL:            upstream.URL,
+				Key:            "cheap-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				CostMultiplier: &cheapCost,
+				Limit5hUSD:     &limit,
+			},
+			{
+				ID:             2,
+				Name:           "fallback-provider",
+				URL:            upstream.URL,
+				Key:            "fallback-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				CostMultiplier: &expensiveCost,
+			},
+		}},
+		nil,
+		upstream.Client(),
+		&fakeProxyStatisticsStore{provider5h: current},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedAuthHeader != "Bearer fallback-secret" {
+		t.Fatalf("expected fallback provider when first provider 5h limit is reached, got auth header %q", capturedAuthHeader)
+	}
+}
+
+func TestResponsesHandlerSkipsProviderWhenDailyCostLimitReached(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var capturedAuthHeader string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuthHeader = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	priority := 10
+	limit := udecimal.MustParse("4")
+	current := udecimal.MustParse("4")
+	cheapCost := udecimal.MustParse("0.8")
+	expensiveCost := udecimal.MustParse("1.5")
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{
+				ID:             1,
+				Name:           "cheap-but-daily-capped",
+				URL:            upstream.URL,
+				Key:            "cheap-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				CostMultiplier: &cheapCost,
+				LimitDailyUSD:  &limit,
+				DailyResetMode: "fixed",
+				DailyResetTime: "00:00",
+			},
+			{
+				ID:             2,
+				Name:           "fallback-provider",
+				URL:            upstream.URL,
+				Key:            "fallback-secret",
+				ProviderType:   string(model.ProviderTypeCodex),
+				IsEnabled:      &enabled,
+				Priority:       &priority,
+				CostMultiplier: &expensiveCost,
+			},
+		}},
+		nil,
+		upstream.Client(),
+		&fakeProxySystemSettingsStore{settings: &model.SystemSettings{ID: 1}},
+		&fakeProxyStatisticsStore{providerDaily: current},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedAuthHeader != "Bearer fallback-secret" {
+		t.Fatalf("expected fallback provider when first provider daily limit is reached, got auth header %q", capturedAuthHeader)
 	}
 }
 
