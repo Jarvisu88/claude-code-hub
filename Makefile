@@ -1,4 +1,4 @@
-.PHONY: build run test clean lint fmt tidy dev
+.PHONY: build run test clean lint fmt tidy dev local-stack-up local-stack-down local-run
 
 # Go parameters
 GOCMD=go
@@ -84,3 +84,17 @@ docker-build:
 # Docker run
 docker-run:
 	docker run -p 8080:8080 $(BINARY_NAME):latest
+
+# Local infra for smoke / cutover rehearsal
+local-stack-up:
+	docker compose -f docker-compose.local.yml up -d
+
+local-stack-down:
+	docker compose -f docker-compose.local.yml down
+
+local-run:
+	@if [ ! -f .env.local ]; then \
+		echo "Missing .env.local. Copy .env.local.example to .env.local first."; \
+		exit 1; \
+	fi
+	set -a; . ./.env.local; set +a; $(GORUN) $(MAIN_PACKAGE)

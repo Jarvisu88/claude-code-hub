@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: cch-go-rewrite-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: claude_code_hub
+    ports:
+      - "5432:5432"
+    volumes:
+      - cch_go_rewrite_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d claude_code_hub"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    container_name: cch-go-rewrite-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - cch_go_rewrite_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  cch_go_rewrite_postgres:
+  cch_go_rewrite_redis:
