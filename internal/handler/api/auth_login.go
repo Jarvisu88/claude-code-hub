@@ -57,7 +57,23 @@ func (h *AuthHandler) login(c *gin.Context) {
 	authResult, err := h.auth.AuthenticateAdminToken(key)
 	if err != nil || authResult == nil {
 		authResult, err = h.auth.AuthenticateProxy(c.Request.Context(), authsvc.ProxyAuthInput{APIKeyHeader: key})
-		if err != nil || authResult == nil {
+		if err != nil {
+			if isLoginInvalidCredentialError(err) {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"ok":        false,
+					"error":     "Authentication failed",
+					"errorCode": "KEY_INVALID",
+				})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"ok":        false,
+				"error":     "Internal server error",
+				"errorCode": "SERVER_ERROR",
+			})
+			return
+		}
+		if authResult == nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"ok":        false,
 				"error":     "Authentication failed",
@@ -93,6 +109,15 @@ func (h *AuthHandler) login(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, response)
+}
+
+func isLoginInvalidCredentialError(err error) bool {
+	return appErrors.IsCode(err, appErrors.CodeInvalidAPIKey) ||
+		appErrors.IsCode(err, appErrors.CodeExpiredAPIKey) ||
+		appErrors.IsCode(err, appErrors.CodeDisabledAPIKey) ||
+		appErrors.IsCode(err, appErrors.CodeDisabledUser) ||
+		appErrors.IsCode(err, appErrors.CodeUserExpired) ||
+		appErrors.IsCode(err, appErrors.CodeInvalidCredentials)
 }
 
 func (h *AuthHandler) logout(c *gin.Context) {

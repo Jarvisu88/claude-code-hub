@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -193,5 +194,28 @@ func TestAuthLoginRejectsNilAuthResult(t *testing.T) {
 	}
 	if !strings.Contains(resp.Body.String(), `"errorCode":"KEY_INVALID"`) {
 		t.Fatalf("expected KEY_INVALID error code, got %s", resp.Body.String())
+	}
+}
+
+func TestAuthLoginReturnsServerErrorForInternalAuthFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	NewAuthHandler(fakeLoginAuth{
+		adminToken: "admin-token",
+		proxyToken: "sk-user",
+		adminErr:   appErrors.NewAuthenticationError("bad token", appErrors.CodeInvalidToken),
+		proxyErr:   errors.New("db unavailable"),
+	}).RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"key":"sk-user"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"errorCode":"SERVER_ERROR"`) {
+		t.Fatalf("expected SERVER_ERROR error code, got %s", resp.Body.String())
 	}
 }
