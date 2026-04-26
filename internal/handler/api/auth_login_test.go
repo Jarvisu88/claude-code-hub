@@ -129,4 +129,25 @@ func TestAuthLoginRejectsInvalidKey(t *testing.T) {
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", resp.Code, resp.Body.String())
 	}
+	if !strings.Contains(resp.Body.String(), `"errorCode":"KEY_INVALID"`) {
+		t.Fatalf("expected KEY_INVALID error code, got %s", resp.Body.String())
+	}
+}
+
+func TestAuthLoginRequiresKeyWithErrorCode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	NewAuthHandler(fakeLoginAuth{}).RegisterRoutes(router)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"key":"   "}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"errorCode":"KEY_REQUIRED"`) {
+		t.Fatalf("expected KEY_REQUIRED error code, got %s", resp.Body.String())
+	}
 }

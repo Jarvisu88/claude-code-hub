@@ -45,7 +45,11 @@ func (h *AuthHandler) login(c *gin.Context) {
 	}
 	key := strings.TrimSpace(input.Key)
 	if key == "" {
-		writeAdminError(c, appErrors.NewInvalidRequest("API key is required"))
+		c.JSON(http.StatusBadRequest, gin.H{
+			"ok":        false,
+			"error":     "API key is required",
+			"errorCode": "KEY_REQUIRED",
+		})
 		return
 	}
 
@@ -53,7 +57,11 @@ func (h *AuthHandler) login(c *gin.Context) {
 	if err != nil || authResult == nil {
 		authResult, err = h.auth.AuthenticateProxy(c.Request.Context(), authsvc.ProxyAuthInput{APIKeyHeader: key})
 		if err != nil {
-			writeAdminError(c, appErrors.NewAuthenticationError("Authentication failed", appErrors.CodeInvalidAPIKey))
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"ok":        false,
+				"error":     "Authentication failed",
+				"errorCode": "KEY_INVALID",
+			})
 			return
 		}
 	}
