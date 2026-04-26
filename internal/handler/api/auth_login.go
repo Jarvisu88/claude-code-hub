@@ -56,7 +56,7 @@ func (h *AuthHandler) login(c *gin.Context) {
 	authResult, err := h.auth.AuthenticateAdminToken(key)
 	if err != nil || authResult == nil {
 		authResult, err = h.auth.AuthenticateProxy(c.Request.Context(), authsvc.ProxyAuthInput{APIKeyHeader: key})
-		if err != nil {
+		if err != nil || authResult == nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"ok":        false,
 				"error":     "Authentication failed",
