@@ -12,6 +12,10 @@ Provide the smallest repo-local setup for starting the Go service against dispos
   - `local-stack-up`
   - `local-stack-down`
   - `local-run`
+- startup bootstrap:
+  - auto schema create (`AUTO_MIGRATE=true`)
+  - optional local dev seed (`BOOTSTRAP_DEV_SEED=true`)
+  - local mock upstream routes under `/__mock__/v1/*`
 
 ## Recommended Local Flow
 
@@ -39,3 +43,8 @@ curl http://127.0.0.1:23000/api/version
    - admin token: `dev-admin-token`
 3. `SESSION_TOKEN_MODE=dual` is chosen as the local default because it exercises more auth/session paths than pure legacy mode.
 4. `ENABLE_SECURE_COOKIES=false` is chosen for localhost convenience.
+5. With `BOOTSTRAP_DEV_SEED=true`, the service will create minimal local rows for:
+   - `system_settings`
+   - one user
+   - one key (`proxy-key`)
+   - three mock providers for Claude / Codex / OpenAI-compatible

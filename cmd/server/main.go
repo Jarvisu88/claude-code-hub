@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -51,6 +52,14 @@ func main() {
 		logger.Fatal().Err(err).Msg("Failed to connect to PostgreSQL")
 	}
 	defer database.ClosePostgres(db)
+	if cfg.AutoMigrate {
+		if err := database.AutoMigrate(context.Background(), db); err != nil {
+			logger.Fatal().Err(err).Msg("Failed to auto-migrate PostgreSQL schema")
+		}
+		if err := database.SeedLocalDevData(context.Background(), db, database.ResolveBootstrapAppURL()); err != nil {
+			logger.Fatal().Err(err).Msg("Failed to seed local dev data")
+		}
+	}
 
 	// 连接 Redis
 	rdb, err := database.NewRedis(cfg.Redis)
@@ -113,6 +122,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 
 	repoFactory := repository.NewFactory(db)
 	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken, authsvc.NewRedisSessionReader(rdb))
+	registerLocalMockRoutes(router)
 
 	// 健康检查
 	router.GET("/health", healthCheck(db, rdb))
@@ -172,6 +182,69 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	}
 
 	return router
+}
+
+func registerLocalMockRoutes(router *gin.Engine) {
+	if router == nil {
+		return
+	}
+	router.POST("/__mock__/v1/messages", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"id":   "msg_local_mock",
+			"type": "message",
+			"role": "assistant",
+			"content": []gin.H{{
+				"type": "text",
+				"text": "local mock response",
+			}},
+			"stop_reason": "end_turn",
+			"usage": gin.H{
+				"input_tokens":                10,
+				"output_tokens":               5,
+				"cache_creation_input_tokens": 0,
+				"cache_read_input_tokens":     0,
+			},
+		})
+	})
+	router.POST("/__mock__/v1/messages/count_tokens", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"input_tokens": 10})
+	})
+	router.POST("/__mock__/v1/chat/completions", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"id":     "chatcmpl_local_mock",
+			"object": "chat.completion",
+			"choices": []gin.H{{
+				"index": 0,
+				"message": gin.H{
+					"role":    "assistant",
+					"content": "local mock response",
+				},
+			}},
+			"usage": gin.H{
+				"prompt_tokens":     10,
+				"completion_tokens": 5,
+			},
+		})
+	})
+	router.POST("/__mock__/v1/responses", func(c *gin.Context) {
+		if strings.Contains(strings.ToLower(c.GetHeader("Accept")), "text/event-stream") {
+			c.Header("Content-Type", "text/event-stream")
+			c.Status(http.StatusOK)
+			_, _ = c.Writer.Write([]byte("event: response.created\n"))
+			_, _ = c.Writer.Write([]byte("data: {\"response\":{\"id\":\"resp_local_mock\",\"prompt_cache_key\":\"019b82ff-08ff-75a3-a203-7e10274fdbd8\"}}\n\n"))
+			_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"id":               "resp_local_mock",
+			"status":           "completed",
+			"prompt_cache_key": "019b82ff-08ff-75a3-a203-7e10274fdbd8",
+			"usage": gin.H{
+				"input_tokens":  10,
+				"output_tokens": 5,
+			},
+		})
+	})
 }
 
 // requestLogger 请求日志中间件

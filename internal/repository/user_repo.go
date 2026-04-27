@@ -172,9 +172,7 @@ func (r *userRepository) GetByIDWithKeys(ctx context.Context, id int) (*model.Us
 	user := new(model.User)
 	err := r.db.NewSelect().
 		Model(user).
-		Relation("Keys", func(sq *bun.SelectQuery) *bun.SelectQuery {
-			return sq.Where("k.deleted_at IS NULL")
-		}).
+		Relation("Keys").
 		Where("u.id = ?", id).
 		Where("u.deleted_at IS NULL").
 		Scan(ctx)
@@ -184,6 +182,15 @@ func (r *userRepository) GetByIDWithKeys(ctx context.Context, id int) (*model.Us
 			return nil, errors.NewNotFoundError("User")
 		}
 		return nil, errors.NewDatabaseError(err)
+	}
+	if len(user.Keys) > 0 {
+		filtered := make([]model.Key, 0, len(user.Keys))
+		for _, key := range user.Keys {
+			if key.DeletedAt == nil {
+				filtered = append(filtered, key)
+			}
+		}
+		user.Keys = filtered
 	}
 
 	return user, nil

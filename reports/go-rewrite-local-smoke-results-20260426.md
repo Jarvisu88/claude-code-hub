@@ -1,14 +1,12 @@
-# Go Rewrite Local Smoke Results — 2026-04-26
+# Go Rewrite Local Smoke Results — 2026-04-26 (Updated)
 
 ## Goal
 
-Validate whether the current Go rewrite can be launched locally and exercised through real HTTP requests, using Chrome remote debugging where possible.
+Validate whether the current Go rewrite can be launched locally and exercised through real HTTP requests, using a disposable PostgreSQL instance plus the repo-local bootstrap path.
 
 ## What Was Executed
 
 ### 1. Repository-local baseline verification
-
-Commands:
 
 ```bash
 go test ./...
@@ -19,23 +17,16 @@ go vet ./...
 Result:
 - all three commands passed
 
-### 2. Runtime dependency discovery
+### 2. Temporary PostgreSQL bootstrap
 
-Observed initially:
-- Docker daemon unavailable in the current environment
-- local PostgreSQL on `127.0.0.1:5432` existed but password auth for `postgres` failed
-- local Redis on `127.0.0.1:6379` was not available
-
-### 3. Temporary local PostgreSQL bootstrap
-
-A temporary PostgreSQL 16 instance was created under `/tmp` and bound to:
+A temporary PostgreSQL 16 instance was started under `/tmp` and bound to:
 - host: `127.0.0.1`
 - port: `55432`
 - database: `claude_code_hub`
 - user: `postgres`
 - auth: trust (temporary local smoke only)
 
-### 4. Go service launch
+### 3. Go service launch
 
 The Go server was launched successfully with runtime overrides:
 - PostgreSQL pointed to `127.0.0.1:55432`
@@ -43,138 +34,86 @@ The Go server was launched successfully with runtime overrides:
 - `ADMIN_TOKEN=dev-admin-token`
 - `SESSION_TOKEN_MODE=dual`
 - `ENABLE_SECURE_COOKIES=false`
+- `BOOTSTRAP_DEV_SEED=true`
+- `BOOTSTRAP_PROVIDER_BASE_URL=http://127.0.0.1:23006`
 
 Observed startup result:
 - PostgreSQL connected successfully
+- local dev bootstrap executed successfully
 - Redis intentionally disabled
-- HTTP server listening on `127.0.0.1:23000`
+- HTTP server listening successfully
 
-### 5. Chrome remote debugging setup
+## Bootstrap Result
 
-A Windows-side Chrome instance was started with remote debugging on port `9222` and successfully connected through Chrome MCP.
+The current branch now provides a minimal runtime bootstrap path that:
+- auto-creates the currently modeled schema tables
+- seeds minimal local dev data when `BOOTSTRAP_DEV_SEED=true`
+- updates local mock providers to the current app base URL
+- exposes local mock upstream handlers for:
+  - `/__mock__/v1/messages`
+  - `/__mock__/v1/messages/count_tokens`
+  - `/__mock__/v1/chat/completions`
+  - `/__mock__/v1/responses`
 
-## HTTP / Browser-Side Smoke Checks Performed
+## Verified HTTP Results
 
 ### PASS — `/api/health`
-Request:
-- GET `http://127.0.0.1:23000/api/health`
-
-Observed response:
 - `200 OK`
-- body contained:
-  - `database: connected`
-  - `redis: connected` (note: app health path reports connected because redis check is skipped when disabled in current bootstrap path)
-  - `status: healthy`
+- database connected
+- service healthy
 
-### PASS — `/api/health/live`
-Request:
-- GET `http://127.0.0.1:23000/api/health/live`
-
-Observed through local curl flow / baseline service readiness path.
-
-### PASS — `/api/version`
-Request:
-- GET `http://127.0.0.1:23000/api/version`
-
-Observed response:
+### PASS — `/api/system-settings`
 - `200 OK`
-- contained current/latest/update metadata
+- seeded default system settings record returned successfully
 
-### PASS — `/api/auth/login` failure taxonomy (KEY_REQUIRED)
-Browser-side fetch executed through Chrome MCP:
-- POST `/api/auth/login` with whitespace key only
+### PASS — `/v1/models`
+- `200 OK`
+- returned seeded mock model catalog
 
-Observed response:
-- `400`
-- JSON body contained:
-  - `error: API key is required`
-  - `errorCode: KEY_REQUIRED`
-  - `ok: false`
-- security / no-store headers present as expected
+### PASS — `/v1/messages`
+- `200 OK`
+- returned mock Claude-style response body
 
-### FAIL (expected due empty schema) — `/api/system-settings`
-Browser-side fetch executed through Chrome MCP:
-- GET `/api/system-settings` with `Authorization: Bearer dev-admin-token`
+### PASS — `/v1/responses`
+- `200 OK`
+- returned mock Codex-style response body with `prompt_cache_key`
 
-Observed response:
-- `500`
-- body:
-  - `type: internal_error`
-  - `message: Database error`
-  - `code: database_error`
+### PASS — `/v1/chat/completions`
+- `200 OK`
+- returned mock OpenAI-compatible completion payload
 
-### FAIL (expected due empty schema) — `/v1/models`
-Request:
-- GET `/v1/models` with `Authorization: Bearer proxy-key`
+## Functional Conclusion
 
-Observed response:
-- `500`
-- `database_error`
+This local run proves a meaningful new milestone:
 
-### FAIL (expected due empty schema) — `/v1/responses`
-Request:
-- POST `/v1/responses` with minimal JSON body and `Authorization: Bearer proxy-key`
+1. the Go rewrite no longer stops at health/version-only startup
+2. schema/bootstrap is now sufficient for a local empty database
+3. core `/v1` business routes can execute end-to-end against seeded local mock providers
+4. direct/admin/business routes can execute against the seeded schema baseline
 
-Observed response:
-- `500`
-- `database_error`
+## What Is Proven Now
 
-## Root Cause Of Runtime Failure Beyond Health/Version
+- repo-local verification is green
+- service startup is green
+- empty database no longer blocks execution
+- seeded local smoke works for:
+  - direct health
+  - direct system settings
+  - `/v1/models`
+  - `/v1/messages`
+  - `/v1/responses`
+  - `/v1/chat/completions`
 
-The service can now **start**, but most business endpoints cannot complete because the temporary PostgreSQL database is empty.
+## Remaining Caveats
 
-Evidence:
+These results prove local bootability and basic route execution, but do **not** fully prove production parity yet:
 
-```sql
-\dt
-```
+1. Redis-disabled local run does not prove full stateful Redis behavior
+2. local mock upstreams do not prove real provider compatibility
+3. quota / fallback / breaker behavior still needs targeted live-path scenarios
+4. cutover proof still needs replay/integration/shadow style evidence
 
-Result:
-- `Did not find any relations.`
+## Updated Most Valuable Next Step
 
-Additionally, repository inspection found:
-- no checked-in migration runner in active use
-- no auto-created schema bootstrapping path wired in `cmd/server/main.go`
-- `AutoMigrate` config flag exists, but current startup flow does not execute schema creation for the application tables
-
-Therefore:
-- infrastructure startup succeeded
-- application schema initialization did **not** happen
-- any endpoint that relies on tables such as `system_settings`, `keys`, `providers`, `message_request`, etc. fails with `database_error`
-
-## Overall Local Smoke Verdict
-
-### What is proven now
-1. Codebase compiles and passes repo-local verification
-2. Service can be launched successfully when given a working PostgreSQL endpoint
-3. Chrome MCP browser-side validation is working
-4. Basic non-schema routes (`/api/health`, `/api/version`) behave correctly
-5. Auth/login failure taxonomy and security headers are functioning in a real running process
-
-### What is not yet proven
-1. Schema-dependent direct/admin routes under a real initialized database
-2. `/v1` proxy behavior against a schema-populated runtime database
-3. Real auth/session lifecycle against populated `keys` / `users`
-4. Provider selection / quota / fallback / breaker behavior in a live database-backed runtime
-
-## Blocking Issue To Resolve Next
-
-The next hard blocker is **database schema/bootstrap**, not core code compilation.
-
-To continue meaningful real-run smoke validation, one of the following is needed:
-1. a migration/bootstrap path for Go
-2. a pre-populated PostgreSQL schema/data snapshot compatible with the Go repositories
-3. reuse of an existing Node-side development database with known credentials
-
-## Recommended Next Step
-
-Highest-value next task:
-- add or wire a **minimal local schema/bootstrap path** for required tables
-
-Once that exists, rerun smoke in this order:
-1. `/api/system-settings`
-2. `/api/auth/login` with real key
-3. `/v1/models`
-4. `/v1/messages`
-5. `/v1/responses`
-6. quota/fallback/breaker scenarios
+Highest-value next task after this milestone:
+- execute targeted real-behavior smoke for quota / fallback / breaker paths against the now-working bootstrap baseline

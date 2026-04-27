@@ -200,9 +200,7 @@ func (r *keyRepository) GetByKeyWithUser(ctx context.Context, keyStr string) (*m
 	key := new(model.Key)
 	err := r.db.NewSelect().
 		Model(key).
-		Relation("User", func(q *bun.SelectQuery) *bun.SelectQuery {
-			return q.Where("u.deleted_at IS NULL")
-		}).
+		Relation("User").
 		Where("k.key = ?", keyStr).
 		Where("k.deleted_at IS NULL").
 		Where("k.is_enabled = ?", true).
@@ -214,6 +212,9 @@ func (r *keyRepository) GetByKeyWithUser(ctx context.Context, keyStr string) (*m
 			return nil, errors.NewNotFoundError("Key")
 		}
 		return nil, errors.NewDatabaseError(err)
+	}
+	if key.User == nil || key.User.DeletedAt != nil {
+		return nil, errors.NewNotFoundError("Key")
 	}
 
 	return key, nil

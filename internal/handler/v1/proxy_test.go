@@ -204,10 +204,10 @@ func (f *fakeProxyStatisticsStore) SumUserCostInTimeRange(_ context.Context, _ i
 	if isAbout5hWindow(startTime, endTime) {
 		return f.user5h, nil
 	}
-	if isAboutWeeklyWindow(startTime, endTime) {
+	if !f.userWeekly.IsZero() {
 		return f.userWeekly, nil
 	}
-	if isAboutMonthlyWindow(startTime, endTime) {
+	if !f.userMonthly.IsZero() {
 		return f.userMonthly, nil
 	}
 	return f.userDaily, nil
@@ -220,10 +220,10 @@ func (f *fakeProxyStatisticsStore) SumKeyCostInTimeRangeByKeyString(_ context.Co
 	if isAbout5hWindow(startTime, endTime) {
 		return f.key5h, nil
 	}
-	if isAboutWeeklyWindow(startTime, endTime) {
+	if !f.keyWeekly.IsZero() {
 		return f.keyWeekly, nil
 	}
-	if isAboutMonthlyWindow(startTime, endTime) {
+	if !f.keyMonthly.IsZero() {
 		return f.keyMonthly, nil
 	}
 	return f.keyDaily, nil
@@ -243,10 +243,10 @@ func (f *fakeProxyStatisticsStore) SumProviderCostInTimeRange(_ context.Context,
 	if isAbout5hWindow(startTime, endTime) {
 		return f.provider5h, nil
 	}
-	if isAboutWeeklyWindow(startTime, endTime) {
+	if !f.providerWeekly.IsZero() {
 		return f.providerWeekly, nil
 	}
-	if isAboutMonthlyWindow(startTime, endTime) {
+	if !f.providerMonthly.IsZero() {
 		return f.providerMonthly, nil
 	}
 	return f.providerDaily, nil
