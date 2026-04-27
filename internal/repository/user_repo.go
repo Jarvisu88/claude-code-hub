@@ -173,7 +173,7 @@ func (r *userRepository) GetByIDWithKeys(ctx context.Context, id int) (*model.Us
 	err := r.db.NewSelect().
 		Model(user).
 		Relation("Keys", func(sq *bun.SelectQuery) *bun.SelectQuery {
-			return sq.Where("deleted_at IS NULL")
+			return sq.Where("k.deleted_at IS NULL")
 		}).
 		Where("u.id = ?", id).
 		Where("u.deleted_at IS NULL").

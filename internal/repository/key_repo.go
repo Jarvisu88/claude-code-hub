@@ -201,7 +201,7 @@ func (r *keyRepository) GetByKeyWithUser(ctx context.Context, keyStr string) (*m
 	err := r.db.NewSelect().
 		Model(key).
 		Relation("User", func(q *bun.SelectQuery) *bun.SelectQuery {
-			return q.Where("deleted_at IS NULL")
+			return q.Where("u.deleted_at IS NULL")
 		}).
 		Where("k.key = ?", keyStr).
 		Where("k.deleted_at IS NULL").
