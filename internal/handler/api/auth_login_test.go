@@ -64,6 +64,16 @@ func (f *fakeSessionRevoker) Revoke(_ context.Context, sessionID string) error {
 	return f.err
 }
 
+type fakeAuthAuditStore struct {
+	entries []*model.AuditLog
+	err     error
+}
+
+func (f *fakeAuthAuditStore) CreateAsync(_ context.Context, entry *model.AuditLog) error {
+	f.entries = append(f.entries, entry)
+	return f.err
+}
+
 func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	enabled := true
@@ -76,6 +86,7 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	_ = os.Setenv("SESSION_TOKEN_MODE", "legacy")
 	router := gin.New()
 	sessionRevoker := &fakeSessionRevoker{}
+	auditStore := &fakeAuthAuditStore{}
 
 	NewAuthHandler(fakeLoginAuth{
 		adminToken: "admin-token",
@@ -86,7 +97,7 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 			Key:     &model.Key{ID: 1, Key: "sk-user", Name: "User Key", CanLoginWebUi: &enabled},
 			APIKey:  "sk-user",
 		},
-	}, sessionRevoker).RegisterRoutes(router)
+	}, sessionRevoker, auditStore).RegisterRoutes(router)
 
 	loginReq := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"key":"sk-user"}`))
 	loginReq.Header.Set("Content-Type", "application/json")
@@ -131,6 +142,9 @@ func TestAuthLoginAndLogoutRoutes(t *testing.T) {
 	if len(sessionRevoker.revoked) != 0 {
 		t.Fatalf("expected legacy mode logout not to revoke session, got %+v", sessionRevoker.revoked)
 	}
+	if len(auditStore.entries) != 2 || auditStore.entries[0].ActionType != "login.success" || auditStore.entries[1].ActionType != "logout.success" {
+		t.Fatalf("expected login/logout audit entries, got %+v", auditStore.entries)
+	}
 }
 
 func TestAuthLoginSupportsAdminAndReadonlyUser(t *testing.T) {
@@ -171,12 +185,13 @@ func TestAuthLoginSupportsAdminAndReadonlyUser(t *testing.T) {
 func TestAuthLoginRejectsInvalidKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	auditStore := &fakeAuthAuditStore{}
 	NewAuthHandler(fakeLoginAuth{
 		adminToken: "admin-token",
 		proxyToken: "sk-valid",
 		adminErr:   appErrors.NewAuthenticationError("bad token", appErrors.CodeInvalidToken),
 		proxyErr:   appErrors.NewAuthenticationError("bad key", appErrors.CodeInvalidAPIKey),
-	}).RegisterRoutes(router)
+	}, auditStore).RegisterRoutes(router)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"key":"bad"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -191,6 +206,9 @@ func TestAuthLoginRejectsInvalidKey(t *testing.T) {
 	}
 	if got := resp.Header().Get("X-Frame-Options"); got != "DENY" {
 		t.Fatalf("expected auth security headers on failure response, got %q", got)
+	}
+	if len(auditStore.entries) != 1 || auditStore.entries[0].ActionType != "login.failed" || auditStore.entries[0].Success {
+		t.Fatalf("expected failed login audit entry, got %+v", auditStore.entries)
 	}
 }
 

@@ -386,6 +386,9 @@ func TestAuthMiddlewareRejectsInvalidAPIKey(t *testing.T) {
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected status 401, got %d: %s", resp.Code, resp.Body.String())
 	}
+	if !strings.Contains(resp.Body.String(), `"type":"invalid_api_key"`) || !strings.Contains(resp.Body.String(), `"code":"invalid_api_key"`) {
+		t.Fatalf("expected normalized invalid_api_key payload, got %s", resp.Body.String())
+	}
 }
 
 func TestSessionLifecycleMiddlewareTracksConcurrentRequests(t *testing.T) {
@@ -615,6 +618,133 @@ func TestResponsesStreamingProxyUpdatesCodexSessionFromSSEPromptCacheKey(t *test
 	}
 	if !strings.Contains(resp.Body.String(), "\"prompt_cache_key\":\"019b82ff-08ff-75a3-a203-7e10274fdbd8\"") {
 		t.Fatalf("expected streamed response body to be preserved, got %s", resp.Body.String())
+	}
+}
+
+func TestResponsesStreamingProxyMapsFake200SSEErrorToTerminal429(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	circuitbreakersvc.ResetForTest()
+	t.Cleanup(circuitbreakersvc.ResetForTest)
+
+	enabled := true
+	threshold := 1
+	requestLogs := &fakeMessageRequestRepo{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("event: response.error\n"))
+		_, _ = w.Write([]byte("data: {\"error\":{\"message\":\"rate limited\"}}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer upstream.Close()
+
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:        1,
+			UserID:    10,
+			Key:       "proxy-key",
+			Name:      "key-1",
+			IsEnabled: &enabled,
+			User: &model.User{
+				ID:        10,
+				Name:      "tester",
+				Role:      "user",
+				IsEnabled: &enabled,
+			},
+		},
+	}, testUserRepo{}, ""), &fakeSessionManager{generatedSessionID: "sess_generated_123"}, &fakeProviderRepo{providers: []*model.Provider{{
+		ID:                             99,
+		Name:                           "codex-upstream",
+		URL:                            upstream.URL,
+		Key:                            "provider-secret",
+		ProviderType:                   string(model.ProviderTypeCodex),
+		IsEnabled:                      &enabled,
+		CircuitBreakerFailureThreshold: &threshold,
+	}}}, requestLogs, upstream.Client())
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":[{"type":"input_text","text":"hello"}]}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected streamed client status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(requestLogs.updated) != 1 {
+		t.Fatalf("expected one terminal update, got %+v", requestLogs.updated)
+	}
+	if requestLogs.updated[0].update.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected persisted streaming fake-200 status 429, got %+v", requestLogs.updated[0].update)
+	}
+	if requestLogs.updated[0].update.ErrorMessage == nil || *requestLogs.updated[0].update.ErrorMessage != "rate limited" {
+		t.Fatalf("expected persisted streaming error message, got %+v", requestLogs.updated[0].update)
+	}
+	if len(requestLogs.updated[0].update.ProviderChain) != 1 || requestLogs.updated[0].update.ProviderChain[0].StatusCode == nil || *requestLogs.updated[0].update.ProviderChain[0].StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected provider chain to persist inferred 429, got %+v", requestLogs.updated[0].update.ProviderChain)
+	}
+	if !circuitbreakersvc.IsOpen(&model.Provider{ID: 99}) {
+		t.Fatalf("expected fake-200 SSE error to count toward circuit breaker")
+	}
+}
+
+func TestResponsesStreamingProxyPersistsNon200SSEError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("event: response.error\n"))
+		_, _ = w.Write([]byte("data: {\"error\":{\"message\":\"rate limited\",\"request_id\":\"req_sse_123\"}}\n\n"))
+	}))
+	defer upstream.Close()
+
+	handler := NewHandler(authsvc.NewService(&testKeyRepo{
+		key: &model.Key{
+			ID:        1,
+			UserID:    10,
+			Key:       "proxy-key",
+			Name:      "key-1",
+			IsEnabled: &enabled,
+			User: &model.User{
+				ID:        10,
+				Name:      "tester",
+				Role:      "user",
+				IsEnabled: &enabled,
+			},
+		},
+	}, testUserRepo{}, ""), &fakeSessionManager{generatedSessionID: "sess_generated_123"}, &fakeProviderRepo{providers: []*model.Provider{{
+		ID:           99,
+		Name:         "codex-upstream",
+		URL:          upstream.URL,
+		Key:          "provider-secret",
+		ProviderType: string(model.ProviderTypeCodex),
+		IsEnabled:    &enabled,
+	}}}, requestLogs, upstream.Client())
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":[{"type":"input_text","text":"hello"}]}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected streamed client status 429, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(requestLogs.updated) != 1 {
+		t.Fatalf("expected one terminal update, got %+v", requestLogs.updated)
+	}
+	if requestLogs.updated[0].update.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected persisted streaming status 429, got %+v", requestLogs.updated[0].update)
+	}
+	if requestLogs.updated[0].update.ErrorMessage == nil || *requestLogs.updated[0].update.ErrorMessage != "rate limited" {
+		t.Fatalf("expected persisted non-200 SSE error message, got %+v", requestLogs.updated[0].update)
 	}
 }
 
@@ -923,6 +1053,9 @@ func TestSessionLifecycleMiddlewareFallsBackToUserConcurrentLimit(t *testing.T) 
 	if resp.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected 429, got %d: %s", resp.Code, resp.Body.String())
 	}
+	if !strings.Contains(resp.Body.String(), `"type":"rate_limit_error"`) || !strings.Contains(resp.Body.String(), `"code":"rate_limit_exceeded"`) || !strings.Contains(resp.Body.String(), `"limit_type":"concurrent_sessions"`) {
+		t.Fatalf("expected normalized concurrent session limit payload, got %s", resp.Body.String())
+	}
 }
 
 func TestSessionLifecycleMiddlewareRejectsKeyTotalLimitExceeded(t *testing.T) {
@@ -960,6 +1093,9 @@ func TestSessionLifecycleMiddlewareRejectsKeyTotalLimitExceeded(t *testing.T) {
 
 	if resp.Code != http.StatusPaymentRequired {
 		t.Fatalf("expected 402, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"type":"rate_limit_error"`) || !strings.Contains(resp.Body.String(), `"code":"rate_limit_exceeded"`) || !strings.Contains(resp.Body.String(), `"limit_type":"usd_total"`) {
+		t.Fatalf("expected normalized total limit payload, got %s", resp.Body.String())
 	}
 }
 
@@ -1893,6 +2029,9 @@ func TestResponsesHandlerMapsFake200JSONErrorTo429(t *testing.T) {
 	if resp.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected fake 200 to be remapped to 429, got %d: %s", resp.Code, resp.Body.String())
 	}
+	if !strings.Contains(resp.Body.String(), `"type":"rate_limit_error"`) || !strings.Contains(resp.Body.String(), `"code":"rate_limit_error"`) {
+		t.Fatalf("expected normalized rate limit error payload, got %s", resp.Body.String())
+	}
 	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("expected persisted 429 terminal update, got %+v", requestLogs.updated)
 	}
@@ -1949,6 +2088,9 @@ func TestResponsesHandlerMapsFake200HTMLTo502(t *testing.T) {
 	if resp.Code != http.StatusBadGateway {
 		t.Fatalf("expected fake 200 html to be remapped to 502, got %d: %s", resp.Code, resp.Body.String())
 	}
+	if !strings.Contains(resp.Body.String(), `"type":"bad_gateway_error"`) || !strings.Contains(resp.Body.String(), `"code":"bad_gateway_error"`) {
+		t.Fatalf("expected normalized bad gateway payload, got %s", resp.Body.String())
+	}
 	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.StatusCode != http.StatusBadGateway {
 		t.Fatalf("expected persisted 502 terminal update, got %+v", requestLogs.updated)
 	}
@@ -2004,6 +2146,9 @@ func TestResponsesHandlerMapsFake200PlainTextTo401(t *testing.T) {
 
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("expected fake 200 plain text to be remapped to 401, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"type":"authentication_error"`) || !strings.Contains(resp.Body.String(), `"code":"authentication_error"`) {
+		t.Fatalf("expected normalized authentication payload, got %s", resp.Body.String())
 	}
 	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected persisted 401 terminal update, got %+v", requestLogs.updated)
@@ -2104,6 +2249,9 @@ func TestResponsesHandlerReturns503WhenNoProviderAvailable(t *testing.T) {
 
 	if resp.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected status 503, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"type":"no_available_providers"`) || !strings.Contains(resp.Body.String(), `"code":"no_available_providers"`) {
+		t.Fatalf("expected normalized no provider payload, got %s", resp.Body.String())
 	}
 }
 
@@ -2796,6 +2944,9 @@ func TestResponsesHandlerReturns400ForInvalidJSON(t *testing.T) {
 	if resp.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d: %s", resp.Code, resp.Body.String())
 	}
+	if !strings.Contains(resp.Body.String(), `"type":"invalid_request_error"`) || !strings.Contains(resp.Body.String(), `"code":"invalid_request_error"`) {
+		t.Fatalf("expected normalized invalid request payload, got %s", resp.Body.String())
+	}
 }
 
 func TestResponsesHandlerReturns504ForUpstreamTimeout(t *testing.T) {
@@ -2839,8 +2990,8 @@ func TestResponsesHandlerReturns504ForUpstreamTimeout(t *testing.T) {
 	if resp.Code != http.StatusGatewayTimeout {
 		t.Fatalf("expected status 504, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if !strings.Contains(resp.Body.String(), string(appErrors.CodeProviderTimeout)) {
-		t.Fatalf("expected provider_timeout code, got %s", resp.Body.String())
+	if !strings.Contains(resp.Body.String(), `"type":"gateway_timeout_error"`) || !strings.Contains(resp.Body.String(), `"code":"gateway_timeout_error"`) {
+		t.Fatalf("expected normalized gateway timeout payload, got %s", resp.Body.String())
 	}
 	if len(requestLogs.created) != 1 {
 		t.Fatalf("expected one persisted timeout request log, got %d", len(requestLogs.created))
@@ -2856,6 +3007,61 @@ func TestResponsesHandlerReturns504ForUpstreamTimeout(t *testing.T) {
 	}
 	if requestLogs.updated[0].update.ProviderChain[0].ErrorMessage == nil || !strings.Contains(*requestLogs.updated[0].update.ProviderChain[0].ErrorMessage, "请求超时") {
 		t.Fatalf("expected timeout error recorded on provider chain, got %+v", requestLogs.updated[0].update.ProviderChain[0].ErrorMessage)
+	}
+}
+
+func TestResponsesHandlerBlocksSensitiveWordsWithNormalized400(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           99,
+			Name:         "codex-upstream",
+			URL:          "https://example.com",
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeCodex),
+			IsEnabled:    &enabled,
+		}}},
+		nil,
+		httpDoerFunc(func(req *http.Request) (*http.Response, error) {
+			t.Fatal("expected upstream not to be called when sensitive word is blocked")
+			return nil, nil
+		}),
+		nil,
+		nil,
+		fakeProxySensitiveWordStore{items: []*model.SensitiveWord{{
+			Word:      "blocked-term",
+			MatchType: "contains",
+			IsEnabled: true,
+		}}},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello blocked-term"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"type":"invalid_request_error"`) || !strings.Contains(resp.Body.String(), `"code":"invalid_request_error"`) {
+		t.Fatalf("expected normalized invalid request payload, got %s", resp.Body.String())
 	}
 }
 
@@ -3099,6 +3305,225 @@ func TestResponsesHandlerFallsBackToNextProviderOn404(t *testing.T) {
 	}
 	if chain[1].Reason == nil || *chain[1].Reason != "resource_not_found" {
 		t.Fatalf("expected fallback chain item marked as resource_not_found, got %+v", chain[1])
+	}
+}
+
+func TestResponsesHandlerFallsBackToNextProviderOnUpstreamServerError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	firstHit := false
+	secondHit := false
+	client := &sequenceHTTPClient{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusServiceUnavailable,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"service unavailable"}}`)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"id":"resp_123","status":"completed"}`)),
+			},
+		},
+	}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{
+			{
+				ID:           99,
+				Name:         "primary-provider",
+				URL:          "https://primary.example.com",
+				Key:          "provider-secret-1",
+				ProviderType: string(model.ProviderTypeCodex),
+				IsEnabled:    &enabled,
+			},
+			{
+				ID:           100,
+				Name:         "fallback-provider",
+				URL:          "https://fallback.example.com",
+				Key:          "provider-secret-2",
+				ProviderType: string(model.ProviderTypeCodex),
+				IsEnabled:    &enabled,
+			},
+		}},
+		requestLogs,
+		httpDoerFunc(func(req *http.Request) (*http.Response, error) {
+			if req.Header.Get("Authorization") == "Bearer provider-secret-1" {
+				firstHit = true
+			}
+			if req.Header.Get("Authorization") == "Bearer provider-secret-2" {
+				secondHit = true
+			}
+			return client.Do(req)
+		}),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !firstHit || !secondHit {
+		t.Fatalf("expected both primary and fallback providers to be attempted, first=%v second=%v", firstHit, secondHit)
+	}
+	if len(requestLogs.updated) != 1 {
+		t.Fatalf("expected one terminal update, got %+v", requestLogs.updated)
+	}
+	chain := requestLogs.updated[0].update.ProviderChain
+	if len(chain) < 2 {
+		t.Fatalf("expected fallback provider chain, got %+v", chain)
+	}
+	if chain[1].Reason == nil || *chain[1].Reason != "system_error" {
+		t.Fatalf("expected fallback chain item marked as system_error, got %+v", chain[1])
+	}
+}
+
+func TestResponsesHandlerNormalizesRealUpstreamJSONErrorAndPreservesRequestID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           99,
+			Name:         "codex-upstream",
+			URL:          "https://example.com",
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeCodex),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		httpDoerFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusTooManyRequests,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"error":{"message":"rate limited","request_id":"req_upstream_123"}}`,
+				)),
+			}, nil
+		}),
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"type":"rate_limit_error"`) || !strings.Contains(resp.Body.String(), `"request_id":"req_upstream_123"`) {
+		t.Fatalf("expected normalized body with request_id, got %s", resp.Body.String())
+	}
+	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.ErrorMessage == nil || *requestLogs.updated[0].update.ErrorMessage != "rate limited" {
+		t.Fatalf("expected persisted normalized error message, got %+v", requestLogs.updated)
+	}
+}
+
+func TestResponsesHandlerAppliesErrorRuleOverrideToFinalResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{
+			key: &model.Key{
+				ID:        1,
+				UserID:    10,
+				Key:       "proxy-key",
+				Name:      "key-1",
+				IsEnabled: &enabled,
+				User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+			},
+		}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_generated_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           99,
+			Name:         "codex-upstream",
+			URL:          "https://example.com",
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeCodex),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		httpDoerFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusServiceUnavailable,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"quota exceeded upstream"}}`)),
+			}, nil
+		}),
+		fakeProxyErrorRuleStore{items: []*model.ErrorRule{{
+			Pattern:            "quota exceeded",
+			MatchType:          "contains",
+			Category:           "quota_limit",
+			OverrideStatusCode: intPointer(429),
+			OverrideResponse: map[string]any{
+				"error": map[string]any{
+					"type":    "rate_limit_error",
+					"code":    "quota_exceeded",
+					"message": "quota exceeded",
+				},
+			},
+			IsEnabled: true,
+		}}},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}]}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if !strings.Contains(resp.Body.String(), `"quota_exceeded"`) {
+		t.Fatalf("expected rewritten error payload, got %s", resp.Body.String())
+	}
+	if len(requestLogs.updated) != 1 {
+		t.Fatalf("expected one terminal update, got %+v", requestLogs.updated)
+	}
+	if requestLogs.updated[0].update.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected terminal status 429, got %+v", requestLogs.updated[0].update)
 	}
 }
 
@@ -3392,8 +3817,8 @@ func TestResponsesHandlerReturns502ForGenericUpstreamError(t *testing.T) {
 	if resp.Code != http.StatusBadGateway {
 		t.Fatalf("expected status 502, got %d: %s", resp.Code, resp.Body.String())
 	}
-	if !strings.Contains(resp.Body.String(), string(appErrors.CodeProviderError)) {
-		t.Fatalf("expected provider_error code, got %s", resp.Body.String())
+	if !strings.Contains(resp.Body.String(), `"type":"bad_gateway_error"`) || !strings.Contains(resp.Body.String(), `"code":"bad_gateway_error"`) {
+		t.Fatalf("expected normalized bad gateway payload, got %s", resp.Body.String())
 	}
 	if len(requestLogs.created) != 1 {
 		t.Fatalf("expected one persisted upstream error request log, got %d", len(requestLogs.created))
@@ -3982,5 +4407,144 @@ func TestModelsHandlerAggregatesFilteredModels(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+type fakeProviderVendorStore struct {
+	vendors map[string]*model.ProviderVendor
+}
+
+func (f fakeProviderVendorStore) GetByWebsiteDomain(_ context.Context, domain string) (*model.ProviderVendor, error) {
+	if f.vendors == nil {
+		return nil, appErrors.NewNotFoundError("ProviderVendor")
+	}
+	if vendor := f.vendors[strings.ToLower(strings.TrimSpace(domain))]; vendor != nil {
+		return vendor, nil
+	}
+	return nil, appErrors.NewNotFoundError("ProviderVendor")
+}
+
+type fakeProviderEndpointStore struct {
+	endpoints []*model.ProviderEndpoint
+}
+
+func (f fakeProviderEndpointStore) ListActiveByVendorAndType(_ context.Context, vendorID int, providerType string) ([]*model.ProviderEndpoint, error) {
+	out := make([]*model.ProviderEndpoint, 0)
+	for _, endpoint := range f.endpoints {
+		if endpoint == nil || !endpoint.IsActive() {
+			continue
+		}
+		if endpoint.VendorID == vendorID && endpoint.ProviderType == providerType {
+			out = append(out, endpoint)
+		}
+	}
+	return out, nil
+}
+
+func TestProxyUsesProviderEndpointURLWhenVendorMatches(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var capturedPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"resp_endpoint","status":"completed","usage":{"input_tokens":3,"output_tokens":5}}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	sessionManager := &fakeSessionManager{generatedSessionID: "sess_endpoint_123"}
+	websiteURL := "https://vendor.example/docs"
+	providerURL := "http://127.0.0.1:1/provider-url-should-not-be-used"
+
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{key: &model.Key{
+			ID:        1,
+			UserID:    10,
+			Key:       "proxy-key",
+			Name:      "key-1",
+			IsEnabled: &enabled,
+			User:      &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled},
+		}}, testUserRepo{}, ""),
+		sessionManager,
+		&fakeProviderRepo{providers: []*model.Provider{{
+			ID:           99,
+			Name:         "codex-upstream",
+			URL:          providerURL,
+			WebsiteUrl:   &websiteURL,
+			Key:          "provider-secret",
+			ProviderType: string(model.ProviderTypeCodex),
+			IsEnabled:    &enabled,
+		}}},
+		requestLogs,
+		upstream.Client(),
+		fakeProviderVendorStore{vendors: map[string]*model.ProviderVendor{"vendor.example": {ID: 7, WebsiteDomain: "vendor.example"}}},
+		fakeProviderEndpointStore{endpoints: []*model.ProviderEndpoint{{ID: 41, VendorID: 7, ProviderType: string(model.ProviderTypeCodex), URL: upstream.URL + "/endpoint/responses", IsEnabled: true}}},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected endpoint-routed status 201, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if capturedPath != "/endpoint/responses" {
+		t.Fatalf("expected request to endpoint URL path, got %q", capturedPath)
+	}
+	if len(requestLogs.created) != 1 || len(requestLogs.created[0].ProviderChain) != 1 {
+		t.Fatalf("expected provider chain evidence, got %+v", requestLogs.created)
+	}
+	endpointURL := requestLogs.created[0].ProviderChain[0].EndpointURL
+	if endpointURL == nil || *endpointURL == providerURL || *endpointURL != upstream.URL+"/endpoint/responses" {
+		t.Fatalf("expected endpoint-derived provider chain URL, got %v providerURL=%q", endpointURL, providerURL)
+	}
+	if len(requestLogs.updated) != 1 || requestLogs.updated[0].update.InputTokens == nil || *requestLogs.updated[0].update.InputTokens != 3 {
+		t.Fatalf("expected terminal usage update from endpoint response, got %+v", requestLogs.updated)
+	}
+}
+
+func TestProxyEndpointRoutingFallsBackToProviderURLWithoutVendor(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"resp_provider","status":"completed"}`))
+	}))
+	defer upstream.Close()
+
+	enabled := true
+	requestLogs := &fakeMessageRequestRepo{}
+	handler := NewHandler(
+		authsvc.NewService(&testKeyRepo{key: &model.Key{ID: 1, UserID: 10, Key: "proxy-key", Name: "key-1", IsEnabled: &enabled, User: &model.User{ID: 10, Name: "tester", Role: "user", IsEnabled: &enabled}}}, testUserRepo{}, ""),
+		&fakeSessionManager{generatedSessionID: "sess_fallback_123"},
+		&fakeProviderRepo{providers: []*model.Provider{{ID: 99, Name: "codex-upstream", URL: upstream.URL, Key: "provider-secret", ProviderType: string(model.ProviderTypeCodex), IsEnabled: &enabled}}},
+		requestLogs,
+		upstream.Client(),
+		fakeProviderVendorStore{vendors: map[string]*model.ProviderVendor{}},
+		fakeProviderEndpointStore{endpoints: []*model.ProviderEndpoint{{ID: 41, VendorID: 7, ProviderType: string(model.ProviderTypeCodex), URL: "http://127.0.0.1:1/should-not-match", IsEnabled: true}}},
+	)
+
+	router := gin.New()
+	handler.RegisterRoutes(router.Group("/v1"))
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewBufferString(`{"input":[{"role":"user","content":"hello"}],"model":"gpt-5.4"}`))
+	req.Header.Set("Authorization", "Bearer proxy-key")
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected provider URL fallback status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	if len(requestLogs.created) != 1 || len(requestLogs.created[0].ProviderChain) != 1 || requestLogs.created[0].ProviderChain[0].EndpointURL == nil || *requestLogs.created[0].ProviderChain[0].EndpointURL != upstream.URL {
+		t.Fatalf("expected provider URL fallback chain, got %+v", requestLogs.created)
 	}
 }

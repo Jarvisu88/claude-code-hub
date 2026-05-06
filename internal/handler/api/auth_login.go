@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/ding113/claude-code-hub/internal/model"
 	appErrors "github.com/ding113/claude-code-hub/internal/pkg/errors"
 	authsvc "github.com/ding113/claude-code-hub/internal/service/auth"
 	"github.com/gin-gonic/gin"
@@ -18,17 +20,32 @@ type loginAuthenticator interface {
 	AuthenticateProxy(ctx context.Context, input authsvc.ProxyAuthInput) (*authsvc.AuthResult, error)
 }
 
+type authAuditStore interface {
+	CreateAsync(ctx context.Context, entry *model.AuditLog) error
+}
+
 type AuthHandler struct {
 	auth     loginAuthenticator
 	sessions authSessionRevoker
+	audit    authAuditStore
 }
 
-func NewAuthHandler(auth loginAuthenticator, sessions ...authSessionRevoker) *AuthHandler {
+func NewAuthHandler(auth loginAuthenticator, options ...any) *AuthHandler {
 	var sessionRevoker authSessionRevoker
-	if len(sessions) > 0 {
-		sessionRevoker = sessions[0]
+	var auditStore authAuditStore
+	for _, option := range options {
+		switch typed := option.(type) {
+		case authSessionRevoker:
+			if sessionRevoker == nil {
+				sessionRevoker = typed
+			}
+		case authAuditStore:
+			if auditStore == nil {
+				auditStore = typed
+			}
+		}
 	}
-	return &AuthHandler{auth: auth, sessions: sessionRevoker}
+	return &AuthHandler{auth: auth, sessions: sessionRevoker, audit: auditStore}
 }
 
 func (h *AuthHandler) RegisterRoutes(router gin.IRouter) {
@@ -51,6 +68,12 @@ func (h *AuthHandler) login(c *gin.Context) {
 	}
 	key := strings.TrimSpace(input.Key)
 	if key == "" {
+		h.writeAudit(c, &model.AuditLog{
+			ActionCategory: "auth",
+			ActionType:     "login.failed",
+			Success:        false,
+			ErrorMessage:   stringPointer("KEY_REQUIRED"),
+		})
 		c.JSON(http.StatusBadRequest, gin.H{
 			"ok":        false,
 			"error":     "API key is required",
@@ -64,6 +87,12 @@ func (h *AuthHandler) login(c *gin.Context) {
 		authResult, err = h.auth.AuthenticateProxy(c.Request.Context(), authsvc.ProxyAuthInput{APIKeyHeader: key})
 		if err != nil {
 			if isLoginInvalidCredentialError(err) {
+				h.writeAudit(c, &model.AuditLog{
+					ActionCategory: "auth",
+					ActionType:     "login.failed",
+					Success:        false,
+					ErrorMessage:   stringPointer("KEY_INVALID"),
+				})
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"ok":        false,
 					"error":     "Authentication failed",
@@ -71,6 +100,12 @@ func (h *AuthHandler) login(c *gin.Context) {
 				})
 				return
 			}
+			h.writeAudit(c, &model.AuditLog{
+				ActionCategory: "auth",
+				ActionType:     "login.failed",
+				Success:        false,
+				ErrorMessage:   stringPointer("SERVER_ERROR"),
+			})
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"ok":        false,
 				"error":     "Internal server error",
@@ -79,6 +114,12 @@ func (h *AuthHandler) login(c *gin.Context) {
 			return
 		}
 		if authResult == nil {
+			h.writeAudit(c, &model.AuditLog{
+				ActionCategory: "auth",
+				ActionType:     "login.failed",
+				Success:        false,
+				ErrorMessage:   stringPointer("KEY_INVALID"),
+			})
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"ok":        false,
 				"error":     "Authentication failed",
@@ -103,6 +144,12 @@ func (h *AuthHandler) login(c *gin.Context) {
 	if sessionMode != sessionTokenModeLegacy && authResult != nil && authResult.User != nil {
 		if h == nil || h.sessions == nil {
 			if sessionMode == sessionTokenModeOpaque {
+				h.writeAudit(c, &model.AuditLog{
+					ActionCategory: "auth",
+					ActionType:     "login.failed",
+					Success:        false,
+					ErrorMessage:   stringPointer("SESSION_CREATE_FAILED"),
+				})
 				c.JSON(http.StatusServiceUnavailable, gin.H{
 					"ok":        false,
 					"error":     "Internal server error",
@@ -114,6 +161,12 @@ func (h *AuthHandler) login(c *gin.Context) {
 			sessionID, err := h.sessions.Create(c.Request.Context(), key, authResult.User.ID, authResult.User.Role)
 			if err != nil || (sessionMode == sessionTokenModeOpaque && sessionID == "") {
 				if sessionMode == sessionTokenModeOpaque {
+					h.writeAudit(c, &model.AuditLog{
+						ActionCategory: "auth",
+						ActionType:     "login.failed",
+						Success:        false,
+						ErrorMessage:   stringPointer("SESSION_CREATE_FAILED"),
+					})
 					c.JSON(http.StatusServiceUnavailable, gin.H{
 						"ok":        false,
 						"error":     "Internal server error",
@@ -142,6 +195,7 @@ func (h *AuthHandler) login(c *gin.Context) {
 			"role":        authResult.User.Role,
 		}
 	}
+	h.writeAudit(c, buildLoginAuditLog(authResult))
 	c.JSON(http.StatusOK, response)
 }
 
@@ -163,5 +217,47 @@ func (h *AuthHandler) logout(c *gin.Context) {
 	}
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(authCookieName, "", -1, "/", "", authSecureCookiesEnabled(), true)
+	h.writeAudit(c, &model.AuditLog{
+		ActionCategory: "auth",
+		ActionType:     "logout.success",
+		Success:        true,
+	})
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func buildLoginAuditLog(authResult *authsvc.AuthResult) *model.AuditLog {
+	entry := &model.AuditLog{
+		ActionCategory: "auth",
+		ActionType:     "login.success",
+		Success:        true,
+	}
+	if authResult != nil {
+		if authResult.User != nil {
+			entry.OperatorUserID = &authResult.User.ID
+			entry.OperatorUserName = stringPointer(authResult.User.Name)
+			entry.TargetType = stringPointer("user")
+			entry.TargetID = stringPointer(strconv.Itoa(authResult.User.ID))
+			entry.TargetName = stringPointer(authResult.User.Name)
+		}
+		if authResult.Key != nil {
+			entry.OperatorKeyID = &authResult.Key.ID
+			entry.OperatorKeyName = stringPointer(authResult.Key.Name)
+		}
+	}
+	return entry
+}
+
+func (h *AuthHandler) writeAudit(c *gin.Context, entry *model.AuditLog) {
+	if h == nil || h.audit == nil || entry == nil {
+		return
+	}
+	if c != nil {
+		if ip := strings.TrimSpace(c.ClientIP()); ip != "" {
+			entry.OperatorIP = stringPointer(ip)
+		}
+		if ua := strings.TrimSpace(c.Request.UserAgent()); ua != "" {
+			entry.UserAgent = stringPointer(ua)
+		}
+	}
+	_ = h.audit.CreateAsync(c.Request.Context(), entry)
 }

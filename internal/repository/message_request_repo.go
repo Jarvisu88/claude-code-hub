@@ -374,7 +374,114 @@ func (r *messageRequestRepository) UpdateTerminal(ctx context.Context, id int, u
 	if err != nil {
 		return errors.NewDatabaseError(err)
 	}
+	if err := r.syncUsageLedgerFromMessageRequest(ctx, id); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (r *messageRequestRepository) syncUsageLedgerFromMessageRequest(ctx context.Context, id int) error {
+	messageRequest, err := r.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	entry := buildUsageLedgerFromMessageRequest(messageRequest)
+	if entry == nil {
+		return nil
+	}
+	_, err = r.db.NewInsert().
+		Model(entry).
+		On("CONFLICT (request_id) DO UPDATE").
+		Set("user_id = EXCLUDED.user_id").
+		Set("key = EXCLUDED.key").
+		Set("provider_id = EXCLUDED.provider_id").
+		Set("final_provider_id = EXCLUDED.final_provider_id").
+		Set("model = EXCLUDED.model").
+		Set("original_model = EXCLUDED.original_model").
+		Set("endpoint = EXCLUDED.endpoint").
+		Set("api_type = EXCLUDED.api_type").
+		Set("session_id = EXCLUDED.session_id").
+		Set("status_code = EXCLUDED.status_code").
+		Set("is_success = EXCLUDED.is_success").
+		Set("blocked_by = EXCLUDED.blocked_by").
+		Set("cost_usd = EXCLUDED.cost_usd").
+		Set("cost_multiplier = EXCLUDED.cost_multiplier").
+		Set("group_cost_multiplier = EXCLUDED.group_cost_multiplier").
+		Set("input_tokens = EXCLUDED.input_tokens").
+		Set("output_tokens = EXCLUDED.output_tokens").
+		Set("cache_creation_input_tokens = EXCLUDED.cache_creation_input_tokens").
+		Set("cache_read_input_tokens = EXCLUDED.cache_read_input_tokens").
+		Set("cache_creation_5m_input_tokens = EXCLUDED.cache_creation_5m_input_tokens").
+		Set("cache_creation_1h_input_tokens = EXCLUDED.cache_creation_1h_input_tokens").
+		Set("cache_ttl_applied = EXCLUDED.cache_ttl_applied").
+		Set("context_1m_applied = EXCLUDED.context_1m_applied").
+		Set("swap_cache_ttl_applied = EXCLUDED.swap_cache_ttl_applied").
+		Set("duration_ms = EXCLUDED.duration_ms").
+		Set("ttfb_ms = EXCLUDED.ttfb_ms").
+		Set("client_ip = EXCLUDED.client_ip").
+		Set("created_at = EXCLUDED.created_at").
+		Exec(ctx)
+	if err != nil {
+		return errors.NewDatabaseError(err)
+	}
+	return nil
+}
+
+func buildUsageLedgerFromMessageRequest(messageRequest *model.MessageRequest) *model.UsageLedger {
+	if messageRequest == nil {
+		return nil
+	}
+	finalProviderID := messageRequest.ProviderID
+	if n := len(messageRequest.ProviderChain); n > 0 {
+		finalProviderID = messageRequest.ProviderChain[n-1].ID
+	}
+	return &model.UsageLedger{
+		RequestID:                  messageRequest.ID,
+		UserID:                     messageRequest.UserID,
+		Key:                        messageRequest.Key,
+		ProviderID:                 messageRequest.ProviderID,
+		FinalProviderID:            finalProviderID,
+		Model:                      stringPointerCopy(messageRequest.Model),
+		OriginalModel:              messageRequest.OriginalModel,
+		Endpoint:                   messageRequest.Endpoint,
+		APIType:                    messageRequest.ApiType,
+		SessionID:                  messageRequest.SessionID,
+		StatusCode:                 messageRequest.StatusCode,
+		IsSuccess:                  messageRequest.IsSuccess(),
+		BlockedBy:                  messageRequest.BlockedBy,
+		CostUSD:                    messageRequest.CostUSD,
+		CostMultiplier:             messageRequest.CostMultiplier,
+		GroupCostMultiplier:        messageRequest.GroupCostMultiplier,
+		InputTokens:                intToInt64Ptr(messageRequest.InputTokens),
+		OutputTokens:               intToInt64Ptr(messageRequest.OutputTokens),
+		CacheCreationInputTokens:   intToInt64Ptr(messageRequest.CacheCreationInputTokens),
+		CacheReadInputTokens:       intToInt64Ptr(messageRequest.CacheReadInputTokens),
+		CacheCreation5mInputTokens: intToInt64Ptr(messageRequest.CacheCreation5mInputTokens),
+		CacheCreation1hInputTokens: intToInt64Ptr(messageRequest.CacheCreation1hInputTokens),
+		CacheTtlApplied:            messageRequest.CacheTtlApplied,
+		Context1mApplied:           messageRequest.Context1mApplied,
+		SwapCacheTtlApplied:        messageRequest.SwapCacheTtlApplied,
+		DurationMs:                 messageRequest.DurationMs,
+		TtfbMs:                     messageRequest.TtfbMs,
+		ClientIP:                   messageRequest.ClientIP,
+		CreatedAt:                  messageRequest.CreatedAt,
+	}
+}
+
+func intToInt64Ptr(value *int) *int64 {
+	if value == nil {
+		return nil
+	}
+	v := int64(*value)
+	return &v
+}
+
+func stringPointerCopy(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func (r *messageRequestRepository) ListRecent(ctx context.Context, limit int) ([]*model.MessageRequest, error) {

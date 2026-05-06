@@ -123,6 +123,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	repoFactory := repository.NewFactory(db)
 	proxyAuthService := authsvc.NewServiceFromFactory(repoFactory, cfg.Auth.AdminToken, authsvc.NewRedisSessionReader(rdb))
 	registerLocalMockRoutes(router)
+	apihandler.NewSmokeDebugHandler().RegisterRoutes(router)
 
 	// 健康检查
 	router.GET("/health", healthCheck(db, rdb))
@@ -136,7 +137,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 		},
 		"0.1.0",
 	).RegisterRoutes(router)
-	apihandler.NewAuthHandler(proxyAuthService, apihandler.NewRedisAuthSessionStore(rdb)).RegisterRoutes(router)
+	apihandler.NewAuthHandler(proxyAuthService, apihandler.NewRedisAuthSessionStore(rdb), repoFactory.AuditLog()).RegisterRoutes(router)
 	apihandler.NewAdminSystemConfigHandler(proxyAuthService, repoFactory.SystemSettings()).RegisterRoutes(router)
 	apihandler.NewAdminLogLevelHandler(proxyAuthService).RegisterRoutes(router)
 	apihandler.NewAdminDatabaseStatusHandler(proxyAuthService, apihandler.NewDatabaseStatusSource(db, cfg.Database)).RegisterRoutes(router)
@@ -147,8 +148,8 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	apihandler.NewInternalDataGenHandler(proxyAuthService, repoFactory.MessageRequest()).RegisterRoutes(router)
 	apihandler.NewCurrentAvailabilityHandler(proxyAuthService, repoFactory.Provider(), repoFactory.MessageRequest()).RegisterRoutes(router)
 	apihandler.NewAvailabilityHandler(proxyAuthService, repoFactory.Provider(), repoFactory.MessageRequest()).RegisterRoutes(router)
-	apihandler.NewAvailabilityProbeAllHandler(proxyAuthService, repoFactory.Provider(), nil).RegisterRoutes(router)
-	apihandler.NewAvailabilityEndpointsHandler(proxyAuthService, repoFactory.Provider()).RegisterRoutes(router)
+	apihandler.NewAvailabilityProbeAllHandler(proxyAuthService, repoFactory.Provider(), nil, repoFactory.ProviderEndpoint(), repoFactory.ProviderEndpointProbeLog()).RegisterRoutes(router)
+	apihandler.NewAvailabilityEndpointsHandler(proxyAuthService, repoFactory.Provider(), repoFactory.ProviderEndpoint(), repoFactory.ProviderEndpointProbeLog()).RegisterRoutes(router)
 	apihandler.NewIPGeoHandler(proxyAuthService, repoFactory.SystemSettings(), nil).RegisterRoutes(router)
 	apihandler.NewLeaderboardHandler(proxyAuthService, repoFactory.SystemSettings(), repoFactory.MessageRequest()).RegisterRoutes(router)
 
@@ -160,7 +161,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 	sessiontrackersvc.Configure(rdb, time.Duration(cfg.Session.TTL)*time.Second)
 	apihandler.ConfigureUsageLogsExportStore(rdb)
 	proxyHTTPClient := &http.Client{Timeout: cfg.Proxy.FetchBodyTimeout}
-	v1handler.NewHandler(proxyAuthService, proxySessionManager, repoFactory.Provider(), repoFactory.MessageRequest(), proxyHTTPClient, repoFactory.SystemSettings()).RegisterRoutes(router.Group("/v1"))
+	v1handler.NewHandler(proxyAuthService, proxySessionManager, repoFactory.Provider(), repoFactory.MessageRequest(), proxyHTTPClient, repoFactory.SystemSettings(), repoFactory.ProviderVendor(), repoFactory.ProviderEndpoint(), repoFactory.RequestFilter(), repoFactory.SensitiveWord(), repoFactory.ErrorRule()).RegisterRoutes(router.Group("/v1"))
 	apihandler.NewProxyStatusHandler(proxyAuthService, repoFactory.User(), repoFactory.MessageRequest()).RegisterDirectRoutes(router)
 
 	// 管理 API 路由组
@@ -169,7 +170,7 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 
 	api := router.Group("/api/actions")
 	{
-		apihandler.NewHandler(proxyAuthService, repoFactory.User(), repoFactory.Key(), repoFactory.Provider()).RegisterRoutes(api)
+		apihandler.NewHandler(proxyAuthService, repoFactory.User(), repoFactory.Key(), repoFactory.Provider(), repoFactory.AuditLog()).RegisterRoutes(api)
 		apihandler.NewSystemSettingsActionHandler(proxyAuthService, repoFactory.SystemSettings()).RegisterRoutes(api)
 		apihandler.NewUsageLogsActionHandler(proxyAuthService, repoFactory.MessageRequest()).RegisterRoutes(api)
 		apihandler.NewSessionOriginChainActionHandler(proxyAuthService, repoFactory.MessageRequest()).RegisterRoutes(api)
@@ -179,6 +180,13 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 		apihandler.NewProxyStatusHandler(proxyAuthService, repoFactory.User(), repoFactory.MessageRequest()).RegisterActionRoutes(api)
 		apihandler.NewProviderSlotsActionHandler(proxyAuthService, repoFactory.Provider(), repoFactory.MessageRequest()).RegisterRoutes(api)
 		apihandler.NewDashboardRealtimeActionHandler(proxyAuthService, repoFactory.MessageRequest(), repoFactory.Statistics(), repoFactory.Provider()).RegisterRoutes(api)
+		apihandler.NewRequestFilterActionHandler(proxyAuthService, repoFactory.RequestFilter()).RegisterRoutes(api)
+		apihandler.NewSensitiveWordActionHandler(proxyAuthService, repoFactory.SensitiveWord()).RegisterRoutes(api)
+		apihandler.NewErrorRuleActionHandler(proxyAuthService, repoFactory.ErrorRule()).RegisterRoutes(api)
+		webhookTester := apihandler.NewWebhookDeliveryTester(nil)
+		apihandler.NewNotificationsActionHandler(proxyAuthService, repoFactory.NotificationSettings(), repoFactory.WebhookTarget(), webhookTester).RegisterRoutes(api)
+		apihandler.NewWebhookTargetsActionHandler(proxyAuthService, repoFactory.WebhookTarget(), webhookTester).RegisterRoutes(api)
+		apihandler.NewNotificationBindingsActionHandler(proxyAuthService, repoFactory.NotificationTargetBinding()).RegisterRoutes(api)
 	}
 
 	return router

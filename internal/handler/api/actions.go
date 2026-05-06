@@ -46,20 +46,34 @@ type providerLister interface {
 	Delete(ctx context.Context, id int) error
 }
 
+type adminActionAuditStore interface {
+	CreateAsync(ctx context.Context, entry *model.AuditLog) error
+}
+
 type Handler struct {
 	auth      adminAuthenticator
 	users     userLister
 	keys      keyLister
 	providers providerLister
+	audit     adminActionAuditStore
 }
 
-func NewHandler(auth adminAuthenticator, users userLister, keys keyLister, providers providerLister) *Handler {
-	return &Handler{
+func NewHandler(auth adminAuthenticator, users userLister, keys keyLister, providers providerLister, options ...any) *Handler {
+	handler := &Handler{
 		auth:      auth,
 		users:     users,
 		keys:      keys,
 		providers: providers,
 	}
+	for _, option := range options {
+		switch typed := option.(type) {
+		case adminActionAuditStore:
+			if handler.audit == nil {
+				handler.audit = typed
+			}
+		}
+	}
+	return handler
 }
 
 func (h *Handler) RegisterRoutes(group *gin.RouterGroup) {
@@ -194,6 +208,7 @@ func (h *Handler) createUser(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	h.writeAudit(c, "user", "user.create", user, nil, user, true, nil)
 	c.JSON(http.StatusCreated, gin.H{"ok": true, "data": user})
 }
 
@@ -235,6 +250,7 @@ func (h *Handler) updateUser(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	h.writeAudit(c, "user", "user.update", updated, nil, updated, true, nil)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": updated})
 }
 
@@ -268,6 +284,7 @@ func (h *Handler) deleteUser(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	h.writeAudit(c, "user", "user.delete", gin.H{"id": id}, nil, gin.H{"id": id, "deleted": true}, true, nil)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{"id": id, "deleted": true}})
 }
 
@@ -354,6 +371,7 @@ func (h *Handler) createKey(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	h.writeAudit(c, "key", "key.create", key, nil, key, true, nil)
 	c.JSON(http.StatusCreated, gin.H{"ok": true, "data": key})
 }
 
@@ -396,6 +414,7 @@ func (h *Handler) updateKey(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	h.writeAudit(c, "key", "key.update", updated, nil, updated, true, nil)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": updated})
 }
 
@@ -429,6 +448,7 @@ func (h *Handler) deleteKey(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	h.writeAudit(c, "key", "key.delete", gin.H{"id": id}, nil, gin.H{"id": id, "deleted": true}, true, nil)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{"id": id, "deleted": true}})
 }
 
@@ -519,6 +539,7 @@ func (h *Handler) createProvider(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	h.writeAudit(c, "provider", "provider.create", provider, nil, provider, true, nil)
 	c.JSON(http.StatusCreated, gin.H{"ok": true, "data": provider})
 }
 
@@ -574,6 +595,7 @@ func (h *Handler) updateProvider(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	h.writeAudit(c, "provider", "provider.update", updated, nil, updated, true, nil)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": updated})
 }
 
@@ -607,6 +629,7 @@ func (h *Handler) deleteProvider(c *gin.Context) {
 		writeAdminError(c, err)
 		return
 	}
+	h.writeAudit(c, "provider", "provider.delete", gin.H{"id": id}, nil, gin.H{"id": id, "deleted": true}, true, nil)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "data": gin.H{"id": id, "deleted": true}})
 }
 
@@ -682,6 +705,100 @@ func (h *Handler) docs(c *gin.Context) {
 func (h *Handler) scalar(c *gin.Context) {
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, `<html><body><h1>Scalar Docs Placeholder</h1><p>OpenAPI JSON: <a href="/api/actions/openapi.json">/api/actions/openapi.json</a></p></body></html>`)
+}
+
+func (h *Handler) writeAudit(c *gin.Context, category, actionType string, target any, beforeValue any, afterValue any, success bool, errMsg *string) {
+	if h == nil || h.audit == nil || c == nil || c.Request == nil {
+		return
+	}
+	entry := &model.AuditLog{
+		ActionCategory: category,
+		ActionType:     actionType,
+		Success:        success,
+		ErrorMessage:   errMsg,
+		OperatorIP:     stringPointer(strings.TrimSpace(c.ClientIP())),
+		UserAgent:      stringPointer(strings.TrimSpace(c.Request.UserAgent())),
+	}
+	if authResult, ok := getAdminAuthResult(c); ok && authResult != nil {
+		if authResult.User != nil {
+			entry.OperatorUserID = &authResult.User.ID
+			entry.OperatorUserName = stringPointer(authResult.User.Name)
+		}
+		if authResult.Key != nil {
+			entry.OperatorKeyID = &authResult.Key.ID
+			entry.OperatorKeyName = stringPointer(authResult.Key.Name)
+		}
+	}
+	entry.TargetType, entry.TargetID, entry.TargetName = inferAuditTarget(target)
+	entry.BeforeValue = normalizeAuditPayload(beforeValue)
+	entry.AfterValue = normalizeAuditPayload(afterValue)
+	_ = h.audit.CreateAsync(c.Request.Context(), entry)
+}
+
+func getAdminAuthResult(c *gin.Context) (*authsvc.AuthResult, bool) {
+	if c == nil {
+		return nil, false
+	}
+	value, ok := c.Get(adminAuthResultContextKey)
+	if !ok {
+		return nil, false
+	}
+	result, ok := value.(*authsvc.AuthResult)
+	return result, ok && result != nil
+}
+
+func inferAuditTarget(target any) (*string, *string, *string) {
+	switch typed := target.(type) {
+	case *model.User:
+		if typed == nil {
+			return nil, nil, nil
+		}
+		return stringPointer("user"), stringPointer(strconv.Itoa(typed.ID)), stringPointer(typed.Name)
+	case *model.Key:
+		if typed == nil {
+			return nil, nil, nil
+		}
+		return stringPointer("key"), stringPointer(strconv.Itoa(typed.ID)), stringPointer(typed.Name)
+	case *model.Provider:
+		if typed == nil {
+			return nil, nil, nil
+		}
+		return stringPointer("provider"), stringPointer(strconv.Itoa(typed.ID)), stringPointer(typed.Name)
+	case gin.H:
+		if id, ok := typed["id"].(int); ok {
+			return nil, stringPointer(strconv.Itoa(id)), nil
+		}
+	}
+	return nil, nil, nil
+}
+
+func normalizeAuditPayload(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	switch typed := value.(type) {
+	case gin.H:
+		return map[string]any(typed)
+	case map[string]any:
+		return typed
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func stringPointer(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func resolveAdminToken(c *gin.Context) string {

@@ -76,3 +76,31 @@ func TestListBatchRejectsInvalidCursorTimestamp(t *testing.T) {
 		t.Fatalf("expected invalid cursor timestamp error, got %v", err)
 	}
 }
+
+func TestBuildUsageLedgerFromMessageRequestUsesFinalProviderFromChain(t *testing.T) {
+	statusCode := 201
+	inputTokens := 12
+	req := &model.MessageRequest{
+		ID:          7,
+		ProviderID:  1,
+		UserID:      2,
+		Key:         "proxy-key",
+		Model:       "gpt-5.4",
+		StatusCode:  &statusCode,
+		InputTokens: &inputTokens,
+		ProviderChain: []model.ProviderChainItem{
+			{ID: 1, Name: "primary"},
+			{ID: 9, Name: "final"},
+		},
+	}
+	entry := buildUsageLedgerFromMessageRequest(req)
+	if entry == nil {
+		t.Fatal("expected usage ledger entry")
+	}
+	if entry.RequestID != 7 || entry.ProviderID != 1 || entry.FinalProviderID != 9 {
+		t.Fatalf("expected final provider to come from provider chain, got %+v", entry)
+	}
+	if entry.InputTokens == nil || *entry.InputTokens != 12 {
+		t.Fatalf("expected input tokens copied, got %+v", entry)
+	}
+}

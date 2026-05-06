@@ -72,6 +72,7 @@ const (
 	CodeProviderTimeout     ErrorCode = "provider_timeout"
 	CodeProviderError       ErrorCode = "provider_error"
 	CodeEmptyResponse       ErrorCode = "empty_response"
+	CodeUpstreamError       ErrorCode = "upstream_error"
 
 	// 熔断错误
 	CodeCircuitOpen ErrorCode = "circuit_open"

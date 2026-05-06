@@ -550,10 +550,9 @@ func (r *keyRepository) FindKeyUsageToday(ctx context.Context, userID int, timez
 
 	// 构建消息请求子查询：今日的费用按 key 聚合
 	mrSubquery := r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
+		Model((*model.UsageLedger)(nil)).
 		Column("key").
 		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total_cost").
-		Where("deleted_at IS NULL").
 		Where(excludeWarmupConditionKey).
 		Where("created_at >= ?", startOfDay).
 		Where("created_at < ?", endOfDay).
@@ -596,10 +595,9 @@ func (r *keyRepository) FindKeyUsageTodayBatch(ctx context.Context, userIDs []in
 
 	// 构建消息请求子查询：今日的费用按 key 聚合
 	mrSubquery := r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
+		Model((*model.UsageLedger)(nil)).
 		Column("key").
 		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total_cost").
-		Where("deleted_at IS NULL").
 		Where(excludeWarmupConditionKey).
 		Where("created_at >= ?", startOfDay).
 		Where("created_at < ?", endOfDay).
@@ -669,11 +667,10 @@ func (r *keyRepository) FindKeysWithStatistics(ctx context.Context, userID int, 
 		Count int    `bun:"count"`
 	}
 	err = r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
+		Model((*model.UsageLedger)(nil)).
 		Column("key").
 		ColumnExpr("COUNT(*) AS count").
 		Where("key IN (?)", bun.In(keyStrings)).
-		Where("deleted_at IS NULL").
 		Where(excludeWarmupConditionKey).
 		Where("(created_at AT TIME ZONE ?)::date = (CURRENT_TIMESTAMP AT TIME ZONE ?)::date", timezone, timezone).
 		Group("key").
@@ -694,15 +691,14 @@ func (r *keyRepository) FindKeysWithStatistics(ctx context.Context, userID int, 
 		LastProviderName *string    `bun:"last_provider_name"`
 	}
 	err = r.db.NewSelect().
-		ColumnExpr("DISTINCT ON (mr.key) mr.key").
-		ColumnExpr("mr.created_at AS last_used_at").
+		ColumnExpr("DISTINCT ON (ul.key) ul.key").
+		ColumnExpr("ul.created_at AS last_used_at").
 		ColumnExpr("p.name AS last_provider_name").
-		TableExpr("message_request AS mr").
-		Join("INNER JOIN providers AS p ON mr.provider_id = p.id").
-		Where("mr.key IN (?)", bun.In(keyStrings)).
-		Where("mr.deleted_at IS NULL").
+		TableExpr("usage_ledger AS ul").
+		Join("INNER JOIN providers AS p ON ul.final_provider_id = p.id").
+		Where("ul.key IN (?)", bun.In(keyStrings)).
 		Where(excludeWarmupConditionKey).
-		OrderExpr("mr.key, mr.created_at DESC").
+		OrderExpr("ul.key, ul.created_at DESC").
 		Scan(ctx, &lastUsageRows)
 	if err != nil {
 		return nil, errors.NewDatabaseError(err)
@@ -729,12 +725,11 @@ func (r *keyRepository) FindKeysWithStatistics(ctx context.Context, userID int, 
 		TotalCost udecimal.Decimal `bun:"total_cost"`
 	}
 	err = r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
+		Model((*model.UsageLedger)(nil)).
 		Column("key", "model").
 		ColumnExpr("COUNT(*) AS call_count").
 		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total_cost").
 		Where("key IN (?)", bun.In(keyStrings)).
-		Where("deleted_at IS NULL").
 		Where(excludeWarmupConditionKey).
 		Where("(created_at AT TIME ZONE ?)::date = (CURRENT_TIMESTAMP AT TIME ZONE ?)::date", timezone, timezone).
 		Where("model IS NOT NULL").
@@ -812,11 +807,10 @@ func (r *keyRepository) FindKeysWithStatisticsBatch(ctx context.Context, userIDs
 		Count int    `bun:"count"`
 	}
 	err = r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
+		Model((*model.UsageLedger)(nil)).
 		Column("key").
 		ColumnExpr("COUNT(*) AS count").
 		Where("key IN (?)", bun.In(allKeyStrings)).
-		Where("deleted_at IS NULL").
 		Where(excludeWarmupConditionKey).
 		Where("(created_at AT TIME ZONE ?)::date = (CURRENT_TIMESTAMP AT TIME ZONE ?)::date", timezone, timezone).
 		Group("key").
@@ -836,15 +830,14 @@ func (r *keyRepository) FindKeysWithStatisticsBatch(ctx context.Context, userIDs
 		LastProviderName *string    `bun:"last_provider_name"`
 	}
 	err = r.db.NewSelect().
-		ColumnExpr("DISTINCT ON (mr.key) mr.key").
-		ColumnExpr("mr.created_at AS last_used_at").
+		ColumnExpr("DISTINCT ON (ul.key) ul.key").
+		ColumnExpr("ul.created_at AS last_used_at").
 		ColumnExpr("p.name AS last_provider_name").
-		TableExpr("message_request AS mr").
-		Join("INNER JOIN providers AS p ON mr.provider_id = p.id").
-		Where("mr.key IN (?)", bun.In(allKeyStrings)).
-		Where("mr.deleted_at IS NULL").
+		TableExpr("usage_ledger AS ul").
+		Join("INNER JOIN providers AS p ON ul.final_provider_id = p.id").
+		Where("ul.key IN (?)", bun.In(allKeyStrings)).
 		Where(excludeWarmupConditionKey).
-		OrderExpr("mr.key, mr.created_at DESC").
+		OrderExpr("ul.key, ul.created_at DESC").
 		Scan(ctx, &lastUsageRows)
 	if err != nil {
 		return nil, errors.NewDatabaseError(err)
@@ -871,12 +864,11 @@ func (r *keyRepository) FindKeysWithStatisticsBatch(ctx context.Context, userIDs
 		TotalCost udecimal.Decimal `bun:"total_cost"`
 	}
 	err = r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
+		Model((*model.UsageLedger)(nil)).
 		Column("key", "model").
 		ColumnExpr("COUNT(*) AS call_count").
 		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total_cost").
 		Where("key IN (?)", bun.In(allKeyStrings)).
-		Where("deleted_at IS NULL").
 		Where(excludeWarmupConditionKey).
 		Where("(created_at AT TIME ZONE ?)::date = (CURRENT_TIMESTAMP AT TIME ZONE ?)::date", timezone, timezone).
 		Where("model IS NOT NULL").

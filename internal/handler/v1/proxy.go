@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	stderrors "errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -47,6 +48,14 @@ type providerRepository interface {
 	GetActiveProviders(ctx context.Context) ([]*model.Provider, error)
 }
 
+type providerVendorStore interface {
+	GetByWebsiteDomain(ctx context.Context, domain string) (*model.ProviderVendor, error)
+}
+
+type providerEndpointStore interface {
+	ListActiveByVendorAndType(ctx context.Context, vendorID int, providerType string) ([]*model.ProviderEndpoint, error)
+}
+
 type messageRequestRepository interface {
 	Create(ctx context.Context, messageRequest *model.MessageRequest) (*model.MessageRequest, error)
 	UpdateTerminal(ctx context.Context, id int, update repository.MessageRequestTerminalUpdate) error
@@ -65,6 +74,18 @@ type proxyStatisticsStore interface {
 	SumProviderTotalCost(ctx context.Context, providerID int, resetAt *time.Time) (udecimal.Decimal, error)
 }
 
+type proxyRequestFilterStore interface {
+	ListActive(ctx context.Context) ([]*model.RequestFilter, error)
+}
+
+type proxySensitiveWordStore interface {
+	ListActive(ctx context.Context) ([]*model.SensitiveWord, error)
+}
+
+type proxyErrorRuleStore interface {
+	ListActive(ctx context.Context) ([]*model.ErrorRule, error)
+}
+
 type httpDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
@@ -72,13 +93,18 @@ type httpDoer interface {
 // Handler 承载 /v1 代理入口的最小可用接线。
 // 当前阶段先把鉴权链接入 Gin，后续再逐步替换 501 占位逻辑。
 type Handler struct {
-	auth        *authsvc.Service
-	sessions    sessionManager
-	providers   providerRepository
-	requestLogs messageRequestRepository
-	settings    proxySystemSettingsStore
-	stats       proxyStatisticsStore
-	http        httpDoer
+	auth              *authsvc.Service
+	sessions          sessionManager
+	providers         providerRepository
+	providerVendors   providerVendorStore
+	providerEndpoints providerEndpointStore
+	requestLogs       messageRequestRepository
+	settings          proxySystemSettingsStore
+	requestFilters    proxyRequestFilterStore
+	sensitiveWords    proxySensitiveWordStore
+	errorRules        proxyErrorRuleStore
+	stats             proxyStatisticsStore
+	http              httpDoer
 }
 
 type proxyEndpointKind string
@@ -95,12 +121,37 @@ func NewHandler(auth *authsvc.Service, sessions sessionManager, providers provid
 		httpClient = http.DefaultClient
 	}
 	var settingsStore proxySystemSettingsStore
+	var providerVendorRepo providerVendorStore
+	var providerEndpointRepo providerEndpointStore
+	var requestFilterStore proxyRequestFilterStore
+	var sensitiveWordStore proxySensitiveWordStore
+	var errorRuleStore proxyErrorRuleStore
 	var statsStore proxyStatisticsStore
 	for _, option := range options {
 		switch typed := option.(type) {
 		case proxySystemSettingsStore:
 			if settingsStore == nil {
 				settingsStore = typed
+			}
+		case providerVendorStore:
+			if providerVendorRepo == nil {
+				providerVendorRepo = typed
+			}
+		case providerEndpointStore:
+			if providerEndpointRepo == nil {
+				providerEndpointRepo = typed
+			}
+		case proxyRequestFilterStore:
+			if requestFilterStore == nil {
+				requestFilterStore = typed
+			}
+		case proxySensitiveWordStore:
+			if sensitiveWordStore == nil {
+				sensitiveWordStore = typed
+			}
+		case proxyErrorRuleStore:
+			if errorRuleStore == nil {
+				errorRuleStore = typed
 			}
 		case proxyStatisticsStore:
 			if statsStore == nil {
@@ -109,13 +160,18 @@ func NewHandler(auth *authsvc.Service, sessions sessionManager, providers provid
 		}
 	}
 	return &Handler{
-		auth:        auth,
-		sessions:    sessions,
-		providers:   providers,
-		requestLogs: requestLogs,
-		settings:    settingsStore,
-		stats:       statsStore,
-		http:        httpClient,
+		auth:              auth,
+		sessions:          sessions,
+		providers:         providers,
+		providerVendors:   providerVendorRepo,
+		providerEndpoints: providerEndpointRepo,
+		requestLogs:       requestLogs,
+		settings:          settingsStore,
+		requestFilters:    requestFilterStore,
+		sensitiveWords:    sensitiveWordStore,
+		errorRules:        errorRuleStore,
+		stats:             statsStore,
+		http:              httpClient,
 	}
 }
 
@@ -583,7 +639,32 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 
 	requestBody, requestBodyBytes, ok := decodeRequestBodyBytes(c)
 	if !ok {
-		writeAppError(c, appErrors.NewInvalidRequest("请求体不是合法 JSON"))
+		writeNormalizedProxyErrorResponse(c, http.StatusBadRequest, "请求体不是合法 JSON", "invalid_request_error", "")
+		return
+	}
+	var err error
+	if h.maybeRectifyRequestBody(requestBody, endpointKind) {
+		requestBodyBytes, err = json.Marshal(requestBody)
+		if err != nil {
+			writeAppError(c, appErrors.NewInternalError("规范化请求体失败").WithError(err))
+			return
+		}
+	}
+	globalChanged, err := h.applyGlobalRequestFilters(c, requestBody)
+	if err != nil {
+		if appErr := appErrorAs(err); appErr != nil && appErr.Type == appErrors.ErrorTypeInvalidRequest {
+			writeNormalizedProxyErrorResponse(c, appErr.HTTPStatus, appErr.Message, "invalid_request_error", "")
+			return
+		}
+		writeAppError(c, err)
+		return
+	}
+	if err := h.ensureNoSensitiveWords(requestBody); err != nil {
+		if appErr := appErrorAs(err); appErr != nil && appErr.Type == appErrors.ErrorTypeInvalidRequest {
+			writeNormalizedProxyErrorResponse(c, appErr.HTTPStatus, appErr.Message, "invalid_request_error", "")
+			return
+		}
+		writeAppError(c, err)
 		return
 	}
 	if h.shouldInterceptWarmup(c.Request.Context(), endpointKind, requestBody) {
@@ -604,6 +685,10 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 	originalModel := requestStringValue(requestBody["model"])
 	candidates, err := h.selectProvidersForEndpoint(c.Request.Context(), endpointKind, originalModel)
 	if err != nil {
+		if appErr := appErrorAs(err); appErr != nil && appErr.Code == appErrors.CodeNoProviderAvailable {
+			writeNormalizedProxyErrorResponse(c, appErr.HTTPStatus, appErr.Message, "no_available_providers", "")
+			return
+		}
 		writeAppError(c, err)
 		return
 	}
@@ -624,6 +709,18 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 			return
 		}
 		effectiveModel = redirectedModel
+	}
+	providerChanged, err := h.applyProviderRequestFilters(c, requestBody, provider)
+	if err != nil {
+		writeAppError(c, err)
+		return
+	}
+	if globalChanged || providerChanged {
+		requestBodyBytes, err = json.Marshal(requestBody)
+		if err != nil {
+			writeAppError(c, appErrors.NewInternalError("构建过滤后的请求体失败").WithError(err))
+			return
+		}
 	}
 
 	sessionID, _ := GetProxySessionID(c)
@@ -679,6 +776,9 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 		if provider.MaxRetryAttempts != nil && *provider.MaxRetryAttempts > 1 {
 			maxAttempts = *provider.MaxRetryAttempts
 		}
+		settingsSnapshot := h.currentProxySystemSettings()
+		signatureRetried := false
+		budgetRetried := false
 		upstreamResp = nil
 		lastTransportErr = nil
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -700,7 +800,112 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 
 			upstreamResp, err = h.http.Do(upstreamReq)
 			if err == nil {
-				circuitbreakersvc.RecordSuccess(provider)
+				if upstreamResp != nil && upstreamResp.StatusCode == http.StatusBadRequest &&
+					endpointKind == proxyEndpointMessages &&
+					(provider.ProviderType == string(model.ProviderTypeClaude) || provider.ProviderType == string(model.ProviderTypeClaudeAuth)) {
+					responseBody, readErr := io.ReadAll(upstreamResp.Body)
+					if readErr != nil {
+						upstreamResp.Body.Close()
+						lastTransportErr = readErr
+						break
+					}
+					errorMessage := extractUpstreamErrorMessage(responseBody)
+					retried := false
+					if !signatureRetried && thinkingSignatureRectifierEnabled(settingsSnapshot) && detectThinkingSignatureRectifierTrigger(errorMessage) != "" {
+						rectified := rectifyAnthropicRequestMessage(requestBody)
+						if rectified.Applied {
+							signatureRetried = true
+							retried = true
+						}
+					}
+					if !retried && !budgetRetried && thinkingBudgetRectifierEnabled(settingsSnapshot) && detectThinkingBudgetRectifierTrigger(errorMessage) {
+						rectified := rectifyThinkingBudget(requestBody)
+						if rectified.Applied {
+							budgetRetried = true
+							retried = true
+						}
+					}
+					if retried {
+						upstreamResp.Body.Close()
+						requestBodyBytes, err = json.Marshal(requestBody)
+						if err != nil {
+							writeAppError(c, appErrors.NewInternalError("重试前重建请求体失败").WithError(err))
+							return
+						}
+						if attempt == maxAttempts {
+							maxAttempts++
+						}
+						providerChain = append(providerChain, model.ProviderChainItem{
+							ID:              provider.ID,
+							Name:            provider.Name,
+							ProviderType:    stringPointer(provider.ProviderType),
+							EndpointURL:     stringPointer(provider.URL),
+							Reason:          stringPointer("rectifier_retry"),
+							SelectionMethod: stringPointer("same_provider_retry"),
+							Priority:        provider.Priority,
+							Weight:          provider.Weight,
+							CostMultiplier:  providerCostMultiplier(provider),
+							Timestamp:       int64Pointer(time.Now().UnixMilli()),
+							ErrorMessage:    stringPointer(errorMessage),
+						})
+						continue
+					}
+					upstreamResp.Body = io.NopCloser(bytes.NewReader(responseBody))
+				}
+				if upstreamResp != nil && providerIndex < len(candidates)-1 && !isStreamingResponse(upstreamResp.Header) {
+					responseBody, readErr := io.ReadAll(upstreamResp.Body)
+					if readErr != nil {
+						upstreamResp.Body.Close()
+						lastTransportErr = readErr
+						break
+					}
+					upstreamResp.Body.Close()
+					decision, decisionErr := h.evaluateUpstreamErrorDecision(c.Request.Context(), upstreamResp.StatusCode, responseBody)
+					if decisionErr != nil {
+						errorMessage := "应用错误规则失败"
+						h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+							StatusCode:    http.StatusInternalServerError,
+							DurationMs:    int(time.Since(startedAt).Milliseconds()),
+							ErrorMessage:  &errorMessage,
+							ProviderChain: finalizeProviderChain(providerChain, http.StatusInternalServerError, &errorMessage),
+						})
+						writeAppError(c, decisionErr)
+						return
+					}
+					if decision.FallbackReason != "" && decision.StatusCode >= http.StatusBadRequest {
+						if shouldCountFailureForCircuit(decision.StatusCode) {
+							circuitbreakersvc.RecordFailure(provider, false)
+						}
+						providerChain = append(providerChain, model.ProviderChainItem{
+							ID:              provider.ID,
+							Name:            provider.Name,
+							ProviderType:    stringPointer(provider.ProviderType),
+							EndpointURL:     stringPointer(provider.URL),
+							Reason:          stringPointer(decision.FallbackReason),
+							SelectionMethod: stringPointer("fallback"),
+							Priority:        provider.Priority,
+							Weight:          provider.Weight,
+							CostMultiplier:  providerCostMultiplier(provider),
+							Timestamp:       int64Pointer(time.Now().UnixMilli()),
+							StatusCode:      intPointer(decision.StatusCode),
+							ErrorMessage:    stringPointer(decision.ErrorMessage),
+						})
+						upstreamResp = nil
+						continue
+					}
+					upstreamResp = &http.Response{
+						Status:        upstreamResp.Status,
+						StatusCode:    upstreamResp.StatusCode,
+						Proto:         upstreamResp.Proto,
+						ProtoMajor:    upstreamResp.ProtoMajor,
+						ProtoMinor:    upstreamResp.ProtoMinor,
+						Header:        upstreamResp.Header.Clone(),
+						Body:          io.NopCloser(bytes.NewReader(responseBody)),
+						ContentLength: int64(len(responseBody)),
+						Request:       upstreamResp.Request,
+						TLS:           upstreamResp.TLS,
+					}
+				}
 				if attempt > 1 {
 					providerChain = append(providerChain, model.ProviderChainItem{
 						ID:              provider.ID,
@@ -789,12 +994,7 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 				ErrorMessage:  &timeoutMessage,
 				ProviderChain: finalizeProviderChain(providerChain, http.StatusGatewayTimeout, &timeoutMessage),
 			})
-			writeAppError(c, (&appErrors.AppError{
-				Type:       appErrors.ErrorTypeProviderError,
-				Message:    timeoutMessage,
-				Code:       appErrors.CodeProviderTimeout,
-				HTTPStatus: http.StatusGatewayTimeout,
-			}).WithError(lastTransportErr))
+			writeNormalizedProxyErrorResponse(c, http.StatusGatewayTimeout, timeoutMessage, "", "")
 			return
 		}
 		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
@@ -803,7 +1003,7 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 			ErrorMessage:  &errMsg,
 			ProviderChain: finalizeProviderChain(providerChain, http.StatusBadGateway, &errMsg),
 		})
-		writeAppError(c, appErrors.NewProviderError(errMsg, appErrors.CodeProviderError).WithError(lastTransportErr))
+		writeNormalizedProxyErrorResponse(c, http.StatusBadGateway, errMsg, "", "")
 		return
 	}
 	defer upstreamResp.Body.Close()
@@ -821,11 +1021,32 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 				h.sessions.UpdateCodexSessionWithPromptCacheKey(c.Request.Context(), sessionID, promptCacheKey, provider.ID)
 			}
 		}
-		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
-			StatusCode:    upstreamResp.StatusCode,
-			DurationMs:    int(time.Since(startedAt).Milliseconds()),
-			ProviderChain: finalizeProviderChain(baseProviderChain, upstreamResp.StatusCode, nil),
-		})
+		streamDecision, detectedStreamError, decisionErr := h.evaluateStreamingUpstreamDecision(c.Request.Context(), upstreamResp.StatusCode, streamMirror.Bytes())
+		if decisionErr != nil {
+			errorMessage := "应用流式错误规则失败"
+			h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+				StatusCode:    http.StatusInternalServerError,
+				DurationMs:    int(time.Since(startedAt).Milliseconds()),
+				ErrorMessage:  &errorMessage,
+				ProviderChain: finalizeProviderChain(providerChain, http.StatusInternalServerError, &errorMessage),
+			})
+			c.Error(decisionErr)
+			return
+		}
+		terminalUpdate := repository.MessageRequestTerminalUpdate{
+			StatusCode: streamDecision.StatusCode,
+			DurationMs: int(time.Since(startedAt).Milliseconds()),
+		}
+		if detectedStreamError && streamDecision.ErrorMessage != "" && streamDecision.StatusCode >= http.StatusBadRequest {
+			terminalUpdate.ErrorMessage = &streamDecision.ErrorMessage
+		}
+		terminalUpdate.ProviderChain = finalizeProviderChain(providerChain, terminalUpdate.StatusCode, terminalUpdate.ErrorMessage)
+		h.finalizeMessageRequest(c, messageRequestID, terminalUpdate)
+		if shouldCountFailureForCircuit(terminalUpdate.StatusCode) {
+			circuitbreakersvc.RecordFailure(provider, false)
+		} else if terminalUpdate.StatusCode >= http.StatusOK && terminalUpdate.StatusCode < http.StatusMultipleChoices {
+			circuitbreakersvc.RecordSuccess(provider)
+		}
 		return
 	}
 
@@ -846,7 +1067,30 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 			h.sessions.UpdateCodexSessionWithPromptCacheKey(c.Request.Context(), sessionID, promptCacheKey, provider.ID)
 		}
 	}
-	terminalUpdate := buildTerminalUpdate(endpointKind, upstreamResp.StatusCode, time.Since(startedAt), responseBody)
+	decision, err := h.evaluateUpstreamErrorDecision(c.Request.Context(), upstreamResp.StatusCode, responseBody)
+	if err != nil {
+		errorMessage := "应用错误规则失败"
+		h.finalizeMessageRequest(c, messageRequestID, repository.MessageRequestTerminalUpdate{
+			StatusCode:    http.StatusInternalServerError,
+			DurationMs:    int(time.Since(startedAt).Milliseconds()),
+			ErrorMessage:  &errorMessage,
+			ProviderChain: finalizeProviderChain(providerChain, http.StatusInternalServerError, &errorMessage),
+		})
+		writeAppError(c, err)
+		return
+	}
+	responseBody = decision.ResponseBody
+	if fixedBody, changed := h.maybeFixResponseBody(upstreamResp.Header, responseBody); changed {
+		responseBody = fixedBody
+	}
+	if decision.StatusCode >= http.StatusBadRequest && !decision.OverrideApplied {
+		responseBody = buildNormalizedProxyErrorResponseBody(decision.StatusCode, decision.ErrorMessage, decision.RequestID)
+		c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	}
+	terminalUpdate := buildTerminalUpdate(endpointKind, decision.StatusCode, time.Since(startedAt), responseBody)
+	if decision.ErrorMessage != "" && terminalUpdate.StatusCode >= http.StatusBadRequest {
+		terminalUpdate.ErrorMessage = &decision.ErrorMessage
+	}
 	terminalUpdate.ProviderChain = finalizeProviderChain(providerChain, terminalUpdate.StatusCode, terminalUpdate.ErrorMessage)
 	if shouldCountFailureForCircuit(terminalUpdate.StatusCode) {
 		circuitbreakersvc.RecordFailure(provider, false)
@@ -867,12 +1111,215 @@ func (h *Handler) proxyEndpoint(c *gin.Context, endpointKind proxyEndpointKind) 
 func writeAppError(c *gin.Context, err error) {
 	var appErr *appErrors.AppError
 	if stderrors.As(err, &appErr) {
+		if writeProxyNormalizedAppError(c, appErr) {
+			return
+		}
 		c.AbortWithStatusJSON(appErr.HTTPStatus, appErr.ToResponse())
 		return
 	}
 
 	fallback := appErrors.NewInternalError("代理鉴权失败")
 	c.AbortWithStatusJSON(fallback.HTTPStatus, fallback.ToResponse())
+}
+
+func appErrorAs(err error) *appErrors.AppError {
+	var appErr *appErrors.AppError
+	if stderrors.As(err, &appErr) {
+		return appErr
+	}
+	return nil
+}
+
+func writeProxyNormalizedAppError(c *gin.Context, appErr *appErrors.AppError) bool {
+	if c == nil || appErr == nil {
+		return false
+	}
+	switch appErr.Type {
+	case appErrors.ErrorTypeAuthentication:
+		writeNormalizedProxyErrorResponse(c, appErr.HTTPStatus, appErr.Message, proxyAuthenticationErrorType(appErr.Code), "")
+		return true
+	case appErrors.ErrorTypePermissionDenied:
+		writeNormalizedProxyErrorResponse(c, appErr.HTTPStatus, appErr.Message, "permission_error", "")
+		return true
+	case appErrors.ErrorTypeInvalidRequest:
+		writeNormalizedProxyErrorResponse(c, appErr.HTTPStatus, appErr.Message, "invalid_request_error", "")
+		return true
+	case appErrors.ErrorTypeRateLimitError:
+		writeNormalizedProxyRateLimitErrorResponse(c, appErr)
+		return true
+	default:
+		return false
+	}
+}
+
+func proxyAuthenticationErrorType(code appErrors.ErrorCode) string {
+	switch code {
+	case appErrors.CodeInvalidAPIKey, appErrors.CodeDisabledAPIKey, appErrors.CodeExpiredAPIKey:
+		return "invalid_api_key"
+	case appErrors.CodeDisabledUser:
+		return "user_disabled"
+	case appErrors.CodeUserExpired:
+		return "user_expired"
+	default:
+		return "authentication_error"
+	}
+}
+
+func writeNormalizedProxyRateLimitErrorResponse(c *gin.Context, appErr *appErrors.AppError) {
+	if c == nil || appErr == nil {
+		return
+	}
+	limitType := proxyRateLimitType(appErr.Code)
+	current := proxyRateLimitDetailValue(appErr.Details, "current")
+	limit := proxyRateLimitDetailValue(appErr.Details, "limit")
+	resetTime := proxyRateLimitResetTime(appErr.Details)
+
+	errorBody := map[string]any{
+		"type":       "rate_limit_error",
+		"message":    strings.TrimSpace(appErr.Message),
+		"code":       "rate_limit_exceeded",
+		"limit_type": limitType,
+		"current":    current,
+		"limit":      limit,
+		"reset_time": resetTime,
+	}
+	if errorBody["message"] == "" {
+		errorBody["message"] = http.StatusText(appErr.HTTPStatus)
+	}
+	body, err := json.Marshal(map[string]any{"error": errorBody})
+	if err != nil {
+		body = []byte(`{"error":{"type":"rate_limit_error","message":"` + http.StatusText(appErr.HTTPStatus) + `","code":"rate_limit_exceeded"}}`)
+	}
+
+	if limit != nil {
+		c.Header("X-RateLimit-Limit", stringifyHeaderValue(limit))
+	}
+	if limitType != "" {
+		c.Header("X-RateLimit-Type", limitType)
+	}
+	if remaining, ok := proxyRateLimitRemaining(limit, current); ok {
+		c.Header("X-RateLimit-Remaining", remaining)
+	}
+	if resetTime != nil {
+		if resetAt, ok := resetTime.(string); ok && strings.TrimSpace(resetAt) != "" {
+			c.Header("X-RateLimit-Reset", strings.TrimSpace(resetAt))
+		}
+	}
+
+	c.Abort()
+	c.Data(appErr.HTTPStatus, "application/json; charset=utf-8", body)
+}
+
+func proxyRateLimitType(code appErrors.ErrorCode) string {
+	switch code {
+	case appErrors.CodeConcurrentSessionsExceeded:
+		return "concurrent_sessions"
+	case appErrors.CodeRPMLimitExceeded:
+		return "rpm"
+	case appErrors.Code5HLimitExceeded:
+		return "usd_5h"
+	case appErrors.CodeDailyLimitExceeded:
+		return "daily_quota"
+	case appErrors.CodeWeeklyLimitExceeded:
+		return "usd_weekly"
+	case appErrors.CodeMonthlyLimitExceeded:
+		return "usd_monthly"
+	case appErrors.CodeTotalLimitExceeded:
+		return "usd_total"
+	default:
+		return "rate_limit"
+	}
+}
+
+func proxyRateLimitDetailValue(details map[string]interface{}, key string) any {
+	if details == nil {
+		return nil
+	}
+	value, ok := details[key]
+	if !ok {
+		return nil
+	}
+	switch typed := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return nil
+		}
+		if parsed, err := strconv.ParseFloat(trimmed, 64); err == nil {
+			return parsed
+		}
+		return trimmed
+	case int:
+		return typed
+	case int64:
+		return typed
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	default:
+		return typed
+	}
+}
+
+func proxyRateLimitResetTime(details map[string]interface{}) any {
+	if details == nil {
+		return nil
+	}
+	for _, key := range []string{"reset_time", "resetTime"} {
+		if value, ok := details[key]; ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func stringifyHeaderValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case float32:
+		return strconv.FormatFloat(float64(typed), 'f', -1, 64)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func proxyRateLimitRemaining(limit any, current any) (string, bool) {
+	limitFloat, okLimit := asFloat64(limit)
+	currentFloat, okCurrent := asFloat64(current)
+	if !okLimit || !okCurrent {
+		return "", false
+	}
+	remaining := limitFloat - currentFloat
+	if remaining < 0 {
+		remaining = 0
+	}
+	return strconv.FormatFloat(remaining, 'f', -1, 64), true
+}
+
+func asFloat64(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(typed), 64)
+		return parsed, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func shouldTrackConcurrentRequests(c *gin.Context) bool {
@@ -1060,6 +1507,104 @@ func randomWarmupSuffix() string {
 	return hex.EncodeToString(buf[:])
 }
 
+func (h *Handler) expandProviderEndpointCandidates(ctx context.Context, provider *model.Provider) []*model.Provider {
+	if provider == nil {
+		return nil
+	}
+	if h == nil || h.providerVendors == nil || h.providerEndpoints == nil {
+		return []*model.Provider{provider}
+	}
+	domain := providerVendorDomain(provider)
+	if domain == "" {
+		return []*model.Provider{provider}
+	}
+	vendor, err := h.providerVendors.GetByWebsiteDomain(ctx, domain)
+	if err != nil || vendor == nil || vendor.ID <= 0 {
+		return []*model.Provider{provider}
+	}
+	endpoints, err := h.providerEndpoints.ListActiveByVendorAndType(ctx, vendor.ID, provider.ProviderType)
+	if err != nil || len(endpoints) == 0 {
+		return []*model.Provider{provider}
+	}
+	endpoints = orderedProviderEndpointsForRouting(endpoints)
+	candidates := make([]*model.Provider, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if !endpoint.IsActive() || strings.TrimSpace(endpoint.URL) == "" {
+			continue
+		}
+		providerCopy := *provider
+		providerCopy.URL = strings.TrimSpace(endpoint.URL)
+		candidates = append(candidates, &providerCopy)
+	}
+	if len(candidates) == 0 {
+		return []*model.Provider{provider}
+	}
+	return candidates
+}
+
+func providerVendorDomain(provider *model.Provider) string {
+	if provider == nil {
+		return ""
+	}
+	if provider.WebsiteUrl != nil && strings.TrimSpace(*provider.WebsiteUrl) != "" {
+		return normalizedHostname(*provider.WebsiteUrl)
+	}
+	return normalizedHostname(provider.URL)
+}
+
+func normalizedHostname(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(rawURL)
+	if err == nil {
+		if host := strings.TrimSpace(parsed.Hostname()); host != "" {
+			return strings.ToLower(host)
+		}
+	}
+	// url.Parse("example.com/path") treats the value as a path. Add a scheme and retry.
+	if !strings.Contains(rawURL, "://") {
+		if parsed, err := url.Parse("https://" + rawURL); err == nil {
+			if host := strings.TrimSpace(parsed.Hostname()); host != "" {
+				return strings.ToLower(host)
+			}
+		}
+	}
+	return strings.ToLower(rawURL)
+}
+
+func orderedProviderEndpointsForRouting(endpoints []*model.ProviderEndpoint) []*model.ProviderEndpoint {
+	items := make([]*model.ProviderEndpoint, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		if endpoint != nil {
+			items = append(items, endpoint)
+		}
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		leftRank := providerEndpointProbeRank(items[i])
+		rightRank := providerEndpointProbeRank(items[j])
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+		if items[i].SortOrder != items[j].SortOrder {
+			return items[i].SortOrder < items[j].SortOrder
+		}
+		return items[i].ID < items[j].ID
+	})
+	return items
+}
+
+func providerEndpointProbeRank(endpoint *model.ProviderEndpoint) int {
+	if endpoint == nil || endpoint.LastProbeOk == nil {
+		return 1
+	}
+	if *endpoint.LastProbeOk {
+		return 0
+	}
+	return 2
+}
+
 func (h *Handler) selectProviderForEndpoint(ctx context.Context, endpointKind proxyEndpointKind, requestedModel string) (*model.Provider, error) {
 	candidates, err := h.selectProvidersForEndpoint(ctx, endpointKind, requestedModel)
 	if err != nil {
@@ -1136,7 +1681,7 @@ func (h *Handler) selectProvidersForEndpoint(ctx context.Context, endpointKind p
 				}
 			}
 		}
-		candidates = append(candidates, provider)
+		candidates = append(candidates, h.expandProviderEndpointCandidates(ctx, provider)...)
 	}
 
 	sort.SliceStable(candidates, func(i, j int) bool {
@@ -1592,6 +2137,101 @@ func extractErrorMessage(payload map[string]any) string {
 		return strings.TrimSpace(message)
 	}
 	return ""
+}
+
+func buildNormalizedProxyErrorResponseBody(statusCode int, message string, requestID string) []byte {
+	return buildNormalizedProxyErrorResponseBodyWithType(statusCode, message, "", requestID)
+}
+
+func buildNormalizedProxyErrorResponseBodyWithType(statusCode int, message string, errorType string, requestID string) []byte {
+	if strings.TrimSpace(errorType) == "" {
+		errorType = proxyErrorTypeForStatus(statusCode)
+	}
+	payload := map[string]any{
+		"error": map[string]any{
+			"message": strings.TrimSpace(message),
+			"type":    errorType,
+			"code":    proxyErrorCodeForStatus(statusCode, errorType),
+		},
+	}
+	if payload["error"].(map[string]any)["message"] == "" {
+		payload["error"].(map[string]any)["message"] = http.StatusText(statusCode)
+	}
+	if strings.TrimSpace(requestID) != "" {
+		payload["request_id"] = strings.TrimSpace(requestID)
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return []byte(`{"error":{"message":"` + http.StatusText(statusCode) + `","type":"api_error","code":"api_error"}}`)
+	}
+	return body
+}
+
+func writeNormalizedProxyErrorResponse(c *gin.Context, statusCode int, message string, errorType string, requestID string) {
+	if c == nil {
+		return
+	}
+	body := buildNormalizedProxyErrorResponseBodyWithType(statusCode, message, errorType, requestID)
+	c.Header("Content-Type", "application/json; charset=utf-8")
+	c.Abort()
+	c.Data(statusCode, "application/json; charset=utf-8", body)
+}
+
+func proxyErrorTypeForStatus(statusCode int) string {
+	switch statusCode {
+	case http.StatusBadRequest:
+		return "invalid_request_error"
+	case http.StatusUnauthorized:
+		return "authentication_error"
+	case http.StatusPaymentRequired:
+		return "payment_required_error"
+	case http.StatusForbidden:
+		return "permission_error"
+	case http.StatusNotFound:
+		return "not_found_error"
+	case http.StatusTooManyRequests:
+		return "rate_limit_error"
+	case http.StatusInternalServerError:
+		return "internal_server_error"
+	case http.StatusBadGateway:
+		return "bad_gateway_error"
+	case http.StatusServiceUnavailable:
+		return "service_unavailable_error"
+	case http.StatusGatewayTimeout:
+		return "gateway_timeout_error"
+	default:
+		return "api_error"
+	}
+}
+
+func proxyErrorCodeForStatus(statusCode int, errorType string) string {
+	if strings.TrimSpace(errorType) != "" && errorType != "api_error" {
+		return errorType
+	}
+	switch statusCode {
+	case http.StatusBadRequest:
+		return "invalid_request"
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusPaymentRequired:
+		return "payment_required"
+	case http.StatusForbidden:
+		return "forbidden"
+	case http.StatusNotFound:
+		return "not_found"
+	case http.StatusTooManyRequests:
+		return "rate_limit_exceeded"
+	case http.StatusInternalServerError:
+		return "internal_error"
+	case http.StatusBadGateway:
+		return "bad_gateway"
+	case http.StatusServiceUnavailable:
+		return "service_unavailable"
+	case http.StatusGatewayTimeout:
+		return "gateway_timeout"
+	default:
+		return "http_" + strconv.Itoa(statusCode)
+	}
 }
 
 func extractCodexPromptCacheKey(responseBody []byte) string {

@@ -4,7 +4,7 @@
     "method": "POST",
     "path": "/v1/messages",
     "expected_status": 401,
-    "expected_error_code": "token_required",
+    "expected_error_code": "authentication_error",
     "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:104-145"
   },
   {
@@ -16,7 +16,7 @@
       "x-api-key": "key-b"
     },
     "expected_status": 401,
-    "expected_error_code": "invalid_credentials",
+    "expected_error_code": "authentication_error",
     "node_evidence": "src/app/v1/_lib/proxy/auth-guard.ts:147-165"
   },
   {

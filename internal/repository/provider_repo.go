@@ -543,48 +543,28 @@ func (r *providerRepository) GetProviderStatistics(ctx context.Context, timezone
 				p.id,
 				COALESCE(
 					SUM(CASE
-						WHEN (mr.created_at AT TIME ZONE $1)::date = (CURRENT_TIMESTAMP AT TIME ZONE $1)::date
-							AND (
-								-- 情况1：无重试（provider_chain 为 NULL 或空数组），使用 provider_id
-								(mr.provider_chain IS NULL OR jsonb_array_length(mr.provider_chain) = 0) AND mr.provider_id = p.id
-								OR
-								-- 情况2：有重试，使用 providerChain 最后一项的 id
-								(mr.provider_chain IS NOT NULL AND jsonb_array_length(mr.provider_chain) > 0
-								 AND (mr.provider_chain->-1->>'id')::int = p.id)
-							)
-						THEN mr.cost_usd ELSE 0 END),
+						WHEN (ul.created_at AT TIME ZONE $1)::date = (CURRENT_TIMESTAMP AT TIME ZONE $1)::date
+							AND ul.final_provider_id = p.id
+						THEN ul.cost_usd ELSE 0 END),
 					0
 				) AS today_cost,
 				COUNT(CASE
-					WHEN (mr.created_at AT TIME ZONE $1)::date = (CURRENT_TIMESTAMP AT TIME ZONE $1)::date
-						AND (
-							(mr.provider_chain IS NULL OR jsonb_array_length(mr.provider_chain) = 0) AND mr.provider_id = p.id
-							OR
-							(mr.provider_chain IS NOT NULL AND jsonb_array_length(mr.provider_chain) > 0
-							 AND (mr.provider_chain->-1->>'id')::int = p.id)
-						)
+					WHEN (ul.created_at AT TIME ZONE $1)::date = (CURRENT_TIMESTAMP AT TIME ZONE $1)::date
+						AND ul.final_provider_id = p.id
 					THEN 1 END)::integer AS today_calls
 			FROM providers p
-			-- 性能优化：添加日期过滤条件，仅扫描今日数据
-			LEFT JOIN message_request mr ON mr.deleted_at IS NULL
-				AND ` + excludeWarmupConditionProvider + `
-				AND mr.created_at >= (CURRENT_DATE AT TIME ZONE $1)
+			LEFT JOIN usage_ledger ul ON ul.blocked_by IS NULL
+				AND ul.created_at >= (CURRENT_DATE AT TIME ZONE $1)
 			WHERE p.deleted_at IS NULL
 			GROUP BY p.id
 		),
 		latest_call AS (
 			SELECT DISTINCT ON (final_provider_id)
-				-- 计算最终供应商ID：优先使用 providerChain 最后一项的 id
-				CASE
-					WHEN provider_chain IS NULL OR jsonb_array_length(provider_chain) = 0 THEN provider_id
-					ELSE (provider_chain->-1->>'id')::int
-				END AS final_provider_id,
+				final_provider_id,
 				created_at AS last_call_time,
 				model AS last_call_model
-			FROM message_request
-			-- 性能优化：添加 7 天时间范围限制
-			WHERE deleted_at IS NULL
-				AND ` + excludeWarmupConditionProvider + `
+			FROM usage_ledger
+			WHERE blocked_by IS NULL
 				AND created_at >= (CURRENT_DATE AT TIME ZONE $1 - INTERVAL '7 days')
 			ORDER BY final_provider_id, created_at DESC
 		)

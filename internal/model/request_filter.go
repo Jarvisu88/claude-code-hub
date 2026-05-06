@@ -6,59 +6,45 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// RequestFilter 请求过滤器模型
+// RequestFilter represents an admin-managed request filter rule.
 type RequestFilter struct {
 	bun.BaseModel `bun:"table:request_filters,alias:rf"`
 
 	ID          int     `bun:"id,pk,autoincrement" json:"id"`
 	Name        string  `bun:"name,notnull" json:"name"`
 	Description *string `bun:"description" json:"description"`
+	Scope       string  `bun:"scope,notnull" json:"scope"`
+	Action      string  `bun:"action,notnull" json:"action"`
+	MatchType   *string `bun:"match_type" json:"matchType"`
+	Target      string  `bun:"target,notnull" json:"target"`
+	Replacement any     `bun:"replacement,type:jsonb" json:"replacement"`
+	Priority    int     `bun:"priority,notnull,default:0" json:"priority"`
+	IsEnabled   bool    `bun:"is_enabled,notnull,default:true" json:"isEnabled"`
 
-	// 作用域：header 或 body
-	Scope string `bun:"scope,notnull" json:"scope"` // header, body
+	BindingType string   `bun:"binding_type,notnull,default:'global'" json:"bindingType"`
+	ProviderIds []int    `bun:"provider_ids,type:jsonb" json:"providerIds"`
+	GroupTags   []string `bun:"group_tags,type:jsonb" json:"groupTags"`
 
-	// 动作类型
-	Action string `bun:"action,notnull" json:"action"` // remove, set, json_path, text_replace
+	RuleMode       string           `bun:"rule_mode,notnull,default:'simple'" json:"ruleMode"`
+	ExecutionPhase string           `bun:"execution_phase,notnull,default:'guard'" json:"executionPhase"`
+	Operations     []map[string]any `bun:"operations,type:jsonb" json:"operations"`
 
-	// 匹配类型（可选）
-	MatchType *string `bun:"match_type" json:"matchType"`
-
-	// 目标（要匹配/操作的字段或路径）
-	Target string `bun:"target,notnull" json:"target"`
-
-	// 替换值（JSONB）
-	Replacement interface{} `bun:"replacement,type:jsonb" json:"replacement"`
-
-	// 优先级
-	Priority int `bun:"priority,notnull,default:0" json:"priority"`
-
-	// 是否启用
-	IsEnabled bool `bun:"is_enabled,notnull,default:true" json:"isEnabled"`
-
-	// 绑定类型
-	BindingType string `bun:"binding_type,notnull,default:'global'" json:"bindingType"` // global, providers, groups
-
-	// 绑定的供应商 ID 列表
-	ProviderIds []int `bun:"provider_ids,type:jsonb" json:"providerIds"`
-
-	// 绑定的分组标签列表
-	GroupTags []string `bun:"group_tags,type:jsonb" json:"groupTags"`
-
-	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"createdAt"`
-	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updatedAt"`
+	CreatedAt time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"createdAt"`
+	UpdatedAt time.Time  `bun:"updated_at,notnull,default:current_timestamp" json:"updatedAt"`
+	DeletedAt *time.Time `bun:"deleted_at,soft_delete" json:"deletedAt,omitempty"`
 }
 
-// IsActive 检查请求过滤器是否处于活跃状态
+// IsActive reports whether the filter should be considered active.
 func (r *RequestFilter) IsActive() bool {
-	return r.IsEnabled
+	return r.IsEnabled && r.DeletedAt == nil
 }
 
-// IsGlobal 检查是否为全局过滤器
+// IsGlobal reports whether the filter applies globally.
 func (r *RequestFilter) IsGlobal() bool {
 	return r.BindingType == string(RequestFilterBindingTypeGlobal)
 }
 
-// AppliesToProvider 检查过滤器是否适用于指定供应商
+// AppliesToProvider reports whether the filter applies to the provider/group pair.
 func (r *RequestFilter) AppliesToProvider(providerID int, groupTag *string) bool {
 	if r.IsGlobal() {
 		return true

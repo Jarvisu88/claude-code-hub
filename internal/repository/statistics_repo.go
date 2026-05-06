@@ -190,13 +190,13 @@ func (r *statisticsRepository) GetUserStatistics(ctx context.Context, timeRange 
 					u.id AS user_id,
 					u.name AS user_name,
 					hr.hour,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM users u
 				CROSS JOIN hour_range hr
-				LEFT JOIN message_request mr ON u.id = mr.user_id
-					AND DATE_TRUNC('hour', mr.created_at AT TIME ZONE $1) = hr.hour
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON u.id = ul.user_id
+					AND DATE_TRUNC('hour', ul.created_at AT TIME ZONE $1) = hr.hour
+					AND ` + excludeWarmupCondition + `
 				WHERE u.deleted_at IS NULL
 				GROUP BY u.id, u.name, hr.hour
 			)
@@ -223,13 +223,13 @@ func (r *statisticsRepository) GetUserStatistics(ctx context.Context, timeRange 
 					u.id AS user_id,
 					u.name AS user_name,
 					dr.date,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM users u
 				CROSS JOIN date_range dr
-				LEFT JOIN message_request mr ON u.id = mr.user_id
-					AND (mr.created_at AT TIME ZONE $1)::date = dr.date
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON u.id = ul.user_id
+					AND (ul.created_at AT TIME ZONE $1)::date = dr.date
+					AND ` + excludeWarmupCondition + `
 				WHERE u.deleted_at IS NULL
 				GROUP BY u.id, u.name, dr.date
 			)
@@ -256,13 +256,13 @@ func (r *statisticsRepository) GetUserStatistics(ctx context.Context, timeRange 
 					u.id AS user_id,
 					u.name AS user_name,
 					dr.date,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM users u
 				CROSS JOIN date_range dr
-				LEFT JOIN message_request mr ON u.id = mr.user_id
-					AND (mr.created_at AT TIME ZONE $1)::date = dr.date
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON u.id = ul.user_id
+					AND (ul.created_at AT TIME ZONE $1)::date = dr.date
+					AND ` + excludeWarmupCondition + `
 				WHERE u.deleted_at IS NULL
 				GROUP BY u.id, u.name, dr.date
 			)
@@ -289,13 +289,13 @@ func (r *statisticsRepository) GetUserStatistics(ctx context.Context, timeRange 
 					u.id AS user_id,
 					u.name AS user_name,
 					dr.date,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM users u
 				CROSS JOIN date_range dr
-				LEFT JOIN message_request mr ON u.id = mr.user_id
-					AND (mr.created_at AT TIME ZONE $1)::date = dr.date
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON u.id = ul.user_id
+					AND (ul.created_at AT TIME ZONE $1)::date = dr.date
+					AND ` + excludeWarmupCondition + `
 				WHERE u.deleted_at IS NULL
 				GROUP BY u.id, u.name, dr.date
 			)
@@ -350,14 +350,14 @@ func (r *statisticsRepository) GetKeyStatistics(ctx context.Context, userID int,
 					k.id AS key_id,
 					k.name AS key_name,
 					hr.hour,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM user_keys k
 				CROSS JOIN hour_range hr
-				LEFT JOIN message_request mr ON mr.key = k.key
-					AND mr.user_id = $2
-					AND DATE_TRUNC('hour', mr.created_at AT TIME ZONE $1) = hr.hour
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON ul.key = k.key
+					AND ul.user_id = $2
+					AND DATE_TRUNC('hour', ul.created_at AT TIME ZONE $1) = hr.hour
+					AND ` + excludeWarmupCondition + `
 				GROUP BY k.id, k.name, hr.hour
 			)
 			SELECT
@@ -389,14 +389,14 @@ func (r *statisticsRepository) GetKeyStatistics(ctx context.Context, userID int,
 					k.id AS key_id,
 					k.name AS key_name,
 					dr.date,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM user_keys k
 				CROSS JOIN date_range dr
-				LEFT JOIN message_request mr ON mr.key = k.key
-					AND mr.user_id = $2
-					AND (mr.created_at AT TIME ZONE $1)::date = dr.date
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON ul.key = k.key
+					AND ul.user_id = $2
+					AND (ul.created_at AT TIME ZONE $1)::date = dr.date
+					AND ` + excludeWarmupCondition + `
 				GROUP BY k.id, k.name, dr.date
 			)
 			SELECT
@@ -428,14 +428,14 @@ func (r *statisticsRepository) GetKeyStatistics(ctx context.Context, userID int,
 					k.id AS key_id,
 					k.name AS key_name,
 					dr.date,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM user_keys k
 				CROSS JOIN date_range dr
-				LEFT JOIN message_request mr ON mr.key = k.key
-					AND mr.user_id = $2
-					AND (mr.created_at AT TIME ZONE $1)::date = dr.date
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON ul.key = k.key
+					AND ul.user_id = $2
+					AND (ul.created_at AT TIME ZONE $1)::date = dr.date
+					AND ` + excludeWarmupCondition + `
 				GROUP BY k.id, k.name, dr.date
 			)
 			SELECT
@@ -467,14 +467,14 @@ func (r *statisticsRepository) GetKeyStatistics(ctx context.Context, userID int,
 					k.id AS key_id,
 					k.name AS key_name,
 					dr.date,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM user_keys k
 				CROSS JOIN date_range dr
-				LEFT JOIN message_request mr ON mr.key = k.key
-					AND mr.user_id = $2
-					AND (mr.created_at AT TIME ZONE $1)::date = dr.date
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON ul.key = k.key
+					AND ul.user_id = $2
+					AND (ul.created_at AT TIME ZONE $1)::date = dr.date
+					AND ` + excludeWarmupCondition + `
 				GROUP BY k.id, k.name, dr.date
 			)
 			SELECT
@@ -521,12 +521,12 @@ func (r *statisticsRepository) GetMixedStatistics(ctx context.Context, userID in
 			hourly_stats AS (
 				SELECT
 					hr.hour,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM hour_range hr
-				LEFT JOIN message_request mr ON DATE_TRUNC('hour', mr.created_at AT TIME ZONE $1) = hr.hour
-					AND mr.user_id != $2
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON DATE_TRUNC('hour', ul.created_at AT TIME ZONE $1) = hr.hour
+					AND ul.user_id != $2
+					AND ` + excludeWarmupCondition + `
 				GROUP BY hr.hour
 			)
 			SELECT
@@ -550,12 +550,12 @@ func (r *statisticsRepository) GetMixedStatistics(ctx context.Context, userID in
 			daily_stats AS (
 				SELECT
 					dr.date,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM date_range dr
-				LEFT JOIN message_request mr ON (mr.created_at AT TIME ZONE $1)::date = dr.date
-					AND mr.user_id != $2
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON (ul.created_at AT TIME ZONE $1)::date = dr.date
+					AND ul.user_id != $2
+					AND ` + excludeWarmupCondition + `
 				GROUP BY dr.date
 			)
 			SELECT
@@ -579,12 +579,12 @@ func (r *statisticsRepository) GetMixedStatistics(ctx context.Context, userID in
 			daily_stats AS (
 				SELECT
 					dr.date,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM date_range dr
-				LEFT JOIN message_request mr ON (mr.created_at AT TIME ZONE $1)::date = dr.date
-					AND mr.user_id != $2
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON (ul.created_at AT TIME ZONE $1)::date = dr.date
+					AND ul.user_id != $2
+					AND ` + excludeWarmupCondition + `
 				GROUP BY dr.date
 			)
 			SELECT
@@ -608,12 +608,12 @@ func (r *statisticsRepository) GetMixedStatistics(ctx context.Context, userID in
 			daily_stats AS (
 				SELECT
 					dr.date,
-					COUNT(mr.id) AS api_calls,
-					COALESCE(SUM(mr.cost_usd), 0) AS total_cost
+					COUNT(ul.id) AS api_calls,
+					COALESCE(SUM(ul.cost_usd), 0) AS total_cost
 				FROM date_range dr
-				LEFT JOIN message_request mr ON (mr.created_at AT TIME ZONE $1)::date = dr.date
-					AND mr.user_id != $2
-					AND mr.deleted_at IS NULL AND ` + excludeWarmupCondition + `
+				LEFT JOIN usage_ledger ul ON (ul.created_at AT TIME ZONE $1)::date = dr.date
+					AND ul.user_id != $2
+					AND ` + excludeWarmupCondition + `
 				GROUP BY dr.date
 			)
 			SELECT
@@ -683,14 +683,7 @@ func (r *statisticsRepository) SumUserCostInTimeRange(ctx context.Context, userI
 		Total udecimal.Decimal `bun:"total"`
 	}
 
-	err := r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
-		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total").
-		Where("user_id = ?", userID).
-		Where("created_at >= ?", startTime).
-		Where("created_at < ?", endTime).
-		Where("deleted_at IS NULL").
-		Where(excludeWarmupCondition).
+	err := buildUsageLedgerCostSumQuery(r.db, "user_id = ?", userID, &startTime, &endTime).
 		Scan(ctx, &result)
 
 	if err != nil {
@@ -728,14 +721,7 @@ func (r *statisticsRepository) SumKeyCostInTimeRangeByKeyString(ctx context.Cont
 		Total udecimal.Decimal `bun:"total"`
 	}
 
-	err := r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
-		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total").
-		Where("key = ?", keyStr).
-		Where("created_at >= ?", startTime).
-		Where("created_at < ?", endTime).
-		Where("deleted_at IS NULL").
-		Where(excludeWarmupCondition).
+	err := buildUsageLedgerCostSumQuery(r.db, "\"key\" = ?", keyStr, &startTime, &endTime).
 		Scan(ctx, &result)
 
 	if err != nil {
@@ -751,14 +737,7 @@ func (r *statisticsRepository) SumProviderCostInTimeRange(ctx context.Context, p
 		Total udecimal.Decimal `bun:"total"`
 	}
 
-	err := r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
-		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total").
-		Where("provider_id = ?", providerID).
-		Where("created_at >= ?", startTime).
-		Where("created_at < ?", endTime).
-		Where("deleted_at IS NULL").
-		Where(excludeWarmupCondition).
+	err := buildUsageLedgerCostSumQuery(r.db, "final_provider_id = ?", providerID, &startTime, &endTime).
 		Scan(ctx, &result)
 
 	if err != nil {
@@ -780,13 +759,7 @@ func (r *statisticsRepository) SumUserTotalCost(ctx context.Context, userID int,
 		Total udecimal.Decimal `bun:"total"`
 	}
 
-	err := r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
-		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total").
-		Where("user_id = ?", userID).
-		Where("created_at >= ?", cutoffDate).
-		Where("deleted_at IS NULL").
-		Where(excludeWarmupCondition).
+	err := buildUsageLedgerCostSumQuery(r.db, "user_id = ?", userID, &cutoffDate, nil).
 		Scan(ctx, &result)
 
 	if err != nil {
@@ -808,13 +781,7 @@ func (r *statisticsRepository) SumKeyTotalCost(ctx context.Context, keyStr strin
 		Total udecimal.Decimal `bun:"total"`
 	}
 
-	err := r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
-		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total").
-		Where("key = ?", keyStr).
-		Where("created_at >= ?", cutoffDate).
-		Where("deleted_at IS NULL").
-		Where(excludeWarmupCondition).
+	err := buildUsageLedgerCostSumQuery(r.db, "\"key\" = ?", keyStr, &cutoffDate, nil).
 		Scan(ctx, &result)
 
 	if err != nil {
@@ -830,12 +797,7 @@ func (r *statisticsRepository) SumProviderTotalCost(ctx context.Context, provide
 		Total udecimal.Decimal `bun:"total"`
 	}
 
-	query := r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
-		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total").
-		Where("provider_id = ?", providerID).
-		Where("deleted_at IS NULL").
-		Where(excludeWarmupCondition)
+	query := buildUsageLedgerCostSumQuery(r.db, "final_provider_id = ?", providerID, resetAt, nil)
 
 	if resetAt != nil && !resetAt.IsZero() {
 		query = query.Where("created_at >= ?", *resetAt)
@@ -853,15 +815,7 @@ func (r *statisticsRepository) SumProviderTotalCost(ctx context.Context, provide
 func (r *statisticsRepository) FindUserCostEntriesInTimeRange(ctx context.Context, userID int, startTime, endTime time.Time) ([]*CostEntry, error) {
 	var entries []*CostEntry
 
-	err := r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
-		Column("id", "created_at", "cost_usd").
-		Where("user_id = ?", userID).
-		Where("created_at >= ?", startTime).
-		Where("created_at < ?", endTime).
-		Where("deleted_at IS NULL").
-		Where(excludeWarmupCondition).
-		Where("cost_usd > 0").
+	err := buildUsageLedgerCostEntriesQuery(r.db, "user_id = ?", userID, startTime, endTime).
 		Scan(ctx, &entries)
 
 	if err != nil {
@@ -891,15 +845,7 @@ func (r *statisticsRepository) FindKeyCostEntriesInTimeRange(ctx context.Context
 	}
 
 	var entries []*CostEntry
-	err = r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
-		Column("id", "created_at", "cost_usd").
-		Where("key = ?", keyRecord.Key).
-		Where("created_at >= ?", startTime).
-		Where("created_at < ?", endTime).
-		Where("deleted_at IS NULL").
-		Where(excludeWarmupCondition).
-		Where("cost_usd > 0").
+	err = buildUsageLedgerCostEntriesQuery(r.db, "\"key\" = ?", keyRecord.Key, startTime, endTime).
 		Scan(ctx, &entries)
 
 	if err != nil {
@@ -913,15 +859,7 @@ func (r *statisticsRepository) FindKeyCostEntriesInTimeRange(ctx context.Context
 func (r *statisticsRepository) FindProviderCostEntriesInTimeRange(ctx context.Context, providerID int, startTime, endTime time.Time) ([]*CostEntry, error) {
 	var entries []*CostEntry
 
-	err := r.db.NewSelect().
-		Model((*model.MessageRequest)(nil)).
-		Column("id", "created_at", "cost_usd").
-		Where("provider_id = ?", providerID).
-		Where("created_at >= ?", startTime).
-		Where("created_at < ?", endTime).
-		Where("deleted_at IS NULL").
-		Where(excludeWarmupCondition).
-		Where("cost_usd > 0").
+	err := buildUsageLedgerCostEntriesQuery(r.db, "final_provider_id = ?", providerID, startTime, endTime).
 		Scan(ctx, &entries)
 
 	if err != nil {
@@ -951,6 +889,32 @@ func (r *statisticsRepository) SumKeyTotalCostByID(ctx context.Context, keyID in
 	}
 
 	return r.SumKeyTotalCost(ctx, keyRecord.Key, maxAgeDays)
+}
+
+func buildUsageLedgerCostSumQuery(db *bun.DB, clause string, value any, startTime, endTime *time.Time) *bun.SelectQuery {
+	query := db.NewSelect().
+		Model((*model.UsageLedger)(nil)).
+		ColumnExpr("COALESCE(SUM(cost_usd), 0) AS total").
+		Where("blocked_by IS NULL").
+		Where(clause, value)
+	if startTime != nil && !startTime.IsZero() {
+		query = query.Where("created_at >= ?", *startTime)
+	}
+	if endTime != nil && !endTime.IsZero() {
+		query = query.Where("created_at < ?", *endTime)
+	}
+	return query
+}
+
+func buildUsageLedgerCostEntriesQuery(db *bun.DB, clause string, value any, startTime, endTime time.Time) *bun.SelectQuery {
+	return db.NewSelect().
+		Model((*model.UsageLedger)(nil)).
+		Column("id", "created_at", "cost_usd").
+		Where("blocked_by IS NULL").
+		Where(clause, value).
+		Where("created_at >= ?", startTime).
+		Where("created_at < ?", endTime).
+		Where("cost_usd > 0")
 }
 
 // GetActiveUsers 获取所有活跃用户列表（用于统计下拉选择）

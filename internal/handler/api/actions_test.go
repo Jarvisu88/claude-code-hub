@@ -105,6 +105,16 @@ func (f fakeProviderLister) Update(_ context.Context, provider *model.Provider) 
 
 func (f fakeProviderLister) Delete(_ context.Context, _ int) error { return nil }
 
+type fakeActionAuditStore struct {
+	entries []*model.AuditLog
+	err     error
+}
+
+func (f *fakeActionAuditStore) CreateAsync(_ context.Context, entry *model.AuditLog) error {
+	f.entries = append(f.entries, entry)
+	return f.err
+}
+
 func TestAdminListRoutesRequireTokenAndReturnData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -328,6 +338,7 @@ func TestAdminCreateRoutesReturnCreatedData(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	enabled := true
+	auditStore := &fakeActionAuditStore{}
 	handler := NewHandler(
 		fakeAdminAuth{result: &authsvc.AuthResult{
 			IsAdmin: true,
@@ -338,6 +349,7 @@ func TestAdminCreateRoutesReturnCreatedData(t *testing.T) {
 		fakeUserLister{},
 		fakeKeyLister{},
 		fakeProviderLister{},
+		auditStore,
 	)
 
 	router := gin.New()
@@ -371,12 +383,19 @@ func TestAdminCreateRoutesReturnCreatedData(t *testing.T) {
 			}
 		})
 	}
+	if len(auditStore.entries) != 3 {
+		t.Fatalf("expected 3 audit entries for create routes, got %+v", auditStore.entries)
+	}
+	if auditStore.entries[0].ActionType != "user.create" || auditStore.entries[1].ActionType != "key.create" || auditStore.entries[2].ActionType != "provider.create" {
+		t.Fatalf("unexpected create audit action types: %+v", auditStore.entries)
+	}
 }
 
 func TestAdminUpdateAndDeleteRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	enabled := true
+	auditStore := &fakeActionAuditStore{}
 	handler := NewHandler(
 		fakeAdminAuth{result: &authsvc.AuthResult{
 			IsAdmin: true,
@@ -387,6 +406,7 @@ func TestAdminUpdateAndDeleteRoutes(t *testing.T) {
 		fakeUserLister{users: []*model.User{{ID: 1, Name: "alice"}}},
 		fakeKeyLister{keys: []*model.Key{{ID: 1, Name: "key-1"}}},
 		fakeProviderLister{providers: []*model.Provider{{ID: 1, Name: "provider-1"}}},
+		auditStore,
 	)
 
 	router := gin.New()
@@ -425,5 +445,14 @@ func TestAdminUpdateAndDeleteRoutes(t *testing.T) {
 				t.Fatalf("expected body to contain %q, got %s", tc.wantContains, resp.Body.String())
 			}
 		})
+	}
+	if len(auditStore.entries) != 6 {
+		t.Fatalf("expected 6 audit entries for update/delete routes, got %+v", auditStore.entries)
+	}
+	want := []string{"user.update", "key.update", "provider.update", "user.delete", "key.delete", "provider.delete"}
+	for i, action := range want {
+		if auditStore.entries[i].ActionType != action {
+			t.Fatalf("expected audit action %q at index %d, got %+v", action, i, auditStore.entries)
+		}
 	}
 }

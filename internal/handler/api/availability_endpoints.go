@@ -20,13 +20,37 @@ type availabilityEndpointsProviderStore interface {
 	GetByID(ctx context.Context, id int) (*model.Provider, error)
 }
 
-type AvailabilityEndpointsHandler struct {
-	auth      adminAuthenticator
-	providers availabilityEndpointsProviderStore
+type availabilityProviderEndpointStore interface {
+	ListActiveByVendorAndType(ctx context.Context, vendorID int, providerType string) ([]*model.ProviderEndpoint, error)
+	GetByID(ctx context.Context, id int) (*model.ProviderEndpoint, error)
 }
 
-func NewAvailabilityEndpointsHandler(auth adminAuthenticator, providers availabilityEndpointsProviderStore) *AvailabilityEndpointsHandler {
-	return &AvailabilityEndpointsHandler{auth: auth, providers: providers}
+type availabilityProviderEndpointProbeLogStore interface {
+	ListByEndpoint(ctx context.Context, endpointID int, limit int) ([]*model.ProviderEndpointProbeLog, error)
+}
+
+type AvailabilityEndpointsHandler struct {
+	auth          adminAuthenticator
+	providers     availabilityEndpointsProviderStore
+	endpoints     availabilityProviderEndpointStore
+	probeLogStore availabilityProviderEndpointProbeLogStore
+}
+
+func NewAvailabilityEndpointsHandler(auth adminAuthenticator, providers availabilityEndpointsProviderStore, options ...any) *AvailabilityEndpointsHandler {
+	handler := &AvailabilityEndpointsHandler{auth: auth, providers: providers}
+	for _, option := range options {
+		switch typed := option.(type) {
+		case availabilityProviderEndpointStore:
+			if handler.endpoints == nil {
+				handler.endpoints = typed
+			}
+		case availabilityProviderEndpointProbeLogStore:
+			if handler.probeLogStore == nil {
+				handler.probeLogStore = typed
+			}
+		}
+	}
+	return handler
 }
 
 func (h *AvailabilityEndpointsHandler) RegisterRoutes(router gin.IRouter) {
@@ -58,6 +82,19 @@ func (h *AvailabilityEndpointsHandler) listEndpoints(c *gin.Context) {
 	vendorID, providerType, err := decodeAvailabilityEndpointsQuery(c)
 	if err != nil {
 		writeAdminError(c, err)
+		return
+	}
+	if h.endpoints != nil {
+		endpoints, err := h.endpoints.ListActiveByVendorAndType(c.Request.Context(), vendorID, providerType)
+		if err != nil {
+			writeAdminError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"vendorId":     vendorID,
+			"providerType": providerType,
+			"endpoints":    providerEndpointsToJSON(endpoints),
+		})
 		return
 	}
 	providers, err := h.providers.ListAll(c.Request.Context())
@@ -93,6 +130,24 @@ func (h *AvailabilityEndpointsHandler) probeLogs(c *gin.Context) {
 		return
 	}
 
+	if h.endpoints != nil {
+		endpoint, err := h.endpoints.GetByID(c.Request.Context(), endpointID)
+		if err != nil || endpoint == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+			return
+		}
+		logs := endpointprobesvc.ListLogs(endpointID, limit, offset)
+		if h.probeLogStore != nil {
+			if persisted, listErr := h.probeLogStore.ListByEndpoint(c.Request.Context(), endpointID, limit+offset); listErr == nil {
+				logs = providerEndpointProbeLogsToLogs(persisted, offset, limit)
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"endpoint": providerEndpointToJSON(endpoint),
+			"logs":     logs,
+		})
+		return
+	}
 	provider, err := h.providers.GetByID(c.Request.Context(), endpointID)
 	if err != nil || provider == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
@@ -104,6 +159,72 @@ func (h *AvailabilityEndpointsHandler) probeLogs(c *gin.Context) {
 		"endpoint": endpoint,
 		"logs":     logs,
 	})
+}
+
+func providerEndpointsToJSON(items []*model.ProviderEndpoint) []gin.H {
+	out := make([]gin.H, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		out = append(out, providerEndpointToJSON(item))
+	}
+	return out
+}
+
+func providerEndpointToJSON(endpoint *model.ProviderEndpoint) gin.H {
+	if endpoint == nil {
+		return gin.H{}
+	}
+	return gin.H{
+		"id":                    endpoint.ID,
+		"vendorId":              endpoint.VendorID,
+		"providerType":          endpoint.ProviderType,
+		"url":                   endpoint.URL,
+		"label":                 endpoint.Label,
+		"sortOrder":             endpoint.SortOrder,
+		"isEnabled":             endpoint.IsEnabled,
+		"lastProbedAt":          endpoint.LastProbedAt,
+		"lastProbeOk":           endpoint.LastProbeOk,
+		"lastProbeStatusCode":   endpoint.LastProbeStatusCode,
+		"lastProbeLatencyMs":    endpoint.LastProbeLatencyMs,
+		"lastProbeErrorType":    endpoint.LastProbeErrorType,
+		"lastProbeErrorMessage": endpoint.LastProbeErrorMessage,
+		"createdAt":             endpoint.CreatedAt,
+		"updatedAt":             endpoint.UpdatedAt,
+		"deletedAt":             endpoint.DeletedAt,
+	}
+}
+
+func providerEndpointProbeLogsToLogs(items []*model.ProviderEndpointProbeLog, offset, limit int) []endpointprobesvc.Log {
+	logs := make([]endpointprobesvc.Log, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		logs = append(logs, endpointprobesvc.Log{
+			ID:           item.ID,
+			EndpointID:   item.EndpointID,
+			Source:       item.Source,
+			OK:           item.Ok,
+			StatusCode:   item.StatusCode,
+			LatencyMs:    item.LatencyMs,
+			ErrorType:    item.ErrorType,
+			ErrorMessage: item.ErrorMessage,
+			CreatedAt:    item.CreatedAt,
+		})
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(logs) {
+		return []endpointprobesvc.Log{}
+	}
+	logs = logs[offset:]
+	if limit > 0 && len(logs) > limit {
+		logs = logs[:limit]
+	}
+	return logs
 }
 
 func decodeAvailabilityEndpointsQuery(c *gin.Context) (int, string, error) {
