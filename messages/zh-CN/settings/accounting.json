@@ -1,0 +1,82 @@
+{
+  "title": "收益记账",
+  "description": "快速计算供应商成本、下游收入和今日利润",
+  "section": {
+    "title": "收益记账",
+    "description": "供应商成本按 CCH 今日用量计算；new-api 收入按日志里的用户和分组拆分后汇总"
+  },
+  "loadFailed": "加载记账数据失败",
+  "empty": "今日还没有可计费的供应商用量",
+  "saved": "已保存",
+  "totals": {
+    "cost": "供应商成本",
+    "revenue": "下游收入",
+    "profit": "今日利润",
+    "logs": "日志数"
+  },
+  "provider": {
+    "title": "CCH 供应商成本"
+  },
+  "table": {
+    "provider": "供应商",
+    "requests": "请求数",
+    "cost": "成本",
+    "estimatedRevenue": "CCH 估算收入",
+    "profit": "估算利润"
+  },
+  "global": {
+    "title": "默认售价倍率",
+    "save": "保存倍率",
+    "compactSave": "保存默认倍率",
+    "zeroRule": "填 0 表示收入以 new-api 拉取结果为准；未拉取到日志时收入按 0 计算。"
+  },
+  "platforms": {
+    "newApi": "new-api"
+  },
+  "platformActions": {
+    "configure": "配置",
+    "loadLogs": "拉取今日日志"
+  },
+  "usageLog": {
+    "title": "使用日志"
+  },
+  "model": {
+    "title": "模型售价倍率",
+    "name": "模型名称",
+    "multiplier": "售价倍率",
+    "note": "备注",
+    "save": "保存模型价格"
+  },
+  "newApi": {
+    "title": "new-api 实际收入",
+    "configure": "配置 new-api",
+    "configured": "已配置",
+    "notConfiguredBadge": "未配置",
+    "notConfigured": "请先配置 new-api",
+    "dialogTitle": "new-api 日志配置",
+    "dialogDescription": "配置会保存到本地数据库，后续切换页面不需要重复填写。访问令牌留空时会继续使用已保存的令牌。",
+    "baseUrl": "new-api 地址",
+    "baseUrlPlaceholder": "https://new-api.example.com",
+    "accessToken": "管理员访问令牌",
+    "keepExistingToken": "留空表示沿用已保存令牌",
+    "userId": "管理员用户 ID",
+    "pageSize": "每页日志数",
+    "saveConfig": "保存配置",
+    "load": "拉取今日日志",
+    "loaded": "已拉取 new-api 日志",
+    "invalidConfig": "请填写有效的 new-api 配置",
+    "autoRefresh": "轮询日志",
+    "empty": "还没有拉取到 new-api 日志",
+    "table": {
+      "username": "用户",
+      "group": "分组",
+      "model": "模型",
+      "requests": "请求数",
+      "tokens": "输入/输出",
+      "quota": "扣费额度",
+      "modelRatio": "模型倍率",
+      "groupRatio": "分组倍率",
+      "revenue": "收入"
+    }
+  }
+}

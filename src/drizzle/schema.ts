@@ -635,6 +635,30 @@ export const modelPrices = pgTable('model_prices', {
   modelPricesSourceIdx: index('idx_model_prices_source').on(table.source),
 }));
 
+// 售价倍率表 — 每个模型一行，仅用于管理员侧的收入/利润计算。
+// 不影响真实计费链路（与 providers.cost_multiplier 等概念语义不同）。
+export const modelSellMultipliers = pgTable('model_sell_multipliers', {
+  id: serial('id').primaryKey(),
+  modelName: varchar('model_name', { length: 128 }).notNull().unique(),
+  multiplier: numeric('multiplier', { precision: 10, scale: 4 }).notNull().default('1.0'),
+  note: varchar('note', { length: 200 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  modelSellMultiplierNameIdx: index('idx_model_sell_multiplier_name').on(table.modelName),
+}));
+
+export const accountingNewApiConfigs = pgTable('accounting_new_api_configs', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 64 }).notNull().default('default').unique(),
+  baseUrl: varchar('base_url', { length: 512 }).notNull(),
+  accessToken: text('access_token').notNull(),
+  adminUserId: integer('admin_user_id').notNull(),
+  pageSize: integer('page_size').notNull().default(100),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
 // Error Rules table
 export const errorRules = pgTable('error_rules', {
   id: serial('id').primaryKey(),
@@ -840,6 +864,12 @@ export const systemSettings = pgTable('system_settings', {
   publicStatusAggregationIntervalMinutes: integer('public_status_aggregation_interval_minutes')
     .notNull()
     .default(5),
+
+  // 售价倍率全局兜底值（仅用于管理员视角的收入/利润观测，不影响真实计费）
+  // 单条请求收入 = cost_usd × COALESCE(model_sell_multipliers.multiplier, global_sell_multiplier)
+  globalSellMultiplier: numeric('global_sell_multiplier', { precision: 10, scale: 4 })
+    .notNull()
+    .default('1.0'),
 
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),

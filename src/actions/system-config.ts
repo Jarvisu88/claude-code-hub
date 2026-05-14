@@ -85,6 +85,7 @@ export async function saveSystemSettings(formData: {
   quotaLeaseCapUsd?: number | null;
   publicStatusWindowHours?: number;
   publicStatusAggregationIntervalMinutes?: number;
+  globalSellMultiplier?: number;
   // IP 提取 / 归属地查询
   ipExtractionConfig?: IpExtractionConfig | null;
   ipGeoLookupEnabled?: boolean;
@@ -133,6 +134,7 @@ export async function saveSystemSettings(formData: {
       quotaLeaseCapUsd: validated.quotaLeaseCapUsd,
       publicStatusWindowHours: validated.publicStatusWindowHours,
       publicStatusAggregationIntervalMinutes: validated.publicStatusAggregationIntervalMinutes,
+      globalSellMultiplier: validated.globalSellMultiplier,
       ipExtractionConfig: validated.ipExtractionConfig,
       ipGeoLookupEnabled: validated.ipGeoLookupEnabled,
     });

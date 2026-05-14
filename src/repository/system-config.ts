@@ -179,6 +179,7 @@ function createFallbackSettings(): SystemSettings {
     publicStatusAggregationIntervalMinutes: 5,
     ipExtractionConfig: null,
     ipGeoLookupEnabled: true,
+    globalSellMultiplier: 1,
     createdAt: now,
     updatedAt: now,
   };
@@ -271,6 +272,7 @@ export async function getSystemSettings(): Promise<SystemSettings> {
     const fullSelection = {
       passThroughUpstreamErrorMessage: systemSettings.passThroughUpstreamErrorMessage,
       ...selectionWithoutPassThrough,
+      globalSellMultiplier: systemSettings.globalSellMultiplier,
     };
 
     try {
@@ -534,6 +536,7 @@ export async function updateSystemSettings(
   const fullReturning = {
     passThroughUpstreamErrorMessage: systemSettings.passThroughUpstreamErrorMessage,
     ...returningWithoutPassThrough,
+    globalSellMultiplier: systemSettings.globalSellMultiplier,
   };
 
   try {
@@ -698,6 +701,11 @@ export async function updateSystemSettings(
       updates.ipGeoLookupEnabled = payload.ipGeoLookupEnabled;
     }
 
+    // 售价倍率全局兜底值（如果提供）
+    if (payload.globalSellMultiplier !== undefined) {
+      updates.globalSellMultiplier = String(payload.globalSellMultiplier);
+    }
+
     let updated;
     try {
       [updated] = await executor
@@ -744,6 +752,7 @@ export async function updateSystemSettings(
         try {
           const withoutPassThroughUpdates = { ...updates };
           delete withoutPassThroughUpdates.passThroughUpstreamErrorMessage;
+          delete withoutPassThroughUpdates.globalSellMultiplier;
           [updated] = await executor
             .update(systemSettings)
             .set(withoutPassThroughUpdates)
@@ -761,6 +770,7 @@ export async function updateSystemSettings(
           delete downgradedUpdates.publicStatusAggregationIntervalMinutes;
           delete downgradedUpdates.ipExtractionConfig;
           delete downgradedUpdates.ipGeoLookupEnabled;
+          delete downgradedUpdates.globalSellMultiplier;
 
           const legacyUpdates = { ...downgradedUpdates };
           delete legacyUpdates.codexPriorityBillingSource;

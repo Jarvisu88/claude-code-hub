@@ -107,6 +107,9 @@ export interface SystemSettings {
   publicStatusWindowHours: number;
   publicStatusAggregationIntervalMinutes: number;
 
+  // 售价倍率全局兜底值（仅用于管理员视角的收入/利润观测，不影响真实计费）
+  globalSellMultiplier: number;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -192,4 +195,7 @@ export interface UpdateSystemSettingsInput {
   // Public Status 全局配置（可选）
   publicStatusWindowHours?: number;
   publicStatusAggregationIntervalMinutes?: number;
+
+  // 售价倍率全局兜底值（仅用于管理员视角的收入/利润观测，不影响真实计费）
+  globalSellMultiplier?: number;
 }

@@ -1,0 +1,82 @@
+{
+  "title": "収益記帳",
+  "description": "プロバイダー原価、下流売上、本日の利益を素早く計算します",
+  "section": {
+    "title": "収益記帳",
+    "description": "プロバイダー原価は CCH の本日使用量で計算し、new-api の売上はログのユーザーとグループで分けて集計します"
+  },
+  "loadFailed": "記帳データの読み込みに失敗しました",
+  "empty": "本日は課金対象のプロバイダー使用量がまだありません",
+  "saved": "保存しました",
+  "totals": {
+    "cost": "プロバイダー原価",
+    "revenue": "下流売上",
+    "profit": "本日の利益",
+    "logs": "ログ数"
+  },
+  "provider": {
+    "title": "CCH プロバイダー原価"
+  },
+  "table": {
+    "provider": "プロバイダー",
+    "requests": "リクエスト数",
+    "cost": "原価",
+    "estimatedRevenue": "CCH 推定売上",
+    "profit": "推定利益"
+  },
+  "global": {
+    "title": "既定の販売倍率",
+    "save": "倍率を保存",
+    "compactSave": "既定倍率を保存",
+    "zeroRule": "0 にすると売上は new-api の取得結果を基準にします。ログ取得前の売上は 0 です。"
+  },
+  "platforms": {
+    "newApi": "new-api"
+  },
+  "platformActions": {
+    "configure": "設定",
+    "loadLogs": "本日のログを取得"
+  },
+  "usageLog": {
+    "title": "使用ログ"
+  },
+  "model": {
+    "title": "モデル販売倍率",
+    "name": "モデル名",
+    "multiplier": "販売倍率",
+    "note": "メモ",
+    "save": "モデル価格を保存"
+  },
+  "newApi": {
+    "title": "new-api 実売上",
+    "configure": "new-api を設定",
+    "configured": "設定済み",
+    "notConfiguredBadge": "未設定",
+    "notConfigured": "先に new-api を設定してください",
+    "dialogTitle": "new-api ログ設定",
+    "dialogDescription": "設定はローカルデータベースに保存されるため、ページを切り替えても再入力は不要です。アクセストークンを空にすると保存済みトークンを維持します。",
+    "baseUrl": "new-api URL",
+    "baseUrlPlaceholder": "https://new-api.example.com",
+    "accessToken": "管理者アクセストークン",
+    "keepExistingToken": "空欄で保存済みトークンを維持",
+    "userId": "管理者ユーザー ID",
+    "pageSize": "1 ページあたりのログ数",
+    "saveConfig": "設定を保存",
+    "load": "本日のログを取得",
+    "loaded": "new-api ログを取得しました",
+    "invalidConfig": "有効な new-api 設定を入力してください",
+    "autoRefresh": "ログをポーリング",
+    "empty": "new-api ログはまだ読み込まれていません",
+    "table": {
+      "username": "ユーザー",
+      "group": "グループ",
+      "model": "モデル",
+      "requests": "リクエスト数",
+      "tokens": "入力/出力",
+      "quota": "課金クォータ",
+      "modelRatio": "モデル倍率",
+      "groupRatio": "グループ倍率",
+      "revenue": "売上"
+    }
+  }
+}

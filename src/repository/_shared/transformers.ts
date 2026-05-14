@@ -252,6 +252,9 @@ export function toSystemSettings(dbSettings: any): SystemSettings {
     publicStatusAggregationIntervalMinutes: dbSettings?.publicStatusAggregationIntervalMinutes ?? 5,
     ipExtractionConfig: dbSettings?.ipExtractionConfig ?? null,
     ipGeoLookupEnabled: dbSettings?.ipGeoLookupEnabled ?? true,
+    globalSellMultiplier: dbSettings?.globalSellMultiplier
+      ? parseFloat(dbSettings.globalSellMultiplier)
+      : 1,
     createdAt: dbSettings?.createdAt ? new Date(dbSettings.createdAt) : new Date(),
     updatedAt: dbSettings?.updatedAt ? new Date(dbSettings.updatedAt) : new Date(),
   };

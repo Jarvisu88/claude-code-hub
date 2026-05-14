@@ -1,4 +1,5 @@
 import clientVersions from "./clientVersions.json";
+import accounting from "./accounting.json";
 import common from "./common.json";
 import config from "./config.json";
 import data from "./data.json";
@@ -101,6 +102,7 @@ const providers = {
 
 export default {
   nav,
+  accounting,
   common,
   config,
   providers,

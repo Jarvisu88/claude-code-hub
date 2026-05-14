@@ -1043,6 +1043,11 @@ export const UpdateSystemSettingsSchema = z.object({
       }
     )
     .optional(),
+  globalSellMultiplier: z.coerce
+    .number()
+    .min(0, "GLOBAL_SELL_MULTIPLIER_NEGATIVE")
+    .max(1000000, "GLOBAL_SELL_MULTIPLIER_TOO_LARGE")
+    .optional(),
 
   // 客户端 IP 提取链（可选；null 表示使用内置默认）
   ipExtractionConfig: z
