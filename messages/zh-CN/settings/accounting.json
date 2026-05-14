@@ -78,5 +78,12 @@
       "groupRatio": "分组倍率",
       "revenue": "收入"
     }
+  },
+  "filter": {
+    "allGroups": "全部分组",
+    "allModels": "全部模型",
+    "clear": "清除筛选",
+    "active": "筛选条件",
+    "noMatch": "没有匹配的日志记录"
   }
 }

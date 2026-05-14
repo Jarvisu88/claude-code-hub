@@ -78,5 +78,12 @@
       "groupRatio": "グループ倍率",
       "revenue": "売上"
     }
+  },
+  "filter": {
+    "allGroups": "すべてのグループ",
+    "allModels": "すべてのモデル",
+    "clear": "フィルターをクリア",
+    "active": "フィルター条件",
+    "noMatch": "一致するログがありません"
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw, Save, Settings } from "lucide-react";
+import { Filter, RefreshCw, Save, Settings, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -24,6 +24,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -99,6 +106,8 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
   const [isSavingMultiplier, setIsSavingMultiplier] = useState(false);
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isFetchingRevenue, setIsFetchingRevenue] = useState(false);
+  const [filterGroup, setFilterGroup] = useState<string | undefined>(undefined);
+  const [filterModel, setFilterModel] = useState<string | undefined>(undefined);
 
   const localTotals = useMemo(() => {
     return summary.providers.reduce(
@@ -111,8 +120,28 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
     );
   }, [summary.providers]);
 
+  const availableGroups = useMemo(
+    () => [...new Set(newApiRevenueRows.map((row) => row.group))].sort(),
+    [newApiRevenueRows]
+  );
+
+  const availableModels = useMemo(
+    () => [...new Set(newApiRevenueRows.map((row) => row.modelName))].sort(),
+    [newApiRevenueRows]
+  );
+
+  const filteredRevenueRows = useMemo(() => {
+    return newApiRevenueRows.filter((row) => {
+      if (filterGroup && row.group !== filterGroup) return false;
+      if (filterModel && row.modelName !== filterModel) return false;
+      return true;
+    });
+  }, [newApiRevenueRows, filterGroup, filterModel]);
+
+  const activeFilterCount = (filterGroup ? 1 : 0) + (filterModel ? 1 : 0);
+
   const newApiTotals = useMemo(() => {
-    return newApiRevenueRows.reduce(
+    return filteredRevenueRows.reduce(
       (acc, row) => {
         acc.quota += row.quota;
         acc.inputTokens += row.inputTokens;
@@ -123,9 +152,9 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
       },
       { quota: 0, inputTokens: 0, outputTokens: 0, revenueUsd: 0, requestCount: 0 }
     );
-  }, [globalMultiplier, newApiRevenueRows]);
+  }, [globalMultiplier, filteredRevenueRows]);
 
-  const hasNewApiRevenue = newApiRevenueRows.length > 0;
+  const hasNewApiRevenue = filteredRevenueRows.length > 0;
   const useNewApiOnly = Number(globalMultiplier) === 0;
   const revenueUsd = hasNewApiRevenue
     ? newApiTotals.revenueUsd
@@ -315,9 +344,94 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
       <div className="grid gap-4">
         <div className="space-y-4">
           <Card className="rounded-lg">
-            <CardHeader>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle className="text-base">{t("usageLog.title")}</CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <Filter className="size-4 text-muted-foreground" />
+                <Select
+                  value={filterGroup ?? "all"}
+                  onValueChange={(value) => setFilterGroup(value === "all" ? undefined : value)}
+                >
+                  <SelectTrigger id="accounting-filter-group" className="h-8 w-[160px]">
+                    <SelectValue placeholder={t("filter.allGroups")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t("filter.allGroups")}</SelectItem>
+                    {availableGroups.map((group) => (
+                      <SelectItem key={group} value={group}>
+                        {group}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={filterModel ?? "all"}
+                  onValueChange={(value) => setFilterModel(value === "all" ? undefined : value)}
+                >
+                  <SelectTrigger id="accounting-filter-model" className="h-8 w-[200px]">
+                    <SelectValue placeholder={t("filter.allModels")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t("filter.allModels")}</SelectItem>
+                    {availableModels.map((model) => (
+                      <SelectItem key={model} value={model}>
+                        {model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {activeFilterCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterGroup(undefined);
+                      setFilterModel(undefined);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/60 cursor-pointer"
+                  >
+                    <X className="size-3" />
+                    {t("filter.clear")}
+                  </button>
+                )}
+              </div>
             </CardHeader>
+            {activeFilterCount > 0 && (
+              <div className="flex flex-wrap items-center gap-2 px-6 pb-2">
+                <span className="text-xs text-muted-foreground font-medium">
+                  {t("filter.active")}:
+                </span>
+                {filterGroup && (
+                  <Badge variant="secondary" className="gap-1 pr-1.5 pl-2 py-1 h-auto">
+                    <span className="text-xs">
+                      {t("newApi.table.group")}:{" "}
+                      <span className="font-semibold">{filterGroup}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFilterGroup(undefined)}
+                      className="ml-1 rounded-full outline-none hover:bg-muted-foreground/20 cursor-pointer"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
+                )}
+                {filterModel && (
+                  <Badge variant="secondary" className="gap-1 pr-1.5 pl-2 py-1 h-auto">
+                    <span className="text-xs">
+                      {t("newApi.table.model")}:{" "}
+                      <span className="font-semibold">{filterModel}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setFilterModel(undefined)}
+                      className="ml-1 rounded-full outline-none hover:bg-muted-foreground/20 cursor-pointer"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
+                )}
+              </div>
+            )}
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
@@ -334,14 +448,14 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {newApiRevenueRows.length === 0 ? (
+                  {filteredRevenueRows.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={9} className="text-muted-foreground">
-                        {t("newApi.empty")}
+                        {activeFilterCount > 0 ? t("filter.noMatch") : t("newApi.empty")}
                       </TableCell>
                     </TableRow>
                   ) : (
-                    newApiRevenueRows.map((row) => (
+                    filteredRevenueRows.map((row) => (
                       <TableRow
                         key={`${row.username}-${row.group}-${row.modelName}-${row.multiplier}`}
                       >
