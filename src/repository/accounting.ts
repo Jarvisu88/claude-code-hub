@@ -165,7 +165,9 @@ export async function findProviderProfitSummary(params: {
   globalSellMultiplier: number;
 }): Promise<ProviderProfitSummaryRow[]> {
   const globalSellMultiplier = Number.isFinite(params.globalSellMultiplier)
-    ? Math.max(params.globalSellMultiplier, 0)
+    ? params.globalSellMultiplier > 0
+      ? params.globalSellMultiplier
+      : 1
     : 1;
   const startTime = params.startTime.toISOString();
   const endTime = params.endTime.toISOString();

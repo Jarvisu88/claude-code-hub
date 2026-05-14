@@ -869,7 +869,7 @@ export const systemSettings = pgTable('system_settings', {
   // 单条请求收入 = cost_usd × COALESCE(model_sell_multipliers.multiplier, global_sell_multiplier)
   globalSellMultiplier: numeric('global_sell_multiplier', { precision: 10, scale: 4 })
     .notNull()
-    .default('1.0'),
+    .default('0'),
 
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),

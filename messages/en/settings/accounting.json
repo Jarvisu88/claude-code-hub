@@ -28,7 +28,7 @@
     "title": "Default sale multiplier",
     "save": "Save multiplier",
     "compactSave": "Save default",
-    "zeroRule": "Set 0 to use new-api as the revenue source; revenue is 0 until logs are loaded."
+    "zeroRule": "Set 0 to use the model and group ratios from new-api. Enter a non-zero value to override new-api ratios."
   },
   "platforms": {
     "newApi": "new-api"

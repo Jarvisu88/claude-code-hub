@@ -179,7 +179,7 @@ function createFallbackSettings(): SystemSettings {
     publicStatusAggregationIntervalMinutes: 5,
     ipExtractionConfig: null,
     ipGeoLookupEnabled: true,
-    globalSellMultiplier: 1,
+    globalSellMultiplier: 0,
     createdAt: now,
     updatedAt: now,
   };

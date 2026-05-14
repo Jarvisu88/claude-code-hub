@@ -303,5 +303,14 @@ describe("src/repository/_shared/transformers.ts", () => {
       expect(result.codexPriorityBillingSource).toBe("actual");
       expect(result.interceptAnthropicWarmupRequests).toBe(true);
     });
+
+    it("preserves zero as the automatic accounting sale multiplier", () => {
+      const result = toSystemSettings({
+        id: 1,
+        globalSellMultiplier: "0.0000",
+      });
+
+      expect(result.globalSellMultiplier).toBe(0);
+    });
   });
 });

@@ -28,7 +28,7 @@
     "title": "預設售價倍率",
     "save": "儲存倍率",
     "compactSave": "儲存預設倍率",
-    "zeroRule": "填 0 表示收入以 new-api 拉取結果為準；未拉取到日誌時收入按 0 計算。"
+    "zeroRule": "填 0 表示使用 new-api 拉取到的模型和分組倍率；填非 0 數字後按手動倍率覆蓋計算。"
   },
   "platforms": {
     "newApi": "new-api"

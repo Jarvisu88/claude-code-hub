@@ -63,6 +63,17 @@ function parsePositiveInt(value: string): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function calculateDisplayedRevenue(row: NewApiRevenueRow, configuredMultiplier: string): number {
+  const manualMultiplier = Number(configuredMultiplier);
+  if (!Number.isFinite(manualMultiplier) || manualMultiplier <= 0) {
+    return row.revenueUsd;
+  }
+
+  const sourceMultiplier =
+    Number.isFinite(row.multiplier) && row.multiplier > 0 ? row.multiplier : 1;
+  return (row.revenueUsd / sourceMultiplier) * manualMultiplier;
+}
+
 export function AccountingPanel({ summary }: AccountingPanelProps) {
   const t = useTranslations("settings.accounting");
   const [globalMultiplier, setGlobalMultiplier] = useState(String(summary.globalSellMultiplier));
@@ -99,13 +110,13 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
         acc.quota += row.quota;
         acc.inputTokens += row.inputTokens;
         acc.outputTokens += row.outputTokens;
-        acc.revenueUsd += row.revenueUsd;
+        acc.revenueUsd += calculateDisplayedRevenue(row, globalMultiplier);
         acc.requestCount += row.requestCount;
         return acc;
       },
       { quota: 0, inputTokens: 0, outputTokens: 0, revenueUsd: 0, requestCount: 0 }
     );
-  }, [newApiRevenueRows]);
+  }, [globalMultiplier, newApiRevenueRows]);
 
   const hasNewApiRevenue = newApiRevenueRows.length > 0;
   const useNewApiOnly = Number(globalMultiplier) === 0;
@@ -337,7 +348,9 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
                         <TableCell>{formatUsage(row.quota)}</TableCell>
                         <TableCell>{row.modelRatio}</TableCell>
                         <TableCell>{row.groupRatio}</TableCell>
-                        <TableCell>{formatUsd(row.revenueUsd)}</TableCell>
+                        <TableCell>
+                          {formatUsd(calculateDisplayedRevenue(row, globalMultiplier))}
+                        </TableCell>
                       </TableRow>
                     ))
                   )}

@@ -708,6 +708,13 @@
       "when": 1778753375579,
       "tag": "0100_shocking_prowler",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1778761959572,
+      "tag": "0101_condemned_pride",
+      "breakpoints": true
     }
   ]
 }

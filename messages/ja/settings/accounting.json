@@ -28,7 +28,7 @@
     "title": "既定の販売倍率",
     "save": "倍率を保存",
     "compactSave": "既定倍率を保存",
-    "zeroRule": "0 にすると売上は new-api の取得結果を基準にします。ログ取得前の売上は 0 です。"
+    "zeroRule": "0 は new-api から取得したモデル倍率とグループ倍率を使用します。0 以外を入力すると手動倍率で上書きします。"
   },
   "platforms": {
     "newApi": "new-api"
