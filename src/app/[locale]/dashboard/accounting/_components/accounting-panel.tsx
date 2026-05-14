@@ -34,6 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatCurrency } from "@/lib/utils/currency";
 
 interface AccountingPanelProps {
   summary: AccountingSummary;
@@ -49,7 +50,11 @@ interface NewApiConfigForm {
 type AccountingPlatform = "new-api";
 
 function formatUsd(value: number): string {
-  return `$${value.toFixed(6)}`;
+  return formatCurrency(value, "USD", 2);
+}
+
+function formatMultiplier(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(2) : "0.00";
 }
 
 function formatUsage(value: number): string {
@@ -76,7 +81,9 @@ function calculateDisplayedRevenue(row: NewApiRevenueRow, configuredMultiplier: 
 
 export function AccountingPanel({ summary }: AccountingPanelProps) {
   const t = useTranslations("settings.accounting");
-  const [globalMultiplier, setGlobalMultiplier] = useState(String(summary.globalSellMultiplier));
+  const [globalMultiplier, setGlobalMultiplier] = useState(
+    formatMultiplier(summary.globalSellMultiplier)
+  );
   const [configOpen, setConfigOpen] = useState(false);
   const [activePlatform, setActivePlatform] = useState<AccountingPlatform>("new-api");
   const [configPreview, setConfigPreview] = useState(summary.newApiConfig);
@@ -346,8 +353,8 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
                           {formatUsage(row.inputTokens)} / {formatUsage(row.outputTokens)}
                         </TableCell>
                         <TableCell>{formatUsage(row.quota)}</TableCell>
-                        <TableCell>{row.modelRatio}</TableCell>
-                        <TableCell>{row.groupRatio}</TableCell>
+                        <TableCell>{formatMultiplier(row.modelRatio)}</TableCell>
+                        <TableCell>{formatMultiplier(row.groupRatio)}</TableCell>
                         <TableCell>
                           {formatUsd(calculateDisplayedRevenue(row, globalMultiplier))}
                         </TableCell>
