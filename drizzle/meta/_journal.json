@@ -715,6 +715,13 @@
       "when": 1778761959572,
       "tag": "0101_condemned_pride",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1778763300000,
+      "tag": "0102_zero_sale_multiplier_auto_mode",
+      "breakpoints": true
     }
   ]
 }
