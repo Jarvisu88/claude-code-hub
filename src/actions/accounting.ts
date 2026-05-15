@@ -79,6 +79,7 @@ export interface NewApiUsageDetailRow {
 export interface NewApiRevenueResult {
   startTimestamp: number;
   endTimestamp: number;
+  timezone: string;
   totalLogs: number;
   quotaPerUnit: number;
   rows: NewApiRevenueRow[];
@@ -97,6 +98,7 @@ const UpsertModelSellMultiplierSchema = z.object({
 
 const NewApiRevenueSchema = z.object({
   poll: z.boolean().optional(),
+  days: z.number().int().min(1).max(30).optional().default(1),
 });
 
 const SaveNewApiConfigSchema = z.object({
@@ -122,13 +124,17 @@ async function requireAdmin() {
   return session;
 }
 
-async function resolveTodayRange(): Promise<{ startTime: Date; endTime: Date; timezone: string }> {
+async function resolveTimeRange(
+  days: number = 1
+): Promise<{ startTime: Date; endTime: Date; timezone: string; todayStart: Date }> {
   const timezone = await resolveSystemTimezone();
   const today = formatInTimeZone(new Date(), timezone, "yyyy-MM-dd");
   const tomorrow = addIsoDays(today, 1);
+  const startDay = addIsoDays(today, -days + 1);
   return {
-    startTime: fromZonedTime(`${today}T00:00:00`, timezone),
+    startTime: fromZonedTime(`${startDay}T00:00:00`, timezone),
     endTime: fromZonedTime(`${tomorrow}T00:00:00`, timezone),
+    todayStart: fromZonedTime(`${today}T00:00:00`, timezone),
     timezone,
   };
 }
@@ -140,7 +146,7 @@ export async function getAccountingSummary(): Promise<ActionResult<AccountingSum
       return { ok: false, error: "Unauthorized" };
     }
 
-    const [settings, range] = await Promise.all([getSystemSettings(), resolveTodayRange()]);
+    const [settings, range] = await Promise.all([getSystemSettings(), resolveTimeRange(1)]);
     const [providers, modelSellMultipliers, newApiConfig] = await Promise.all([
       findProviderProfitSummary({
         startTime: range.startTime,
@@ -403,7 +409,7 @@ function calculateNewApiUsageDetail(params: {
 }
 
 export async function fetchNewApiRevenue(
-  input: { poll?: boolean } = {}
+  input: { poll?: boolean; days?: number } = {}
 ): Promise<ActionResult<NewApiRevenueResult>> {
   try {
     const session = await requireAdmin();
@@ -411,10 +417,11 @@ export async function fetchNewApiRevenue(
       return { ok: false, error: "Unauthorized" };
     }
 
-    NewApiRevenueSchema.parse(input);
-    const range = await resolveTodayRange();
+    const validatedInput = NewApiRevenueSchema.parse(input);
+    const range = await resolveTimeRange(validatedInput.days);
     const startTimestamp = Math.floor(range.startTime.getTime() / 1000);
     const endTimestamp = Math.max(startTimestamp, Math.floor(range.endTime.getTime() / 1000) - 1);
+    const todayStartTimestamp = Math.floor(range.todayStart.getTime() / 1000);
     const config = await findAccountingNewApiConfig();
 
     if (!config) {
@@ -426,7 +433,7 @@ export async function fetchNewApiRevenue(
       accessToken: config.accessToken,
       adminUserId: config.adminUserId,
     });
-    const { logs, total } = await fetchAllNewApiLogs({
+    const { logs } = await fetchAllNewApiLogs({
       baseUrl: config.baseUrl,
       accessToken: config.accessToken,
       adminUserId: config.adminUserId,
@@ -447,7 +454,12 @@ export async function fetchNewApiRevenue(
     });
 
     const rowByKey = new Map<string, NewApiRevenueRow>();
+    let todayLogCount = 0;
     for (const detail of details) {
+      if (detail.createdAt !== null && detail.createdAt < todayStartTimestamp) {
+        continue;
+      }
+      todayLogCount += 1;
       const multiplier = detail.modelRatio * detail.groupRatio;
       const key = `${detail.username}\u0000${detail.group}\u0000${detail.modelName}\u0000${multiplier}`;
       const current =
@@ -483,7 +495,8 @@ export async function fetchNewApiRevenue(
       data: {
         startTimestamp,
         endTimestamp,
-        totalLogs: total,
+        timezone: range.timezone,
+        totalLogs: todayLogCount,
         quotaPerUnit: billingConfig.quotaPerUnit,
         rows,
         details,

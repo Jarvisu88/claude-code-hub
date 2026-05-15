@@ -8,6 +8,17 @@
   "loadFailed": "載入記帳資料失敗",
   "empty": "今日還沒有可計費的供應商用量",
   "saved": "已儲存",
+  "charts": {
+    "revenueTimeline": "收益趨勢",
+    "todayRevenue": "今日收益",
+    "yesterdayRevenue": "昨日收益",
+    "revenueByGroup": "按分組收入",
+    "revenueByModel": "按模型收入",
+    "noData": "暫無數據",
+    "revenue": "收入",
+    "percentage": "佔比",
+    "others": "其他"
+  },
   "totals": {
     "cost": "供應商成本",
     "revenue": "下游收入",

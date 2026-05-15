@@ -85,5 +85,16 @@
     "clear": "清除筛选",
     "active": "筛选条件",
     "noMatch": "没有匹配的日志记录"
+  },
+  "charts": {
+    "revenueTimeline": "收益趋势",
+    "todayRevenue": "今日收益",
+    "yesterdayRevenue": "昨日收益",
+    "revenueByGroup": "按分组收入",
+    "revenueByModel": "按模型收入",
+    "noData": "暂无数据",
+    "revenue": "收入",
+    "percentage": "占比",
+    "others": "其他"
   }
 }

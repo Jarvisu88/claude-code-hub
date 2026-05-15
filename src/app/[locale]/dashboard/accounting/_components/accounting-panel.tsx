@@ -8,6 +8,7 @@ import {
   type AccountingSummary,
   fetchNewApiRevenue,
   type NewApiRevenueRow,
+  type NewApiUsageDetailRow,
   saveGlobalSellMultiplier,
   saveNewApiConfig,
 } from "@/actions/accounting";
@@ -42,6 +43,8 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency } from "@/lib/utils/currency";
+import { AccountingBreakdownChart } from "./accounting-breakdown-chart";
+import { AccountingTimelineChart } from "./accounting-timeline-chart";
 
 interface AccountingPanelProps {
   summary: AccountingSummary;
@@ -101,6 +104,8 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
     pageSize: String(summary.newApiConfig.pageSize),
   });
   const [newApiRevenueRows, setNewApiRevenueRows] = useState<NewApiRevenueRow[]>([]);
+  const [newApiDetails, setNewApiDetails] = useState<NewApiUsageDetailRow[]>([]);
+  const [timezone, setTimezone] = useState<string>("UTC");
   const [totalLogs, setTotalLogs] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [isSavingMultiplier, setIsSavingMultiplier] = useState(false);
@@ -138,7 +143,35 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
     });
   }, [newApiRevenueRows, filterGroup, filterModel]);
 
+  const filteredDetails = useMemo(() => {
+    return newApiDetails.filter((row) => {
+      if (filterGroup && row.group !== filterGroup) return false;
+      if (filterModel && row.modelName !== filterModel) return false;
+      return true;
+    });
+  }, [newApiDetails, filterGroup, filterModel]);
+
   const activeFilterCount = (filterGroup ? 1 : 0) + (filterModel ? 1 : 0);
+
+  const revenueByGroupData = useMemo(() => {
+    const groupMap = new Map<string, number>();
+    filteredRevenueRows.forEach((row) => {
+      const revenue = calculateDisplayedRevenue(row, globalMultiplier);
+      const current = groupMap.get(row.group) || 0;
+      groupMap.set(row.group, current + revenue);
+    });
+    return Array.from(groupMap.entries()).map(([name, value]) => ({ name, value }));
+  }, [filteredRevenueRows, globalMultiplier]);
+
+  const revenueByModelData = useMemo(() => {
+    const modelMap = new Map<string, number>();
+    filteredRevenueRows.forEach((row) => {
+      const revenue = calculateDisplayedRevenue(row, globalMultiplier);
+      const current = modelMap.get(row.modelName) || 0;
+      modelMap.set(row.modelName, current + revenue);
+    });
+    return Array.from(modelMap.entries()).map(([name, value]) => ({ name, value }));
+  }, [filteredRevenueRows, globalMultiplier]);
 
   const newApiTotals = useMemo(() => {
     return filteredRevenueRows.reduce(
@@ -224,9 +257,11 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
 
       setIsFetchingRevenue(true);
       try {
-        const result = await fetchNewApiRevenue({ poll: silent });
+        const result = await fetchNewApiRevenue({ poll: silent, days: 2 });
         if (result.ok) {
           setNewApiRevenueRows(result.data.rows);
+          setNewApiDetails(result.data.details);
+          setTimezone(result.data.timezone);
           setTotalLogs(result.data.totalLogs);
           if (!silent) {
             toast.success(t("newApi.loaded"));
@@ -340,6 +375,27 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
           <CardContent className="px-4 text-2xl font-semibold">{totalLogs}</CardContent>
         </Card>
       </div>
+
+      {hasNewApiRevenue && activePlatform === "new-api" && (
+        <div className="grid gap-3">
+          <AccountingTimelineChart
+            title={t("charts.revenueTimeline")}
+            details={filteredDetails}
+            timezone={timezone}
+            globalMultiplier={globalMultiplier}
+          />
+          <div className="grid gap-3 md:grid-cols-2">
+            <AccountingBreakdownChart
+              title={t("charts.revenueByGroup")}
+              data={revenueByGroupData}
+            />
+            <AccountingBreakdownChart
+              title={t("charts.revenueByModel")}
+              data={revenueByModelData}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4">
         <div className="space-y-4">
