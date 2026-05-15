@@ -17,6 +17,17 @@
   "provider": {
     "title": "CCH provider cost"
   },
+  "charts": {
+    "revenueTimeline": "Revenue Timeline",
+    "todayRevenue": "Today",
+    "yesterdayRevenue": "Yesterday",
+    "revenueByGroup": "Revenue by Group",
+    "revenueByModel": "Revenue by Model",
+    "noData": "No data available",
+    "revenue": "Revenue",
+    "percentage": "Percentage",
+    "others": "Others"
+  },
   "table": {
     "provider": "Provider",
     "requests": "Requests",

@@ -79,6 +79,7 @@ export interface NewApiUsageDetailRow {
 export interface NewApiRevenueResult {
   startTimestamp: number;
   endTimestamp: number;
+  timezone: string;
   totalLogs: number;
   quotaPerUnit: number;
   rows: NewApiRevenueRow[];
@@ -97,6 +98,7 @@ const UpsertModelSellMultiplierSchema = z.object({
 
 const NewApiRevenueSchema = z.object({
   poll: z.boolean().optional(),
+  days: z.number().int().min(1).max(30).optional().default(1),
 });
 
 const SaveNewApiConfigSchema = z.object({
@@ -105,6 +107,12 @@ const SaveNewApiConfigSchema = z.object({
   userId: z.coerce.number().int().positive(),
   pageSize: z.coerce.number().int().min(20).max(500).optional(),
 });
+
+const NEW_API_MAX_LOG_PAGE_SIZE = 100;
+const NEW_API_LOG_SLICE_SECONDS = 3 * 60 * 60;
+const NEW_API_FETCH_ATTEMPTS = 5;
+const NEW_API_FETCH_RETRY_BASE_DELAY_MS = 350;
+const NEW_API_RATE_LIMIT_RETRY_DELAY_MS = 2_000;
 
 function addIsoDays(dateStr: string, days: number): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
@@ -122,13 +130,17 @@ async function requireAdmin() {
   return session;
 }
 
-async function resolveTodayRange(): Promise<{ startTime: Date; endTime: Date; timezone: string }> {
+async function resolveTimeRange(
+  days: number = 1
+): Promise<{ startTime: Date; endTime: Date; timezone: string; todayStart: Date }> {
   const timezone = await resolveSystemTimezone();
   const today = formatInTimeZone(new Date(), timezone, "yyyy-MM-dd");
   const tomorrow = addIsoDays(today, 1);
+  const startDay = addIsoDays(today, -days + 1);
   return {
-    startTime: fromZonedTime(`${today}T00:00:00`, timezone),
+    startTime: fromZonedTime(`${startDay}T00:00:00`, timezone),
     endTime: fromZonedTime(`${tomorrow}T00:00:00`, timezone),
+    todayStart: fromZonedTime(`${today}T00:00:00`, timezone),
     timezone,
   };
 }
@@ -140,7 +152,7 @@ export async function getAccountingSummary(): Promise<ActionResult<AccountingSum
       return { ok: false, error: "Unauthorized" };
     }
 
-    const [settings, range] = await Promise.all([getSystemSettings(), resolveTodayRange()]);
+    const [settings, range] = await Promise.all([getSystemSettings(), resolveTimeRange(1)]);
     const [providers, modelSellMultipliers, newApiConfig] = await Promise.all([
       findProviderProfitSummary({
         startTime: range.startTime,
@@ -247,6 +259,45 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizeNewApiPageSize(value: number): number {
+  return Math.min(Math.max(Math.trunc(value), 20), NEW_API_MAX_LOG_PAGE_SIZE);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableNewApiFetchError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = `${error.name} ${error.message}`.toLowerCase();
+  return (
+    message.includes("bodytimeout") ||
+    message.includes("econnreset") ||
+    message.includes("fetch failed") ||
+    message.includes("network") ||
+    message.includes("terminated") ||
+    message.includes("und_err") ||
+    message.includes("unexpected end")
+  );
+}
+
+function getRetryAfterDelayMs(response: Response): number | null {
+  const retryAfter = response.headers.get("retry-after");
+  if (!retryAfter) return null;
+
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.min(seconds * 1000, 30_000);
+  }
+
+  const retryAt = Date.parse(retryAfter);
+  if (Number.isFinite(retryAt)) {
+    return Math.min(Math.max(retryAt - Date.now(), 0), 30_000);
+  }
+
+  return null;
+}
+
 async function readNewApiErrorMessage(response: Response): Promise<string> {
   try {
     const payload = (await response.json()) as { message?: unknown; error?: unknown };
@@ -285,10 +336,50 @@ async function fetchAllNewApiLogs(params: {
   endTimestamp: number;
 }): Promise<{ logs: NewApiConsumeLog[]; total: number }> {
   const allLogs: NewApiConsumeLog[] = [];
+  const pageSize = normalizeNewApiPageSize(params.pageSize);
+  const slices: Array<{ startTimestamp: number; endTimestamp: number }> = [];
+  let total = 0;
+
+  for (
+    let sliceStart = params.startTimestamp;
+    sliceStart <= params.endTimestamp;
+    sliceStart += NEW_API_LOG_SLICE_SECONDS
+  ) {
+    slices.push({
+      startTimestamp: sliceStart,
+      endTimestamp: Math.min(sliceStart + NEW_API_LOG_SLICE_SECONDS - 1, params.endTimestamp),
+    });
+  }
+
+  for (const slice of slices) {
+    const result = await fetchNewApiLogsInWindow({
+      ...params,
+      pageSize,
+      startTimestamp: slice.startTimestamp,
+      endTimestamp: slice.endTimestamp,
+    });
+    allLogs.push(...result.logs);
+    total += result.total;
+  }
+
+  return { logs: allLogs, total };
+}
+
+async function fetchNewApiLogsInWindow(params: {
+  baseUrl: string;
+  accessToken: string;
+  adminUserId: number;
+  pageSize: number;
+  startTimestamp: number;
+  endTimestamp: number;
+}): Promise<{ logs: NewApiConsumeLog[]; total: number }> {
+  const allLogs: NewApiConsumeLog[] = [];
   let page = 1;
   let total = 0;
 
   for (;;) {
+    let parsed: ReturnType<typeof parseNewApiLogsPayload> | null = null;
+    let lastError: unknown;
     const url = buildNewApiLogsUrl(params.baseUrl, {
       startTimestamp: params.startTimestamp,
       endTimestamp: params.endTimestamp,
@@ -296,18 +387,46 @@ async function fetchAllNewApiLogs(params: {
       pageSize: params.pageSize,
     });
 
-    const response = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      headers: {
-        Authorization: params.accessToken,
-        "New-Api-User": String(params.adminUserId),
-      },
-    });
+    for (let attempt = 1; attempt <= NEW_API_FETCH_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          cache: "no-store",
+          headers: {
+            Authorization: params.accessToken,
+            "New-Api-User": String(params.adminUserId),
+          },
+        });
 
-    await assertNewApiOk(response, "日志");
+        if (
+          (response.status === 429 || response.status >= 500) &&
+          attempt < NEW_API_FETCH_ATTEMPTS
+        ) {
+          await sleep(
+            getRetryAfterDelayMs(response) ??
+              (response.status === 429
+                ? NEW_API_RATE_LIMIT_RETRY_DELAY_MS * attempt
+                : NEW_API_FETCH_RETRY_BASE_DELAY_MS * attempt)
+          );
+          continue;
+        }
 
-    const parsed = parseNewApiLogsPayload(await response.json());
+        await assertNewApiOk(response, "logs");
+        parsed = parseNewApiLogsPayload(await response.json());
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= NEW_API_FETCH_ATTEMPTS || !isRetryableNewApiFetchError(error)) {
+          throw error;
+        }
+        await sleep(NEW_API_FETCH_RETRY_BASE_DELAY_MS * attempt);
+      }
+    }
+
+    if (!parsed) {
+      throw lastError instanceof Error ? lastError : new Error("new-api logs request failed");
+    }
+
     allLogs.push(...parsed.logs);
     total = parsed.total ?? allLogs.length;
 
@@ -403,7 +522,7 @@ function calculateNewApiUsageDetail(params: {
 }
 
 export async function fetchNewApiRevenue(
-  input: { poll?: boolean } = {}
+  input: { poll?: boolean; days?: number } = {}
 ): Promise<ActionResult<NewApiRevenueResult>> {
   try {
     const session = await requireAdmin();
@@ -411,10 +530,11 @@ export async function fetchNewApiRevenue(
       return { ok: false, error: "Unauthorized" };
     }
 
-    NewApiRevenueSchema.parse(input);
-    const range = await resolveTodayRange();
+    const validatedInput = NewApiRevenueSchema.parse(input);
+    const range = await resolveTimeRange(validatedInput.days);
     const startTimestamp = Math.floor(range.startTime.getTime() / 1000);
     const endTimestamp = Math.max(startTimestamp, Math.floor(range.endTime.getTime() / 1000) - 1);
+    const todayStartTimestamp = Math.floor(range.todayStart.getTime() / 1000);
     const config = await findAccountingNewApiConfig();
 
     if (!config) {
@@ -426,7 +546,7 @@ export async function fetchNewApiRevenue(
       accessToken: config.accessToken,
       adminUserId: config.adminUserId,
     });
-    const { logs, total } = await fetchAllNewApiLogs({
+    const { logs } = await fetchAllNewApiLogs({
       baseUrl: config.baseUrl,
       accessToken: config.accessToken,
       adminUserId: config.adminUserId,
@@ -447,7 +567,12 @@ export async function fetchNewApiRevenue(
     });
 
     const rowByKey = new Map<string, NewApiRevenueRow>();
+    let todayLogCount = 0;
     for (const detail of details) {
+      if (detail.createdAt !== null && detail.createdAt < todayStartTimestamp) {
+        continue;
+      }
+      todayLogCount += 1;
       const multiplier = detail.modelRatio * detail.groupRatio;
       const key = `${detail.username}\u0000${detail.group}\u0000${detail.modelName}\u0000${multiplier}`;
       const current =
@@ -483,7 +608,8 @@ export async function fetchNewApiRevenue(
       data: {
         startTimestamp,
         endTimestamp,
-        totalLogs: total,
+        timezone: range.timezone,
+        totalLogs: todayLogCount,
         quotaPerUnit: billingConfig.quotaPerUnit,
         rows,
         details,

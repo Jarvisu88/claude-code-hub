@@ -79,6 +79,17 @@
       "revenue": "Выручка"
     }
   },
+  "charts": {
+    "revenueTimeline": "Динамика доходов",
+    "todayRevenue": "Сегодня",
+    "yesterdayRevenue": "Вчера",
+    "revenueByGroup": "Доход по группам",
+    "revenueByModel": "Доход по моделям",
+    "noData": "Нет данных",
+    "revenue": "Доход",
+    "percentage": "Процент",
+    "others": "Другие"
+  },
   "filter": {
     "allGroups": "Все группы",
     "allModels": "Все модели",

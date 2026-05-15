@@ -1,13 +1,15 @@
 "use client";
 
+import { formatInTimeZone } from "date-fns-tz";
 import { Filter, RefreshCw, Save, Settings, X } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   type AccountingSummary,
   fetchNewApiRevenue,
   type NewApiRevenueRow,
+  type NewApiUsageDetailRow,
   saveGlobalSellMultiplier,
   saveNewApiConfig,
 } from "@/actions/accounting";
@@ -42,6 +44,8 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency } from "@/lib/utils/currency";
+import { AccountingBreakdownChart } from "./accounting-breakdown-chart";
+import { AccountingTimelineChart } from "./accounting-timeline-chart";
 
 interface AccountingPanelProps {
   summary: AccountingSummary;
@@ -86,6 +90,37 @@ function calculateDisplayedRevenue(row: NewApiRevenueRow, configuredMultiplier: 
   return (row.revenueUsd / sourceMultiplier) * manualMultiplier;
 }
 
+function calculateDisplayedDetailRevenue(
+  row: NewApiUsageDetailRow,
+  configuredMultiplier: string
+): number {
+  const manualMultiplier = Number(configuredMultiplier);
+  if (!Number.isFinite(manualMultiplier) || manualMultiplier <= 0) {
+    return row.revenueUsd;
+  }
+
+  const sourceMultiplier =
+    Number.isFinite(row.modelRatio * row.groupRatio) && row.modelRatio * row.groupRatio > 0
+      ? row.modelRatio * row.groupRatio
+      : 1;
+  return (row.revenueUsd / sourceMultiplier) * manualMultiplier;
+}
+
+function mergeNewApiDetailsByDay(
+  currentDetails: NewApiUsageDetailRow[],
+  nextDetails: NewApiUsageDetailRow[],
+  timezone: string
+): NewApiUsageDetailRow[] {
+  const tz = timezone || "UTC";
+  const todayStr = formatInTimeZone(new Date(), tz, "yyyy-MM-dd");
+  const historicalDetails = currentDetails.filter((row) => {
+    if (!row.createdAt) return true;
+    const rowDate = formatInTimeZone(new Date(row.createdAt * 1000), tz, "yyyy-MM-dd");
+    return rowDate !== todayStr;
+  });
+  return [...historicalDetails, ...nextDetails];
+}
+
 export function AccountingPanel({ summary }: AccountingPanelProps) {
   const t = useTranslations("settings.accounting");
   const [globalMultiplier, setGlobalMultiplier] = useState(
@@ -101,6 +136,8 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
     pageSize: String(summary.newApiConfig.pageSize),
   });
   const [newApiRevenueRows, setNewApiRevenueRows] = useState<NewApiRevenueRow[]>([]);
+  const [newApiDetails, setNewApiDetails] = useState<NewApiUsageDetailRow[]>([]);
+  const [timezone, setTimezone] = useState<string>("UTC");
   const [totalLogs, setTotalLogs] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [isSavingMultiplier, setIsSavingMultiplier] = useState(false);
@@ -108,6 +145,7 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
   const [isFetchingRevenue, setIsFetchingRevenue] = useState(false);
   const [filterGroup, setFilterGroup] = useState<string | undefined>(undefined);
   const [filterModel, setFilterModel] = useState<string | undefined>(undefined);
+  const fetchRevenueInFlightRef = useRef(false);
 
   const localTotals = useMemo(() => {
     return summary.providers.reduce(
@@ -138,7 +176,35 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
     });
   }, [newApiRevenueRows, filterGroup, filterModel]);
 
+  const filteredDetails = useMemo(() => {
+    return newApiDetails.filter((row) => {
+      if (filterGroup && row.group !== filterGroup) return false;
+      if (filterModel && row.modelName !== filterModel) return false;
+      return true;
+    });
+  }, [newApiDetails, filterGroup, filterModel]);
+
   const activeFilterCount = (filterGroup ? 1 : 0) + (filterModel ? 1 : 0);
+
+  const revenueByGroupData = useMemo(() => {
+    const groupMap = new Map<string, number>();
+    filteredRevenueRows.forEach((row) => {
+      const revenue = calculateDisplayedRevenue(row, globalMultiplier);
+      const current = groupMap.get(row.group) || 0;
+      groupMap.set(row.group, current + revenue);
+    });
+    return Array.from(groupMap.entries()).map(([name, value]) => ({ name, value }));
+  }, [filteredRevenueRows, globalMultiplier]);
+
+  const revenueByModelData = useMemo(() => {
+    const modelMap = new Map<string, number>();
+    filteredRevenueRows.forEach((row) => {
+      const revenue = calculateDisplayedRevenue(row, globalMultiplier);
+      const current = modelMap.get(row.modelName) || 0;
+      modelMap.set(row.modelName, current + revenue);
+    });
+    return Array.from(modelMap.entries()).map(([name, value]) => ({ name, value }));
+  }, [filteredRevenueRows, globalMultiplier]);
 
   const newApiTotals = useMemo(() => {
     return filteredRevenueRows.reduce(
@@ -154,7 +220,21 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
     );
   }, [globalMultiplier, filteredRevenueRows]);
 
+  const yesterdayRevenueUsd = useMemo(() => {
+    const tz = timezone || "UTC";
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const yesterdayStr = formatInTimeZone(yesterday, tz, "yyyy-MM-dd");
+
+    return filteredDetails.reduce((sum, row) => {
+      if (!row.createdAt) return sum;
+      const rowDate = formatInTimeZone(new Date(row.createdAt * 1000), tz, "yyyy-MM-dd");
+      if (rowDate !== yesterdayStr) return sum;
+      return sum + calculateDisplayedDetailRevenue(row, globalMultiplier);
+    }, 0);
+  }, [filteredDetails, globalMultiplier, timezone]);
+
   const hasNewApiRevenue = filteredRevenueRows.length > 0;
+  const hasNewApiDetails = filteredDetails.length > 0;
   const useNewApiOnly = Number(globalMultiplier) === 0;
   const revenueUsd = hasNewApiRevenue
     ? newApiTotals.revenueUsd
@@ -216,18 +296,29 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
 
   const handleFetchNewApiRevenue = useCallback(
     async (silent = false) => {
+      if (fetchRevenueInFlightRef.current) {
+        return;
+      }
+
       if (!configPreview.configured) {
         toast.error(t("newApi.notConfigured"));
         setConfigOpen(true);
         return;
       }
 
+      fetchRevenueInFlightRef.current = true;
       setIsFetchingRevenue(true);
       try {
-        const result = await fetchNewApiRevenue({ poll: silent });
+        const result = await fetchNewApiRevenue({ poll: silent, days: silent ? 1 : 2 });
         if (result.ok) {
           setNewApiRevenueRows(result.data.rows);
+          setTimezone(result.data.timezone);
           setTotalLogs(result.data.totalLogs);
+          setNewApiDetails((current) =>
+            silent
+              ? mergeNewApiDetailsByDay(current, result.data.details, result.data.timezone)
+              : result.data.details
+          );
           if (!silent) {
             toast.success(t("newApi.loaded"));
           }
@@ -238,6 +329,7 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
           setAutoRefresh(false);
         }
       } finally {
+        fetchRevenueInFlightRef.current = false;
         setIsFetchingRevenue(false);
       }
     },
@@ -304,7 +396,7 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-5">
         <Card className="rounded-lg py-4">
           <CardHeader className="px-4">
             <CardTitle className="text-sm">{t("totals.cost")}</CardTitle>
@@ -318,6 +410,14 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
             <CardTitle className="text-sm">{t("totals.revenue")}</CardTitle>
           </CardHeader>
           <CardContent className="px-4 text-2xl font-semibold">{formatUsd(revenueUsd)}</CardContent>
+        </Card>
+        <Card className="rounded-lg py-4">
+          <CardHeader className="px-4">
+            <CardTitle className="text-sm">{t("charts.yesterdayRevenue")}</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 text-2xl font-semibold">
+            {formatUsd(yesterdayRevenueUsd)}
+          </CardContent>
         </Card>
         <Card className="rounded-lg py-4">
           <CardHeader className="px-4">
@@ -340,6 +440,27 @@ export function AccountingPanel({ summary }: AccountingPanelProps) {
           <CardContent className="px-4 text-2xl font-semibold">{totalLogs}</CardContent>
         </Card>
       </div>
+
+      {hasNewApiDetails && activePlatform === "new-api" && (
+        <div className="grid gap-3">
+          <AccountingTimelineChart
+            title={t("charts.revenueTimeline")}
+            details={filteredDetails}
+            timezone={timezone}
+            globalMultiplier={globalMultiplier}
+          />
+          <div className="grid gap-3 md:grid-cols-2">
+            <AccountingBreakdownChart
+              title={t("charts.revenueByGroup")}
+              data={revenueByGroupData}
+            />
+            <AccountingBreakdownChart
+              title={t("charts.revenueByModel")}
+              data={revenueByModelData}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4">
         <div className="space-y-4">

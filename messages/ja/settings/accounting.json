@@ -8,6 +8,17 @@
   "loadFailed": "記帳データの読み込みに失敗しました",
   "empty": "本日は課金対象のプロバイダー使用量がまだありません",
   "saved": "保存しました",
+  "charts": {
+    "revenueTimeline": "収益推移",
+    "todayRevenue": "今日の収益",
+    "yesterdayRevenue": "昨日の収益",
+    "revenueByGroup": "グループ別収益",
+    "revenueByModel": "モデル別収益",
+    "noData": "データがありません",
+    "revenue": "収益",
+    "percentage": "割合",
+    "others": "その他"
+  },
   "totals": {
     "cost": "プロバイダー原価",
     "revenue": "下流売上",
