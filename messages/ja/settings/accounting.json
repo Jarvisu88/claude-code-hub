@@ -1,100 +1,42 @@
 {
-  "title": "収益記帳",
-  "description": "プロバイダー原価、下流売上、本日の利益を素早く計算します",
+  "title": "収益会計",
+  "description": "プロバイダーコスト、収益、利益をリアルタイムで計算",
   "section": {
-    "title": "収益記帳",
-    "description": "プロバイダー原価は CCH の本日使用量で計算し、new-api の売上はログのユーザーとグループで分けて集計します"
+    "title": "収益会計",
+    "description": "ローカルの使用記録からコスト、収益、利益をリアルタイムで計算"
   },
-  "loadFailed": "記帳データの読み込みに失敗しました",
-  "empty": "本日は課金対象のプロバイダー使用量がまだありません",
+  "loadFailed": "会計データの読み込みに失敗しました",
+  "empty": "選択した期間に課金可能な使用量がありません",
   "saved": "保存しました",
-  "charts": {
-    "revenueTimeline": "収益推移",
-    "todayRevenue": "今日の収益",
-    "yesterdayRevenue": "昨日の収益",
-    "revenueByGroup": "グループ別収益",
-    "revenueByModel": "モデル別収益",
-    "noData": "データがありません",
+  "autoRefresh": "自動更新",
+  "providerCosts": "プロバイダー内訳",
+  "cards": {
+    "cost": "仕入れコスト",
     "revenue": "収益",
-    "percentage": "割合",
-    "others": "その他"
-  },
-  "totals": {
-    "cost": "プロバイダー原価",
-    "revenue": "下流売上",
-    "profit": "本日の利益",
-    "logs": "ログ数"
-  },
-  "provider": {
-    "title": "CCH プロバイダー原価"
+    "profit": "利益",
+    "margin": "粗利率"
   },
   "table": {
     "provider": "プロバイダー",
     "requests": "リクエスト数",
-    "cost": "原価",
-    "estimatedRevenue": "CCH 推定売上",
-    "profit": "推定利益"
+    "cost": "コスト",
+    "revenue": "収益",
+    "profit": "利益",
+    "sellMultiplier": "販売倍率"
   },
-  "global": {
-    "title": "既定の販売倍率",
-    "save": "倍率を保存",
-    "compactSave": "既定倍率を保存",
-    "zeroRule": "0 は new-api から取得したモデル倍率とグループ倍率を使用します。0 以外を入力すると手動倍率で上書きします。"
+  "sellMultiplier": {
+    "saved": "販売倍率を保存しました",
+    "auto": "自動"
   },
-  "platforms": {
-    "newApi": "new-api"
+  "timeRange": {
+    "today": "今日",
+    "week": "過去7日間",
+    "month": "今月"
   },
-  "platformActions": {
-    "configure": "設定",
-    "loadLogs": "本日のログを取得"
-  },
-  "usageLog": {
-    "title": "使用ログ"
-  },
-  "model": {
-    "title": "モデル販売倍率",
-    "name": "モデル名",
-    "multiplier": "販売倍率",
-    "note": "メモ",
-    "save": "モデル価格を保存"
-  },
-  "newApi": {
-    "title": "new-api 実売上",
-    "configure": "new-api を設定",
-    "configured": "設定済み",
-    "notConfiguredBadge": "未設定",
-    "notConfigured": "先に new-api を設定してください",
-    "dialogTitle": "new-api ログ設定",
-    "dialogDescription": "設定はローカルデータベースに保存されるため、ページを切り替えても再入力は不要です。アクセストークンを空にすると保存済みトークンを維持します。",
-    "baseUrl": "new-api URL",
-    "baseUrlPlaceholder": "https://new-api.example.com",
-    "accessToken": "管理者アクセストークン",
-    "keepExistingToken": "空欄で保存済みトークンを維持",
-    "userId": "管理者ユーザー ID",
-    "pageSize": "1 ページあたりのログ数",
-    "saveConfig": "設定を保存",
-    "load": "本日のログを取得",
-    "loaded": "new-api ログを取得しました",
-    "invalidConfig": "有効な new-api 設定を入力してください",
-    "autoRefresh": "ログをポーリング",
-    "empty": "new-api ログはまだ読み込まれていません",
-    "table": {
-      "username": "ユーザー",
-      "group": "グループ",
-      "model": "モデル",
-      "requests": "リクエスト数",
-      "tokens": "入力/出力",
-      "quota": "課金クォータ",
-      "modelRatio": "モデル倍率",
-      "groupRatio": "グループ倍率",
-      "revenue": "売上"
-    }
-  },
-  "filter": {
-    "allGroups": "すべてのグループ",
-    "allModels": "すべてのモデル",
-    "clear": "フィルターをクリア",
-    "active": "フィルター条件",
-    "noMatch": "一致するログがありません"
+  "charts": {
+    "revenueTimeline": "収益推移",
+    "loading": "読み込み中...",
+    "stacked": "積み上げ",
+    "overlay": "重ね"
   }
 }

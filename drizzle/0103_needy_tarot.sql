@@ -1,0 +1,1 @@
+ALTER TABLE "providers" ADD COLUMN "sell_multiplier" numeric(10, 4);

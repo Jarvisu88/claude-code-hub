@@ -212,12 +212,9 @@ export function KeysQuotaClient({ users, currencyCode = "USD" }: KeysQuotaClient
                                         handleSaveLimit(key.id, key.name, "limit5hUsd", v)
                                       }
                                     >
-                                      <button
-                                        type="button"
-                                        className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      >
+                                      <span className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                                         {formatCurrency(key.quota.cost5h.limit, currencyCode)}
-                                      </button>
+                                      </span>
                                     </QuotaQuickEditPopover>
                                   </span>
                                 </div>
@@ -261,12 +258,9 @@ export function KeysQuotaClient({ users, currencyCode = "USD" }: KeysQuotaClient
                                         handleSaveLimit(key.id, key.name, "limitDailyUsd", v)
                                       }
                                     >
-                                      <button
-                                        type="button"
-                                        className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      >
+                                      <span className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                                         {formatCurrency(key.quota.costDaily.limit, currencyCode)}
-                                      </button>
+                                      </span>
                                     </QuotaQuickEditPopover>
                                   </span>
                                 </div>
@@ -311,12 +305,9 @@ export function KeysQuotaClient({ users, currencyCode = "USD" }: KeysQuotaClient
                                         handleSaveLimit(key.id, key.name, "limitWeeklyUsd", v)
                                       }
                                     >
-                                      <button
-                                        type="button"
-                                        className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      >
+                                      <span className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                                         {formatCurrency(key.quota.costWeekly.limit, currencyCode)}
-                                      </button>
+                                      </span>
                                     </QuotaQuickEditPopover>
                                   </span>
                                 </div>
@@ -363,12 +354,9 @@ export function KeysQuotaClient({ users, currencyCode = "USD" }: KeysQuotaClient
                                         handleSaveLimit(key.id, key.name, "limitMonthlyUsd", v)
                                       }
                                     >
-                                      <button
-                                        type="button"
-                                        className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      >
+                                      <span className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                                         {formatCurrency(key.quota.costMonthly.limit, currencyCode)}
-                                      </button>
+                                      </span>
                                     </QuotaQuickEditPopover>
                                   </span>
                                 </div>
@@ -411,12 +399,9 @@ export function KeysQuotaClient({ users, currencyCode = "USD" }: KeysQuotaClient
                                         handleSaveLimit(key.id, key.name, "limitTotalUsd", v)
                                       }
                                     >
-                                      <button
-                                        type="button"
-                                        className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      >
+                                      <span className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                                         {formatCurrency(key.quota.costTotal.limit, currencyCode)}
-                                      </button>
+                                      </span>
                                     </QuotaQuickEditPopover>
                                   </span>
                                 </div>
@@ -459,12 +444,9 @@ export function KeysQuotaClient({ users, currencyCode = "USD" }: KeysQuotaClient
                                       }
                                       allowClear={false}
                                     >
-                                      <button
-                                        type="button"
-                                        className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                      >
+                                      <span className="underline-offset-4 hover:underline cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                                         {key.quota.concurrentSessions.limit}
-                                      </button>
+                                      </span>
                                     </QuotaQuickEditPopover>
                                   </span>
                                 </div>

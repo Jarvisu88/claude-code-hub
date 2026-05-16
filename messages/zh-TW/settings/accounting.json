@@ -1,100 +1,42 @@
 {
   "title": "收益記帳",
-  "description": "快速計算供應商成本、下游收入和今日利潤",
+  "description": "即時計算供應商成本、收入和利潤",
   "section": {
     "title": "收益記帳",
-    "description": "供應商成本按 CCH 今日用量計算；new-api 收入按日誌中的使用者和分組拆分後彙總"
+    "description": "基於本地使用紀錄即時計算成本、收入和利潤"
   },
   "loadFailed": "載入記帳資料失敗",
-  "empty": "今日還沒有可計費的供應商用量",
+  "empty": "所選時間範圍內沒有可計費的用量",
   "saved": "已儲存",
-  "charts": {
-    "revenueTimeline": "收益趨勢",
-    "todayRevenue": "今日收益",
-    "yesterdayRevenue": "昨日收益",
-    "revenueByGroup": "按分組收入",
-    "revenueByModel": "按模型收入",
-    "noData": "暫無數據",
-    "revenue": "收入",
-    "percentage": "佔比",
-    "others": "其他"
-  },
-  "totals": {
+  "autoRefresh": "自動重新整理",
+  "providerCosts": "供應商明細",
+  "cards": {
     "cost": "供應商成本",
-    "revenue": "下游收入",
-    "profit": "今日利潤",
-    "logs": "日誌數"
-  },
-  "provider": {
-    "title": "CCH 供應商成本"
+    "revenue": "收入",
+    "profit": "利潤",
+    "margin": "毛利率"
   },
   "table": {
     "provider": "供應商",
     "requests": "請求數",
     "cost": "成本",
-    "estimatedRevenue": "CCH 估算收入",
-    "profit": "估算利潤"
+    "revenue": "收入",
+    "profit": "利潤",
+    "sellMultiplier": "售價倍率"
   },
-  "global": {
-    "title": "預設售價倍率",
-    "save": "儲存倍率",
-    "compactSave": "儲存預設倍率",
-    "zeroRule": "填 0 表示使用 new-api 拉取到的模型和分組倍率；填非 0 數字後按手動倍率覆蓋計算。"
+  "sellMultiplier": {
+    "saved": "售價倍率已儲存",
+    "auto": "自動"
   },
-  "platforms": {
-    "newApi": "new-api"
+  "timeRange": {
+    "today": "今日",
+    "week": "近7天",
+    "month": "本月"
   },
-  "platformActions": {
-    "configure": "設定",
-    "loadLogs": "拉取今日日誌"
-  },
-  "usageLog": {
-    "title": "使用日誌"
-  },
-  "model": {
-    "title": "模型售價倍率",
-    "name": "模型名稱",
-    "multiplier": "售價倍率",
-    "note": "備註",
-    "save": "儲存模型價格"
-  },
-  "newApi": {
-    "title": "new-api 實際收入",
-    "configure": "設定 new-api",
-    "configured": "已設定",
-    "notConfiguredBadge": "未設定",
-    "notConfigured": "請先設定 new-api",
-    "dialogTitle": "new-api 日誌設定",
-    "dialogDescription": "設定會儲存在本機資料庫，後續切換頁面不需要重複填寫。存取權杖留空時會繼續使用已儲存的權杖。",
-    "baseUrl": "new-api 地址",
-    "baseUrlPlaceholder": "https://new-api.example.com",
-    "accessToken": "管理員存取權杖",
-    "keepExistingToken": "留空表示沿用已儲存權杖",
-    "userId": "管理員使用者 ID",
-    "pageSize": "每頁日誌數",
-    "saveConfig": "儲存設定",
-    "load": "拉取今日日誌",
-    "loaded": "已拉取 new-api 日誌",
-    "invalidConfig": "請填寫有效的 new-api 設定",
-    "autoRefresh": "輪詢日誌",
-    "empty": "還沒有拉取到 new-api 日誌",
-    "table": {
-      "username": "使用者",
-      "group": "分組",
-      "model": "模型",
-      "requests": "請求數",
-      "tokens": "輸入/輸出",
-      "quota": "扣費額度",
-      "modelRatio": "模型倍率",
-      "groupRatio": "分組倍率",
-      "revenue": "收入"
-    }
-  },
-  "filter": {
-    "allGroups": "全部分組",
-    "allModels": "全部模型",
-    "clear": "清除篩選",
-    "active": "篩選條件",
-    "noMatch": "沒有匹配的日誌記錄"
+  "charts": {
+    "revenueTimeline": "收益趨勢",
+    "loading": "載入中...",
+    "stacked": "堆疊",
+    "overlay": "疊加"
   }
 }

@@ -4,7 +4,7 @@ import { Section } from "@/components/section";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { redirect } from "@/i18n/routing";
 import { getSession } from "@/lib/auth";
-import { AccountingPanel } from "./_components/accounting-panel";
+import { AccountingPanelV2 } from "./_components/accounting-panel-v2";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,7 @@ export default async function DashboardAccountingPage({ params }: DashboardAccou
         variant="default"
       >
         {result.ok ? (
-          <AccountingPanel summary={result.data} />
+          <AccountingPanelV2 summary={result.data} />
         ) : (
           <Alert variant="destructive">
             <AlertTitle>{t("accounting.loadFailed")}</AlertTitle>

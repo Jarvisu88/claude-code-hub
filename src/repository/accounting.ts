@@ -3,7 +3,6 @@ import "server-only";
 import { eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/drizzle/db";
 import {
-  accountingNewApiConfigs,
   modelSellMultipliers,
   providerGroups,
   providers,
@@ -23,7 +22,7 @@ export interface ProviderProfitSummaryRow {
   estimatedRevenueUsd: number;
   estimatedProfitUsd: number;
   revenueMultiplier: number;
-  missingSellMultiplierCount: number;
+  sellMultiplier: number | null;
 }
 
 export interface ModelSellMultiplierRow {
@@ -35,23 +34,6 @@ export interface ModelSellMultiplierRow {
   updatedAt: Date | null;
 }
 
-export interface AccountingNewApiConfigRow {
-  id: number;
-  baseUrl: string;
-  accessToken: string;
-  adminUserId: number;
-  pageSize: number;
-  createdAt: Date | null;
-  updatedAt: Date | null;
-}
-
-export interface AccountingNewApiConfigPreview {
-  configured: boolean;
-  baseUrl: string;
-  adminUserId: number | null;
-  pageSize: number;
-}
-
 function toNumber(value: unknown): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   if (typeof value === "string") {
@@ -59,75 +41,6 @@ function toNumber(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
-}
-
-function toConfig(row: typeof accountingNewApiConfigs.$inferSelect): AccountingNewApiConfigRow {
-  return {
-    id: row.id,
-    baseUrl: row.baseUrl,
-    accessToken: row.accessToken,
-    adminUserId: row.adminUserId,
-    pageSize: row.pageSize,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-export async function findAccountingNewApiConfig(): Promise<AccountingNewApiConfigRow | null> {
-  const [row] = await db
-    .select()
-    .from(accountingNewApiConfigs)
-    .where(eq(accountingNewApiConfigs.name, "default"))
-    .limit(1);
-
-  return row ? toConfig(row) : null;
-}
-
-export async function findAccountingNewApiConfigPreview(): Promise<AccountingNewApiConfigPreview> {
-  const row = await findAccountingNewApiConfig();
-  return {
-    configured: Boolean(row),
-    baseUrl: row?.baseUrl ?? "",
-    adminUserId: row?.adminUserId ?? null,
-    pageSize: row?.pageSize ?? 100,
-  };
-}
-
-export async function upsertAccountingNewApiConfig(input: {
-  baseUrl: string;
-  accessToken?: string | null;
-  adminUserId: number;
-  pageSize?: number;
-}): Promise<AccountingNewApiConfigPreview> {
-  const existing = await findAccountingNewApiConfig();
-  const accessToken = input.accessToken?.trim() || existing?.accessToken;
-  if (!accessToken) {
-    throw new Error("new-api access token is required");
-  }
-
-  const pageSize = Math.min(Math.max(input.pageSize ?? existing?.pageSize ?? 100, 20), 500);
-  await db
-    .insert(accountingNewApiConfigs)
-    .values({
-      name: "default",
-      baseUrl: input.baseUrl,
-      accessToken,
-      adminUserId: input.adminUserId,
-      pageSize,
-      updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: accountingNewApiConfigs.name,
-      set: {
-        baseUrl: input.baseUrl,
-        accessToken,
-        adminUserId: input.adminUserId,
-        pageSize,
-        updatedAt: new Date(),
-      },
-    });
-
-  return findAccountingNewApiConfigPreview();
 }
 
 export async function findAccountingGroupMultiplierMap(): Promise<Map<string, number>> {
@@ -159,6 +72,30 @@ export async function findAccountingUserGroupMap(): Promise<Map<string, string>>
   return result;
 }
 
+export interface ProviderSellConfig {
+  providerId: number;
+  providerName: string;
+  sellMultiplier: number | null;
+}
+
+export async function findAllProviderSellConfigs(): Promise<ProviderSellConfig[]> {
+  const rows = await db
+    .select({
+      id: providers.id,
+      name: providers.name,
+      sellMultiplier: providers.sellMultiplier,
+    })
+    .from(providers)
+    .where(isNull(providers.deletedAt))
+    .orderBy(providers.name);
+
+  return rows.map((row) => ({
+    providerId: row.id,
+    providerName: row.name,
+    sellMultiplier: row.sellMultiplier ? toNumber(row.sellMultiplier) : null,
+  }));
+}
+
 export async function findProviderProfitSummary(params: {
   startTime: Date;
   endTime: Date;
@@ -177,6 +114,7 @@ export async function findProviderProfitSummary(params: {
       SELECT
         ${usageLedger.finalProviderId} AS provider_id,
         ${providers.name} AS provider_name,
+        ${providers.sellMultiplier}::numeric AS sell_multiplier,
         COALESCE(NULLIF(${usageLedger.model}, ''), NULLIF(${usageLedger.originalModel}, ''), '') AS model_name,
         COALESCE(${usageLedger.costUsd}, 0)::numeric AS charged_cost_usd,
         COALESCE(${usageLedger.costMultiplier}, ${providers.costMultiplier}, '1')::numeric AS provider_multiplier,
@@ -192,8 +130,9 @@ export async function findProviderProfitSummary(params: {
       SELECT
         provider_id,
         provider_name,
+        sell_multiplier,
         model_name,
-        provider_multiplier * group_multiplier AS revenue_multiplier,
+        COALESCE(sell_multiplier, provider_multiplier * group_multiplier) AS revenue_multiplier,
         CASE
           WHEN provider_multiplier * group_multiplier > 0
             THEN charged_cost_usd / (provider_multiplier * group_multiplier)
@@ -206,7 +145,8 @@ export async function findProviderProfitSummary(params: {
         END AS supplier_cost_usd,
         CASE
           WHEN provider_multiplier * group_multiplier > 0
-            THEN charged_cost_usd
+            THEN (charged_cost_usd / (provider_multiplier * group_multiplier))
+                 * COALESCE(sell_multiplier, provider_multiplier * group_multiplier)
           ELSE 0
         END AS estimated_revenue_usd
       FROM ledger_base
@@ -214,6 +154,7 @@ export async function findProviderProfitSummary(params: {
     SELECT
       provider_id AS "providerId",
       provider_name AS "providerName",
+      sell_multiplier::text AS "sellMultiplier",
       COUNT(*)::int AS "requestCount",
       COUNT(DISTINCT NULLIF(model_name, ''))::int AS "modelCount",
       COALESCE(SUM(base_cost_usd), 0)::text AS "baseCostUsd",
@@ -223,10 +164,9 @@ export async function findProviderProfitSummary(params: {
       COALESCE(
         SUM(base_cost_usd * revenue_multiplier) / NULLIF(SUM(base_cost_usd), 0),
         0
-      )::text AS "revenueMultiplier",
-      0::int AS "missingSellMultiplierCount"
+      )::text AS "revenueMultiplier"
     FROM normalized
-    GROUP BY provider_id, provider_name
+    GROUP BY provider_id, provider_name, sell_multiplier
     ORDER BY COALESCE(SUM(estimated_revenue_usd - supplier_cost_usd), 0) DESC, provider_name ASC
   `);
 
@@ -240,8 +180,21 @@ export async function findProviderProfitSummary(params: {
     estimatedRevenueUsd: toNumber(row.estimatedRevenueUsd),
     estimatedProfitUsd: toNumber(row.estimatedProfitUsd),
     revenueMultiplier: toNumber(row.revenueMultiplier),
-    missingSellMultiplierCount: Number(row.missingSellMultiplierCount ?? 0),
+    sellMultiplier: row.sellMultiplier ? toNumber(row.sellMultiplier) : null,
   }));
+}
+
+export async function updateProviderSellMultiplier(
+  providerId: number,
+  sellMultiplier: number | null
+): Promise<void> {
+  await db
+    .update(providers)
+    .set({
+      sellMultiplier: sellMultiplier !== null ? String(sellMultiplier) : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(providers.id, providerId));
 }
 
 export async function findModelSellMultipliers(): Promise<ModelSellMultiplierRow[]> {
@@ -297,4 +250,97 @@ export async function upsertModelSellMultiplier(input: {
     ...row,
     multiplier: toNumber(row.multiplier),
   };
+}
+
+export interface RevenueTimelineRow {
+  timeBucket: string;
+  userName: string;
+  userId: number;
+  providerGroup: string;
+  modelName: string;
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  supplierCostUsd: number;
+  revenueUsd: number;
+}
+
+export async function findRevenueTimeline(params: {
+  startTime: Date;
+  endTime: Date;
+  globalSellMultiplier: number;
+  bucketInterval: "hour" | "day";
+}): Promise<RevenueTimelineRow[]> {
+  const globalSellMultiplier = Number.isFinite(params.globalSellMultiplier)
+    ? params.globalSellMultiplier > 0
+      ? params.globalSellMultiplier
+      : 1
+    : 1;
+  const startTime = params.startTime.toISOString();
+  const endTime = params.endTime.toISOString();
+  const truncInterval = params.bucketInterval === "hour" ? "hour" : "day";
+
+  const rows = await db.execute(sql`
+    WITH ledger_base AS (
+      SELECT
+        date_trunc(${truncInterval}, ${usageLedger.createdAt}) AS time_bucket,
+        ${users.name} AS user_name,
+        ${users.id} AS user_id,
+        ${users.providerGroup} AS provider_group,
+        COALESCE(NULLIF(${usageLedger.model}, ''), NULLIF(${usageLedger.originalModel}, ''), 'unknown') AS model_name,
+        COALESCE(${usageLedger.costUsd}, 0)::numeric AS charged_cost_usd,
+        COALESCE(${usageLedger.costMultiplier}, ${providers.costMultiplier}, '1')::numeric AS provider_multiplier,
+        COALESCE(${usageLedger.groupCostMultiplier}, ${globalSellMultiplier})::numeric AS group_multiplier,
+        ${providers.sellMultiplier}::numeric AS sell_multiplier,
+        COALESCE(${usageLedger.inputTokens}, 0) AS input_tokens,
+        COALESCE(${usageLedger.outputTokens}, 0) AS output_tokens
+      FROM ${usageLedger}
+      INNER JOIN ${users} ON ${users.id} = ${usageLedger.userId}
+      INNER JOIN ${providers} ON ${providers.id} = ${usageLedger.finalProviderId}
+      WHERE
+        ${usageLedger.createdAt} >= ${startTime}::timestamptz
+        AND ${usageLedger.createdAt} < ${endTime}::timestamptz
+        AND ${LEDGER_BILLING_CONDITION}
+    )
+    SELECT
+      time_bucket,
+      user_name,
+      user_id,
+      provider_group,
+      model_name,
+      COUNT(*)::int AS request_count,
+      SUM(input_tokens)::bigint AS input_tokens,
+      SUM(output_tokens)::bigint AS output_tokens,
+      SUM(
+        CASE
+          WHEN provider_multiplier * group_multiplier > 0
+            THEN (charged_cost_usd / (provider_multiplier * group_multiplier)) * provider_multiplier
+          ELSE 0
+        END
+      )::numeric AS supplier_cost_usd,
+      SUM(
+        CASE
+          WHEN provider_multiplier * group_multiplier > 0
+            THEN (charged_cost_usd / (provider_multiplier * group_multiplier))
+                 * COALESCE(sell_multiplier, provider_multiplier * group_multiplier)
+          ELSE 0
+        END
+      )::numeric AS revenue_usd
+    FROM ledger_base
+    GROUP BY time_bucket, user_name, user_id, provider_group, model_name
+    ORDER BY time_bucket ASC, revenue_usd DESC
+  `);
+
+  return rows.map((row: any) => ({
+    timeBucket: row.time_bucket?.toISOString() || "",
+    userName: String(row.user_name || "unknown"),
+    userId: Number(row.user_id || 0),
+    providerGroup: String(row.provider_group || "default"),
+    modelName: String(row.model_name || "unknown"),
+    requestCount: Number(row.request_count || 0),
+    inputTokens: Number(row.input_tokens || 0),
+    outputTokens: Number(row.output_tokens || 0),
+    supplierCostUsd: toNumber(row.supplier_cost_usd),
+    revenueUsd: toNumber(row.revenue_usd),
+  }));
 }

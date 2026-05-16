@@ -1,100 +1,42 @@
 {
   "title": "Accounting",
-  "description": "Calculate provider cost, downstream revenue, and today's profit",
+  "description": "Real-time provider cost, revenue, and profit calculation",
   "section": {
     "title": "Accounting",
-    "description": "CCH calculates provider cost from today's usage; new-api revenue is grouped by log user and group before aggregation"
+    "description": "Real-time cost, revenue, and profit calculated from local usage records"
   },
   "loadFailed": "Failed to load accounting data",
-  "empty": "No billable provider usage today",
+  "empty": "No billable usage in the selected time range",
   "saved": "Saved",
-  "totals": {
-    "cost": "Supplier cost",
-    "revenue": "Downstream revenue",
-    "profit": "Today's profit",
-    "logs": "Logs"
-  },
-  "provider": {
-    "title": "CCH provider cost"
-  },
-  "charts": {
-    "revenueTimeline": "Revenue Timeline",
-    "todayRevenue": "Today",
-    "yesterdayRevenue": "Yesterday",
-    "revenueByGroup": "Revenue by Group",
-    "revenueByModel": "Revenue by Model",
-    "noData": "No data available",
+  "autoRefresh": "Auto Refresh",
+  "providerCosts": "Provider Breakdown",
+  "cards": {
+    "cost": "Supplier Cost",
     "revenue": "Revenue",
-    "percentage": "Percentage",
-    "others": "Others"
+    "profit": "Profit",
+    "margin": "Margin"
   },
   "table": {
     "provider": "Provider",
     "requests": "Requests",
     "cost": "Cost",
-    "estimatedRevenue": "CCH estimated revenue",
-    "profit": "Estimated profit"
+    "revenue": "Revenue",
+    "profit": "Profit",
+    "sellMultiplier": "Sell Multiplier"
   },
-  "global": {
-    "title": "Default sale multiplier",
-    "save": "Save multiplier",
-    "compactSave": "Save default",
-    "zeroRule": "Set 0 to use the model and group ratios from new-api. Enter a non-zero value to override new-api ratios."
+  "sellMultiplier": {
+    "saved": "Sell multiplier saved",
+    "auto": "auto"
   },
-  "platforms": {
-    "newApi": "new-api"
+  "timeRange": {
+    "today": "Today",
+    "week": "Last 7 Days",
+    "month": "This Month"
   },
-  "platformActions": {
-    "configure": "Configure",
-    "loadLogs": "Load today's logs"
-  },
-  "usageLog": {
-    "title": "Usage logs"
-  },
-  "model": {
-    "title": "Model sale multiplier",
-    "name": "Model name",
-    "multiplier": "Sale multiplier",
-    "note": "Note",
-    "save": "Save model price"
-  },
-  "newApi": {
-    "title": "new-api actual revenue",
-    "configure": "Configure new-api",
-    "configured": "Configured",
-    "notConfiguredBadge": "Not configured",
-    "notConfigured": "Configure new-api first",
-    "dialogTitle": "new-api log configuration",
-    "dialogDescription": "The configuration is saved in the local database, so it does not need to be re-entered after switching pages. Leave the access token empty to keep the saved token.",
-    "baseUrl": "new-api base URL",
-    "baseUrlPlaceholder": "https://new-api.example.com",
-    "accessToken": "Admin access token",
-    "keepExistingToken": "Leave empty to keep the saved token",
-    "userId": "Admin user ID",
-    "pageSize": "Logs per page",
-    "saveConfig": "Save configuration",
-    "load": "Load today's logs",
-    "loaded": "new-api logs loaded",
-    "invalidConfig": "Fill in a valid new-api configuration",
-    "autoRefresh": "Poll logs",
-    "empty": "No new-api logs loaded yet",
-    "table": {
-      "username": "User",
-      "group": "Group",
-      "model": "Model",
-      "requests": "Requests",
-      "tokens": "Input/output",
-      "quota": "Charged quota",
-      "modelRatio": "Model ratio",
-      "groupRatio": "Group ratio",
-      "revenue": "Revenue"
-    }
-  },
-  "filter": {
-    "allGroups": "All groups",
-    "allModels": "All models",
-    "clear": "Clear filters",
-    "active": "Active filters",
-    "noMatch": "No matching log entries"
+  "charts": {
+    "revenueTimeline": "Revenue Timeline",
+    "loading": "Loading...",
+    "stacked": "Stacked",
+    "overlay": "Overlay"
   }
 }
