@@ -1,0 +1,42 @@
+{
+  "title": "收益記帳",
+  "description": "即時計算供應商成本、收入和利潤",
+  "section": {
+    "title": "收益記帳",
+    "description": "基於本地使用紀錄即時計算成本、收入和利潤"
+  },
+  "loadFailed": "載入記帳資料失敗",
+  "empty": "所選時間範圍內沒有可計費的用量",
+  "saved": "已儲存",
+  "autoRefresh": "自動重新整理",
+  "providerCosts": "供應商明細",
+  "cards": {
+    "cost": "供應商成本",
+    "revenue": "收入",
+    "profit": "利潤",
+    "margin": "毛利率"
+  },
+  "table": {
+    "provider": "供應商",
+    "requests": "請求數",
+    "cost": "成本",
+    "revenue": "收入",
+    "profit": "利潤",
+    "sellMultiplier": "售價倍率"
+  },
+  "sellMultiplier": {
+    "saved": "售價倍率已儲存",
+    "auto": "自動"
+  },
+  "timeRange": {
+    "today": "今日",
+    "week": "近7天",
+    "month": "本月"
+  },
+  "charts": {
+    "revenueTimeline": "收益趨勢",
+    "loading": "載入中...",
+    "stacked": "堆疊",
+    "overlay": "疊加"
+  }
+}

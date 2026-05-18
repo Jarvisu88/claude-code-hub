@@ -197,6 +197,7 @@ export const providers = pgTable('providers', {
   priority: integer('priority').notNull().default(0),
   groupPriorities: jsonb('group_priorities').$type<Record<string, number> | null>().default(null),
   costMultiplier: numeric('cost_multiplier', { precision: 10, scale: 4 }).default('1.0'),
+  sellMultiplier: numeric('sell_multiplier', { precision: 10, scale: 4 }),
   groupTag: varchar('group_tag', { length: 255 }),
 
   // 供应商类型：扩展支持 5 种类型
@@ -863,9 +864,28 @@ export const systemSettings = pgTable('system_settings', {
     .notNull()
     .default(5),
 
+  // 售价倍率全局兜底值（仅用于管理员视角的收入/利润观测，不影响真实计费）
+  // 单条请求收入 = cost_usd × COALESCE(model_sell_multipliers.multiplier, global_sell_multiplier)
+  globalSellMultiplier: numeric('global_sell_multiplier', { precision: 10, scale: 4 })
+    .notNull()
+    .default('0'),
+
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 });
+
+// 售价倍率表 — 每个模型一行，仅用于管理员侧的收入/利润计算。
+// 不影响真实计费链路（与 providers.cost_multiplier 等概念语义不同）。
+export const modelSellMultipliers = pgTable('model_sell_multipliers', {
+  id: serial('id').primaryKey(),
+  modelName: varchar('model_name', { length: 128 }).notNull().unique(),
+  multiplier: numeric('multiplier', { precision: 10, scale: 4 }).notNull().default('1.0'),
+  note: varchar('note', { length: 200 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  modelSellMultiplierNameIdx: index('idx_model_sell_multiplier_name').on(table.modelName),
+}));
 
 // Notification Settings table - Webhook 通知配置
 export const notificationSettings = pgTable('notification_settings', {

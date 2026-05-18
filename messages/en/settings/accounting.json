@@ -1,0 +1,42 @@
+{
+  "title": "Accounting",
+  "description": "Real-time provider cost, revenue, and profit calculation",
+  "section": {
+    "title": "Accounting",
+    "description": "Real-time cost, revenue, and profit calculated from local usage records"
+  },
+  "loadFailed": "Failed to load accounting data",
+  "empty": "No billable usage in the selected time range",
+  "saved": "Saved",
+  "autoRefresh": "Auto Refresh",
+  "providerCosts": "Provider Breakdown",
+  "cards": {
+    "cost": "Supplier Cost",
+    "revenue": "Revenue",
+    "profit": "Profit",
+    "margin": "Margin"
+  },
+  "table": {
+    "provider": "Provider",
+    "requests": "Requests",
+    "cost": "Cost",
+    "revenue": "Revenue",
+    "profit": "Profit",
+    "sellMultiplier": "Sell Multiplier"
+  },
+  "sellMultiplier": {
+    "saved": "Sell multiplier saved",
+    "auto": "auto"
+  },
+  "timeRange": {
+    "today": "Today",
+    "week": "Last 7 Days",
+    "month": "This Month"
+  },
+  "charts": {
+    "revenueTimeline": "Revenue Timeline",
+    "loading": "Loading...",
+    "stacked": "Stacked",
+    "overlay": "Overlay"
+  }
+}

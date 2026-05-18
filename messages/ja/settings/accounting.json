@@ -1,0 +1,42 @@
+{
+  "title": "収益会計",
+  "description": "プロバイダーコスト、収益、利益をリアルタイムで計算",
+  "section": {
+    "title": "収益会計",
+    "description": "ローカルの使用記録からコスト、収益、利益をリアルタイムで計算"
+  },
+  "loadFailed": "会計データの読み込みに失敗しました",
+  "empty": "選択した期間に課金可能な使用量がありません",
+  "saved": "保存しました",
+  "autoRefresh": "自動更新",
+  "providerCosts": "プロバイダー内訳",
+  "cards": {
+    "cost": "仕入れコスト",
+    "revenue": "収益",
+    "profit": "利益",
+    "margin": "粗利率"
+  },
+  "table": {
+    "provider": "プロバイダー",
+    "requests": "リクエスト数",
+    "cost": "コスト",
+    "revenue": "収益",
+    "profit": "利益",
+    "sellMultiplier": "販売倍率"
+  },
+  "sellMultiplier": {
+    "saved": "販売倍率を保存しました",
+    "auto": "自動"
+  },
+  "timeRange": {
+    "today": "今日",
+    "week": "過去7日間",
+    "month": "今月"
+  },
+  "charts": {
+    "revenueTimeline": "収益推移",
+    "loading": "読み込み中...",
+    "stacked": "積み上げ",
+    "overlay": "重ね"
+  }
+}

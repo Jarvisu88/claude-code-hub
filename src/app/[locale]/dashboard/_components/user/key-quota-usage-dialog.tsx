@@ -197,13 +197,12 @@ export function KeyQuotaUsageDialog({
                       onSave={(newLimit) => handleSaveLimit(item.type, newLimit)}
                       allowClear={item.type !== "limitSessions"}
                     >
-                      <button
-                        type="button"
+                      <span
                         className="underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 rounded-sm cursor-pointer"
                         aria-label={t(getLabelKey(item.type))}
                       >
                         {formatLimit(item.type, item.limit)}
-                      </button>
+                      </span>
                     </QuotaQuickEditPopover>
                   </span>
                 </div>
