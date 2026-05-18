@@ -40,6 +40,9 @@ function toNumber(value: unknown): number {
     const parsed = Number.parseFloat(value);
     return Number.isFinite(parsed) ? parsed : 0;
   }
+  if (value !== null && value !== undefined) {
+    console.warn("[Accounting] Unexpected value type in toNumber:", typeof value, value);
+  }
   return 0;
 }
 
@@ -116,7 +119,7 @@ export async function findProviderProfitSummary(params: {
         ${providers.name} AS provider_name,
         ${providers.sellMultiplier}::numeric AS sell_multiplier,
         COALESCE(NULLIF(${usageLedger.model}, ''), NULLIF(${usageLedger.originalModel}, ''), '') AS model_name,
-        COALESCE(${usageLedger.costUsd}, 0)::numeric AS charged_cost_usd,
+        COALESCE(${usageLedger.costUsd}, 0)::numeric AS cost_usd,
         COALESCE(${usageLedger.costMultiplier}, ${providers.costMultiplier}, '1')::numeric AS provider_multiplier,
         COALESCE(${usageLedger.groupCostMultiplier}, ${globalSellMultiplier})::numeric AS group_multiplier
       FROM ${usageLedger}
@@ -132,22 +135,16 @@ export async function findProviderProfitSummary(params: {
         provider_name,
         sell_multiplier,
         model_name,
-        COALESCE(sell_multiplier, provider_multiplier * group_multiplier) AS revenue_multiplier,
+        cost_usd AS supplier_cost_usd,
         CASE
           WHEN provider_multiplier * group_multiplier > 0
-            THEN charged_cost_usd / (provider_multiplier * group_multiplier)
+            THEN cost_usd / (provider_multiplier * group_multiplier)
           ELSE 0
         END AS base_cost_usd,
         CASE
-          WHEN provider_multiplier * group_multiplier > 0
-            THEN (charged_cost_usd / (provider_multiplier * group_multiplier)) * provider_multiplier
-          ELSE 0
-        END AS supplier_cost_usd,
-        CASE
-          WHEN provider_multiplier * group_multiplier > 0
-            THEN (charged_cost_usd / (provider_multiplier * group_multiplier))
-                 * COALESCE(sell_multiplier, provider_multiplier * group_multiplier)
-          ELSE 0
+          WHEN sell_multiplier IS NOT NULL AND provider_multiplier * group_multiplier > 0
+            THEN (cost_usd / (provider_multiplier * group_multiplier)) * sell_multiplier
+          ELSE cost_usd
         END AS estimated_revenue_usd
       FROM ledger_base
     )
@@ -161,10 +158,7 @@ export async function findProviderProfitSummary(params: {
       COALESCE(SUM(supplier_cost_usd), 0)::text AS "supplierCostUsd",
       COALESCE(SUM(estimated_revenue_usd), 0)::text AS "estimatedRevenueUsd",
       COALESCE(SUM(estimated_revenue_usd - supplier_cost_usd), 0)::text AS "estimatedProfitUsd",
-      COALESCE(
-        SUM(base_cost_usd * revenue_multiplier) / NULLIF(SUM(base_cost_usd), 0),
-        0
-      )::text AS "revenueMultiplier"
+      COALESCE(sell_multiplier, 0)::text AS "revenueMultiplier"
     FROM normalized
     GROUP BY provider_id, provider_name, sell_multiplier
     ORDER BY COALESCE(SUM(estimated_revenue_usd - supplier_cost_usd), 0) DESC, provider_name ASC
@@ -311,19 +305,12 @@ export async function findRevenueTimeline(params: {
       COUNT(*)::int AS request_count,
       SUM(input_tokens)::bigint AS input_tokens,
       SUM(output_tokens)::bigint AS output_tokens,
+      SUM(charged_cost_usd)::numeric AS supplier_cost_usd,
       SUM(
         CASE
-          WHEN provider_multiplier * group_multiplier > 0
-            THEN (charged_cost_usd / (provider_multiplier * group_multiplier)) * provider_multiplier
-          ELSE 0
-        END
-      )::numeric AS supplier_cost_usd,
-      SUM(
-        CASE
-          WHEN provider_multiplier * group_multiplier > 0
-            THEN (charged_cost_usd / (provider_multiplier * group_multiplier))
-                 * COALESCE(sell_multiplier, provider_multiplier * group_multiplier)
-          ELSE 0
+          WHEN sell_multiplier IS NOT NULL AND provider_multiplier * group_multiplier > 0
+            THEN (charged_cost_usd / (provider_multiplier * group_multiplier)) * sell_multiplier
+          ELSE charged_cost_usd
         END
       )::numeric AS revenue_usd
     FROM ledger_base
@@ -331,16 +318,20 @@ export async function findRevenueTimeline(params: {
     ORDER BY time_bucket ASC, revenue_usd DESC
   `);
 
-  return rows.map((row: any) => ({
-    timeBucket: row.time_bucket?.toISOString() || "",
-    userName: String(row.user_name || "unknown"),
-    userId: Number(row.user_id || 0),
-    providerGroup: String(row.provider_group || "default"),
-    modelName: String(row.model_name || "unknown"),
-    requestCount: Number(row.request_count || 0),
-    inputTokens: Number(row.input_tokens || 0),
-    outputTokens: Number(row.output_tokens || 0),
-    supplierCostUsd: toNumber(row.supplier_cost_usd),
-    revenueUsd: toNumber(row.revenue_usd),
-  }));
+  return rows.map((row: any) => {
+    const tb = row.time_bucket;
+    const timeBucket = tb instanceof Date ? tb.toISOString() : typeof tb === "string" ? tb : "";
+    return {
+      timeBucket,
+      userName: String(row.user_name || "unknown"),
+      userId: Number(row.user_id || 0),
+      providerGroup: String(row.provider_group || "default"),
+      modelName: String(row.model_name || "unknown"),
+      requestCount: Number(row.request_count || 0),
+      inputTokens: Number(row.input_tokens || 0),
+      outputTokens: Number(row.output_tokens || 0),
+      supplierCostUsd: toNumber(row.supplier_cost_usd),
+      revenueUsd: toNumber(row.revenue_usd),
+    };
+  });
 }
