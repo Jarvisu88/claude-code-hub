@@ -52,6 +52,7 @@ const DEFAULT_SETTINGS: Pick<
   | "passThroughUpstreamErrorMessage"
   | "publicStatusWindowHours"
   | "publicStatusAggregationIntervalMinutes"
+  | "globalSellMultiplier"
 > = {
   enableHttp2: false,
   enableOpenaiResponsesWebsocket: true,
@@ -80,6 +81,7 @@ const DEFAULT_SETTINGS: Pick<
   },
   publicStatusWindowHours: 24,
   publicStatusAggregationIntervalMinutes: 5,
+  globalSellMultiplier: 0,
 };
 
 /**
@@ -167,6 +169,7 @@ export async function getCachedSystemSettings(): Promise<SystemSettings> {
       quotaLeaseCapUsd: null,
       ipExtractionConfig: null,
       ipGeoLookupEnabled: true,
+      globalSellMultiplier: DEFAULT_SETTINGS.globalSellMultiplier,
       createdAt: new Date(),
       updatedAt: new Date(),
     } satisfies SystemSettings;

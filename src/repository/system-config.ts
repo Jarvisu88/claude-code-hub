@@ -189,6 +189,7 @@ function createFallbackSettings(): SystemSettings {
     publicStatusAggregationIntervalMinutes: 5,
     ipExtractionConfig: null,
     ipGeoLookupEnabled: true,
+    globalSellMultiplier: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -793,6 +794,9 @@ export async function updateSystemSettings(
     }
     if (payload.ipGeoLookupEnabled !== undefined) {
       updates.ipGeoLookupEnabled = payload.ipGeoLookupEnabled;
+    }
+    if (payload.globalSellMultiplier !== undefined) {
+      updates.globalSellMultiplier = String(payload.globalSellMultiplier);
     }
 
     // Fake 流式输出白名单（如果提供；空数组表示显式禁用，null 留待 transformer 落默认）
