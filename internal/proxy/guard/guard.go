@@ -40,6 +40,53 @@ type Request struct {
 
 	// 额外的上下文数据（用于 Guard 之间传递信息）
 	Context map[string]interface{}
+
+	// User-Agent 请求头
+	UserAgent string
+
+	// 请求端点路径（如 /v1/messages）
+	Endpoint string
+
+	// 是否为流式请求
+	IsStreaming bool
+
+	// Session ID（由 SessionGuard 设置）
+	SessionID string
+
+	// 请求序号（由 SessionGuard 设置）
+	RequestSequence int
+
+	// 消息请求记录 ID（由 MessageContextGuard 设置）
+	MessageRequestID int
+
+	// 请求消息内容（用于敏感词扫描等）
+	Messages []RequestMessage
+
+	// 请求头（可被 RequestFilterGuard 修改）
+	Headers map[string]string
+
+	// 请求体原始 JSON（可被 RequestFilterGuard 修改）
+	RawBody []byte
+
+	// 客户端 IP
+	ClientIP string
+
+	// 客户端版本号
+	ClientVersion string
+}
+
+// RequestMessage 请求中的消息
+type RequestMessage struct {
+	Role    string
+	Content interface{} // string or []ContentBlock
+}
+
+// ContentBlock 消息内容块
+type ContentBlock struct {
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text,omitempty"`
+	CacheControl map[string]string      `json:"cache_control,omitempty"`
+	Extra        map[string]interface{} `json:"-"`
 }
 
 // Chain Guard 链
