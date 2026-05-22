@@ -26,11 +26,24 @@ type Provider struct {
 	Priority       *int              `bun:"priority,notnull,default:0" json:"priority"`
 	CostMultiplier *udecimal.Decimal `bun:"cost_multiplier,type:numeric(10,4),default:1.0" json:"costMultiplier"`
 
-	GroupTag *string `bun:"group_tag" json:"groupTag"`
+	GroupTag        *string            `bun:"group_tag" json:"groupTag"`
+	GroupPriorities map[string]int     `bun:"group_priorities,type:jsonb" json:"groupPriorities"`
 
 	// 供应商类型
 	ProviderType     string `bun:"provider_type,notnull,default:'claude'" json:"providerType"` // claude, claude-auth, codex, gemini-cli, gemini, openai-compatible
-	PreserveClientIp bool   `bun:"preserve_client_ip,notnull,default:false" json:"preserveClientIp"`
+	ProviderVendorID *int   `bun:"provider_vendor_id" json:"providerVendorId"`
+	PreserveClientIp bool `bun:"preserve_client_ip,notnull,default:false" json:"preserveClientIp"`
+
+	// Schedule (active time window)
+	ActiveTimeStart *string `bun:"active_time_start" json:"activeTimeStart"` // HH:mm format
+	ActiveTimeEnd   *string `bun:"active_time_end" json:"activeTimeEnd"`     // HH:mm format
+
+	// Client restrictions
+	AllowedClients []string `bun:"allowed_clients,type:jsonb" json:"allowedClients"`
+	BlockedClients []string `bun:"blocked_clients,type:jsonb" json:"blockedClients"`
+
+	// Session reuse
+	DisableSessionReuse bool `bun:"disable_session_reuse,default:false" json:"disableSessionReuse"`
 
 	// 模型重定向
 	ModelRedirects ProviderModelRedirectRules `bun:"model_redirects,type:jsonb" json:"modelRedirects"`
