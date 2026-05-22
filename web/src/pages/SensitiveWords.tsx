@@ -161,7 +161,7 @@ function SensitiveWordsPage() {
           title={t("sensitiveWords.createWord")}
           onClose={() => setShowCreateDialog(false)}
           onSubmit={(formData) => {
-            createMutation.mutate(formData, {
+            createMutation.mutate(formData as CreateSensitiveWordRequest, {
               onSuccess: () => setShowCreateDialog(false),
             });
           }}
@@ -176,7 +176,7 @@ function SensitiveWordsPage() {
           onClose={() => setEditingWord(null)}
           onSubmit={(formData) => {
             updateMutation.mutate(
-              { id: editingWord.id, data: formData },
+              { id: editingWord.id, data: formData as UpdateSensitiveWordRequest },
               { onSuccess: () => setEditingWord(null) },
             );
           }}
@@ -267,7 +267,7 @@ function WordFormDialog({
           </label>
           <select
             value={matchType}
-            onChange={(e) => setMatchType(e.target.value)}
+            onChange={(e) => setMatchType(e.target.value as "contains" | "regex" | "exact")}
             className="flex h-10 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
           >
             {matchTypes.map((mt) => (

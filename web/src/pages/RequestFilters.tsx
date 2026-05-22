@@ -161,7 +161,7 @@ function RequestFiltersPage() {
           title={t("requestFilters.createFilter")}
           onClose={() => setShowCreateDialog(false)}
           onSubmit={(formData) => {
-            createMutation.mutate(formData, {
+            createMutation.mutate(formData as CreateRequestFilterRequest, {
               onSuccess: () => setShowCreateDialog(false),
             });
           }}
@@ -176,7 +176,7 @@ function RequestFiltersPage() {
           onClose={() => setEditingFilter(null)}
           onSubmit={(formData) => {
             updateMutation.mutate(
-              { id: editingFilter.id, data: formData },
+              { id: editingFilter.id, data: formData as UpdateRequestFilterRequest },
               { onSuccess: () => setEditingFilter(null) },
             );
           }}
@@ -289,7 +289,7 @@ function FilterFormDialog({
             </label>
             <select
               value={action}
-              onChange={(e) => setAction(e.target.value)}
+              onChange={(e) => setAction(e.target.value as "block" | "allow" | "rewrite")}
               className="flex h-10 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
             >
               {actionValues.map((a) => (

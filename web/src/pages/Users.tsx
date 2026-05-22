@@ -190,7 +190,7 @@ function UsersPage() {
           title={t("users.createUser")}
           onClose={() => setShowCreateDialog(false)}
           onSubmit={(formData) => {
-            createMutation.mutate(formData, {
+            createMutation.mutate(formData as CreateUserRequest, {
               onSuccess: () => setShowCreateDialog(false),
             });
           }}
@@ -206,7 +206,7 @@ function UsersPage() {
           onClose={() => setEditingUser(null)}
           onSubmit={(formData) => {
             updateMutation.mutate(
-              { id: editingUser.id, data: formData },
+              { id: editingUser.id, data: formData as UpdateUserRequest },
               { onSuccess: () => setEditingUser(null) },
             );
           }}

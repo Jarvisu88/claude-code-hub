@@ -131,7 +131,7 @@ function ProviderGroupsPage() {
           title={t("providerGroups.createGroup")}
           onClose={() => setShowCreateDialog(false)}
           onSubmit={(formData) => {
-            createMutation.mutate(formData, {
+            createMutation.mutate(formData as CreateProviderGroupRequest, {
               onSuccess: () => setShowCreateDialog(false),
             });
           }}
@@ -146,7 +146,7 @@ function ProviderGroupsPage() {
           onClose={() => setEditingGroup(null)}
           onSubmit={(formData) => {
             updateMutation.mutate(
-              { id: editingGroup.id, data: formData },
+              { id: editingGroup.id, data: formData as UpdateProviderGroupRequest },
               { onSuccess: () => setEditingGroup(null) },
             );
           }}

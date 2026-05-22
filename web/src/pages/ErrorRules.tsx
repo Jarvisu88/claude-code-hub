@@ -146,7 +146,7 @@ function ErrorRulesPage() {
           title={t("errorRules.createRule")}
           onClose={() => setShowCreateDialog(false)}
           onSubmit={(formData) => {
-            createMutation.mutate(formData, {
+            createMutation.mutate(formData as CreateErrorRuleRequest, {
               onSuccess: () => setShowCreateDialog(false),
             });
           }}
@@ -161,7 +161,7 @@ function ErrorRulesPage() {
           onClose={() => setEditingRule(null)}
           onSubmit={(formData) => {
             updateMutation.mutate(
-              { id: editingRule.id, data: formData },
+              { id: editingRule.id, data: formData as UpdateErrorRuleRequest },
               { onSuccess: () => setEditingRule(null) },
             );
           }}
@@ -256,7 +256,7 @@ function ErrorRuleFormDialog({
           </label>
           <select
             value={matchType}
-            onChange={(e) => setMatchType(e.target.value)}
+            onChange={(e) => setMatchType(e.target.value as "contains" | "regex" | "exact")}
             className="flex h-10 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
           >
             {matchTypes.map((mt) => (

@@ -21,7 +21,6 @@ import type {
   NotificationSettings,
   WebhookTarget,
   CreateWebhookTargetRequest,
-  NotificationBinding,
 } from "@/api/types";
 import { Plus, Trash2, Zap, Link } from "lucide-react";
 

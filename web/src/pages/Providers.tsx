@@ -302,7 +302,7 @@ function ProvidersPage() {
           title={t("providers.createProvider")}
           onClose={() => setShowCreateDialog(false)}
           onSubmit={(formData) => {
-            createMutation.mutate(formData, {
+            createMutation.mutate(formData as CreateProviderRequest, {
               onSuccess: () => setShowCreateDialog(false),
             });
           }}
@@ -318,7 +318,7 @@ function ProvidersPage() {
           onClose={() => setEditingProvider(null)}
           onSubmit={(formData) => {
             updateMutation.mutate(
-              { id: editingProvider.id, data: formData },
+              { id: editingProvider.id, data: formData as UpdateProviderRequest },
               { onSuccess: () => setEditingProvider(null) },
             );
           }}

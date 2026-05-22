@@ -11,7 +11,7 @@ import {
   useProbeEndpoint,
   useEndpointProbeLogs,
 } from "@/api/hooks";
-import type { ProviderEndpoint, ProbeLog } from "@/api/types";
+import type { ProviderEndpoint } from "@/api/types";
 import { Zap, FileText } from "lucide-react";
 
 function probeBadgeVariant(
