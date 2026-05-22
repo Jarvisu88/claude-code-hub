@@ -366,8 +366,13 @@ export function useEndpointProbeLogs(endpointId: string | null) {
 export function useStatistics(range: string) {
   return useQuery<StatisticsData>({
     queryKey: ["statistics", range],
-    queryFn: () =>
-      apiClient.post<StatisticsData>("/actions/statistics/getUserStatistics", { range }),
+    queryFn: async () => {
+      try {
+        return await apiClient.post<StatisticsData>("/actions/statistics/getUserStatistics", { range });
+      } catch {
+        return { requestsOverTime: [], costOverTime: [], topModels: [], topUsers: [] } as StatisticsData;
+      }
+    },
     refetchInterval: 120_000,
   });
 }
@@ -379,8 +384,13 @@ export function useStatistics(range: string) {
 export function useLeaderboard(period: string) {
   return useQuery<LeaderboardEntry[]>({
     queryKey: ["leaderboard", period],
-    queryFn: () =>
-      apiClient.get<LeaderboardEntry[]>(`/leaderboard?period=${period}`),
+    queryFn: async () => {
+      try {
+        return await apiClient.get<LeaderboardEntry[]>(`/leaderboard?period=${period}`);
+      } catch {
+        return [] as LeaderboardEntry[];
+      }
+    },
   });
 }
 
@@ -710,8 +720,13 @@ export function useDeleteNotificationBinding() {
 export function useAuditLogs(filters: AuditLogFilters) {
   return useQuery<PaginatedResponse<AuditLog>>({
     queryKey: ["audit-logs", filters],
-    queryFn: () =>
-      apiClient.post<PaginatedResponse<AuditLog>>("/actions/audit-logs/getAuditLogsBatch", filters),
+    queryFn: async () => {
+      try {
+        return await apiClient.post<PaginatedResponse<AuditLog>>("/actions/audit-logs/getAuditLogsBatch", filters);
+      } catch {
+        return { data: [], total: 0, page: 1, pageSize: 20 } as PaginatedResponse<AuditLog>;
+      }
+    },
   });
 }
 
@@ -722,8 +737,13 @@ export function useAuditLogs(filters: AuditLogFilters) {
 export function useMyUsage() {
   return useQuery<MyUsageData>({
     queryKey: ["my-usage"],
-    queryFn: () =>
-      apiClient.post<MyUsageData>("/actions/my-usage/getMyUsageMetadata", {}),
+    queryFn: async () => {
+      try {
+        return await apiClient.post<MyUsageData>("/actions/my-usage/getMyUsageMetadata", {});
+      } catch {
+        return {} as MyUsageData;
+      }
+    },
     refetchInterval: 60_000,
   });
 }
