@@ -1,1 +1,0 @@
-ALTER TABLE "providers" ADD COLUMN "allowed_models" jsonb DEFAULT 'null'::jsonb;

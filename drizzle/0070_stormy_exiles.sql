@@ -1,1 +1,0 @@
-ALTER TABLE "message_request" ADD COLUMN "swap_cache_ttl_applied" boolean DEFAULT false;

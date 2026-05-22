@@ -1,1 +1,0 @@
-ALTER TABLE "system_settings" ADD COLUMN "enable_http2" boolean DEFAULT false NOT NULL;

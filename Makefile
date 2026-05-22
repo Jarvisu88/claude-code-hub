@@ -1,19 +1,55 @@
-# ================================
-# Claude Code Hub - 根目录快捷命令
-# ================================
-#
-# 这个 Makefile 将命令转发到 dev/Makefile
-# 可以在项目根目录直接执行 make 命令
+.PHONY: dev build test lint clean run migrate check
 
-.PHONY: help dev-help dev db app build build-nocache app-rebuild app-nocache prune-images rm-app-image compose clean migrate db-shell redis-shell logs logs-app logs-db logs-redis reset status stop
+# Development
+dev:
+	air
 
-# 默认目标：显示 dev 工具帮助
-.DEFAULT_GOAL := dev-help
+run:
+	go run cmd/server/main.go
 
-# 显示 dev 工具帮助
-dev-help:
-	@cd dev && $(MAKE) help
+# Build
+build:
+	go build -o bin/server cmd/server/main.go
 
-# 转发所有命令到 dev/Makefile
-dev db app build build-nocache app-rebuild app-nocache prune-images rm-app-image compose clean migrate db-shell redis-shell logs logs-app logs-db logs-redis reset status stop:
-	@cd dev && $(MAKE) $@
+# Testing
+test:
+	go test ./...
+
+test-race:
+	go test -race ./...
+
+test-cover:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+
+test-verbose:
+	go test -v ./...
+
+# Quality
+lint:
+	go vet ./...
+
+typecheck:
+	go build ./...
+
+# Database
+migrate:
+	go run cmd/migrate/main.go
+
+# Clean
+clean:
+	rm -rf bin/ tmp/ coverage.out coverage.html
+
+# Docker
+docker-build:
+	docker build -t claude-code-hub:latest .
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
+
+# All checks
+check: lint test build
+	@echo "All checks passed"

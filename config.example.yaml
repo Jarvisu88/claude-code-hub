@@ -1,0 +1,40 @@
+# Claude Code Hub - Configuration Example
+# Copy this file to config.yaml and modify as needed
+
+server:
+  port: 23000
+  host: "0.0.0.0"
+  mode: "release"  # debug, release, test
+
+database:
+  dsn: "postgres://postgres:postgres@localhost:5432/claude_code_hub?sslmode=disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "5m"
+
+redis:
+  url: "redis://localhost:6379/0"
+  max_retries: 3
+  pool_size: 10
+
+auth:
+  admin_token: "change-me-to-a-secure-token"
+  session_ttl: "24h"
+
+proxy:
+  session_ttl: 300  # seconds, provider-session binding TTL
+  max_retry_attempts: 3
+  max_provider_switches: 20
+  first_byte_timeout_streaming_ms: 30000
+  streaming_idle_timeout_ms: 60000
+  request_timeout_non_streaming_ms: 120000
+
+rate_limit:
+  enabled: true
+  fail_open: true  # allow requests when Redis is down
+
+log:
+  level: "info"  # trace, debug, info, warn, error, fatal
+  format: "json"  # json, console
+
+auto_migrate: true

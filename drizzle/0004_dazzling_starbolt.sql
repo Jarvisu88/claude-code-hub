@@ -1,1 +1,0 @@
-ALTER TABLE "message_request" ADD COLUMN "cost_multiplier" numeric(10, 4);

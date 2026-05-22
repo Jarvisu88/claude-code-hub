@@ -1,1 +1,0 @@
-ALTER TABLE "system_settings" ADD COLUMN "verbose_provider_error" boolean DEFAULT false NOT NULL;

@@ -1,1 +1,0 @@
-ALTER TABLE "providers" ADD COLUMN "swap_cache_ttl_billing" boolean DEFAULT false NOT NULL;

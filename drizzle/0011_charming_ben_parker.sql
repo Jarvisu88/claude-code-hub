@@ -1,1 +1,0 @@
-ALTER TABLE "providers" ADD COLUMN "join_claude_pool" boolean DEFAULT false;

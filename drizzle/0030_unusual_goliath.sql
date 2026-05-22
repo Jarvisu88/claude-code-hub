@@ -1,1 +1,0 @@
-ALTER TABLE "keys" ADD COLUMN "provider_group" varchar(50);

@@ -1,1 +1,0 @@
-ALTER TABLE "providers" ADD COLUMN "max_retry_attempts" integer;

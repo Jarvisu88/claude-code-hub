@@ -1,93 +1,75 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Go binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/server
+/bin/
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# Go test
+*.test
+*.out
+coverage.html
+coverage.txt
 
-# testing
-/coverage
-tests/.tmp-*
+# Go vendor
+/vendor/
 
-# next.js
-/.next/
-/out/
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-
-# production
-/build
-
-# misc
+# OS
 .DS_Store
-*.pem
+Thumbs.db
 
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.bun-debug.log*
-.workflow/
-
-# Bun lock files
-bun.lock
-bun.lockb
-.bun-cache/
-
-# env files (can opt-in for committing if needed)
-.env*
+# Environment
+.env
+.env.local
+.env.*.local
 !.env.example
 
-# vercel
-.vercel
+# Build artifacts
+/tmp/
+/dist/
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# Air live reload
+/tmp/
 
-# tooling & logs
-.cursor/
-.claude/
-.codex/
-.serena/
-!src/app/dashboard/logs/
-!src/app/settings/logs/
-.idea/
-.specify
+# Frontend
+/web/dist/
+/web/node_modules/
+/web/.vite/
 
-# docker volumes data
+# Docker volumes
+/data/postgres/
+/data/redis/
 /data/*
 !/data/.gitkeep
-!/data/README.md
 
-# dev tools (local development utilities)
-# Keep the dev toolchain in repo; ignore local-only overrides.
-/dev/.env
-/dev/.env.*
-!/dev/.env.example
+# Logs
+*.log
+npm-debug.log*
 
-# translation checklists and temporary docs
-TRANSLATIONS_CHECKLIST.txt
-TRANSLATIONS_CHECKLIST.md
+# Debug
+__debug_bin*
 
-# i18n verification screenshots (temporary)
-/i18n-verification/
-/bmad
-
-# docs-site submodule build artifacts
-docs-site/.next/
-docs-site/node_modules/
-
-# local scratch
-tmp/
-.trae/
-.sisyphus
-.ace-tool/
-.worktrees/
+# Plan files & tooling
 .omx/
+.sisyphus/
+.claude/
+.codex/
+.cursor/
+.serena/
+.trae/
+.ace-tool/
 .opencode/
+.worktrees/
+
+# Local dev
+.local-runtime/
 bunx-*/
