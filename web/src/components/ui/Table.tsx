@@ -78,7 +78,7 @@ function Table<T>({
             </tr>
           </thead>
           <tbody>
-            {data.length === 0 ? (
+            {(!Array.isArray(data) || data.length === 0) ? (
               <tr>
                 <td
                   colSpan={columns.length}
@@ -88,7 +88,7 @@ function Table<T>({
                 </td>
               </tr>
             ) : (
-              data.map((row) => (
+              (Array.isArray(data) ? data : []).map((row) => (
                 <tr
                   key={keyExtractor(row)}
                   className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-bg-secondary)] transition-colors"

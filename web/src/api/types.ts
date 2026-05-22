@@ -161,10 +161,23 @@ export interface RecentActivity {
 }
 
 export interface OverviewData {
-  stats: DashboardStats;
-  requestsPerHour: HourlyRequestData[];
-  costPerDay: DailyCostData[];
-  recentActivity: RecentActivity[];
+  totalRequests: number;
+  todayRequests: number;
+  totalCost: number;
+  todayCost: number;
+  totalUsers: number;
+  totalKeys: number;
+  totalProviders: number;
+  concurrentSessions: number;
+  avgResponseTime: number;
+  todayErrorRate: number;
+  recentMinuteRequests: number;
+  yesterdaySamePeriodRequests: number;
+  yesterdaySamePeriodCost: number;
+  yesterdaySamePeriodAvgResponseTime: number;
+  requestsPerHour?: HourlyRequestData[];
+  costPerDay?: DailyCostData[];
+  recentActivity?: RecentActivity[];
 }
 
 export interface SystemSettings {
