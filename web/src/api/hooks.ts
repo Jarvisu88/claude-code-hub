@@ -274,7 +274,7 @@ export function useSettings() {
 export function useUpdateSettings() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: SystemSettings) =>
+    mutationFn: (data: Partial<SystemSettings>) =>
       apiClient.put<SystemSettings>("/system-settings", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] });

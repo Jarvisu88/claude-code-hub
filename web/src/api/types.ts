@@ -181,41 +181,29 @@ export interface OverviewData {
 }
 
 export interface SystemSettings {
-  general: {
-    siteName: string;
-    adminEmail: string;
-    logLevel: string;
-  };
-  proxy: {
-    timeout: number;
-    maxRetries: number;
-    retryDelay: number;
-    streamBufferSize: number;
-  };
-  rateLimit: {
-    enabled: boolean;
-    windowSeconds: number;
-    maxRequests: number;
-    maxTokensPerMinute: number;
-  };
-  circuitBreaker: {
-    enabled: boolean;
-    failureThreshold: number;
-    recoveryTimeout: number;
-    halfOpenMaxRequests: number;
-  };
-  cleanup: {
-    enabled: boolean;
-    retentionDays: number;
-    batchSize: number;
-    cronExpression: string;
-  };
-  features: {
-    enableRegistration: boolean;
-    enableUsageTracking: boolean;
-    enableCostTracking: boolean;
-    enableModelMapping: boolean;
-  };
+  id: number;
+  siteTitle: string;
+  allowGlobalUsageView: boolean;
+  currencyDisplay: string;
+  billingModelSource: string;
+  enableAutoCleanup: boolean;
+  cleanupRetentionDays: number;
+  cleanupSchedule: string;
+  cleanupBatchSize: number;
+  enableClientVersionCheck: boolean;
+  verboseProviderError: boolean;
+  enableHttp2: boolean;
+  enableHighConcurrencyMode: boolean;
+  interceptAnthropicWarmupRequests: boolean;
+  enableThinkingSignatureRectifier: boolean;
+  enableThinkingBudgetRectifier: boolean;
+  enableBillingHeaderRectifier: boolean;
+  enableResponseInputRectifier: boolean;
+  enableCodexSessionIdCompletion: boolean;
+  enableClaudeMetadataUserIdInjection: boolean;
+  enableResponseFixer: boolean;
+  responseFixerConfig: Record<string, unknown>;
+  ipGeoLookupEnabled: boolean;
 }
 
 export interface PaginatedResponse<T> {

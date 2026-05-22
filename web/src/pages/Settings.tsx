@@ -33,6 +33,13 @@ function SettingsPage() {
     });
   }, [form, updateMutation]);
 
+  const updateField = useCallback(
+    <K extends keyof SystemSettings>(key: K, value: SystemSettings[K]) => {
+      setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+    },
+    [],
+  );
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -106,263 +113,86 @@ function SettingsPage() {
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
-                label={t("settings.siteName")}
-                value={form.general.siteName}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    general: { ...form.general, siteName: e.target.value },
-                  })
-                }
-              />
-              <Input
-                label={t("settings.adminEmail")}
-                type="email"
-                value={form.general.adminEmail}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    general: { ...form.general, adminEmail: e.target.value },
-                  })
-                }
+                label={t("settings.siteTitle")}
+                value={form.siteTitle}
+                onChange={(e) => updateField("siteTitle", e.target.value)}
               />
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-[var(--color-text)]">
-                  {t("settings.logLevel")}
+                  {t("settings.currencyDisplay")}
                 </label>
                 <select
-                  value={form.general.logLevel}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      general: { ...form.general, logLevel: e.target.value },
-                    })
-                  }
+                  value={form.currencyDisplay}
+                  onChange={(e) => updateField("currencyDisplay", e.target.value)}
                   className="flex h-10 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
                 >
-                  <option value="debug">debug</option>
-                  <option value="info">info</option>
-                  <option value="warn">warn</option>
-                  <option value="error">error</option>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="CNY">CNY</option>
+                  <option value="JPY">JPY</option>
                 </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-[var(--color-text)]">
+                  {t("settings.billingModelSource")}
+                </label>
+                <select
+                  value={form.billingModelSource}
+                  onChange={(e) => updateField("billingModelSource", e.target.value)}
+                  className="flex h-10 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+                >
+                  <option value="original">original</option>
+                  <option value="custom">custom</option>
+                </select>
+              </div>
+              <div className="flex items-end">
+                <ToggleSwitch
+                  label={t("settings.allowGlobalUsageView")}
+                  checked={form.allowGlobalUsageView}
+                  onChange={(checked) => updateField("allowGlobalUsageView", checked)}
+                />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Proxy section */}
+        {/* Features section */}
         <Card>
           <CardHeader>
-            <CardTitle>{t("settings.proxy")}</CardTitle>
+            <CardTitle>{t("settings.features")}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                label={t("settings.proxyTimeout")}
-                type="number"
-                value={String(form.proxy.timeout)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    proxy: {
-                      ...form.proxy,
-                      timeout: Number(e.target.value) || 0,
-                    },
-                  })
-                }
-                min="1000"
-                step="1000"
-              />
-              <Input
-                label={t("settings.proxyMaxRetries")}
-                type="number"
-                value={String(form.proxy.maxRetries)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    proxy: {
-                      ...form.proxy,
-                      maxRetries: Number(e.target.value) || 0,
-                    },
-                  })
-                }
-                min="0"
-              />
-              <Input
-                label={t("settings.proxyRetryDelay")}
-                type="number"
-                value={String(form.proxy.retryDelay)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    proxy: {
-                      ...form.proxy,
-                      retryDelay: Number(e.target.value) || 0,
-                    },
-                  })
-                }
-                min="0"
-              />
-              <Input
-                label={t("settings.proxyStreamBufferSize")}
-                type="number"
-                value={String(form.proxy.streamBufferSize)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    proxy: {
-                      ...form.proxy,
-                      streamBufferSize: Number(e.target.value) || 0,
-                    },
-                  })
-                }
-                min="0"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Rate Limit section */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("settings.rateLimit")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4">
+            <div className="space-y-4">
               <ToggleSwitch
-                label={t("settings.rateLimitEnabled")}
-                checked={form.rateLimit.enabled}
-                onChange={(checked) =>
-                  setForm({
-                    ...form,
-                    rateLimit: { ...form.rateLimit, enabled: checked },
-                  })
-                }
+                label={t("settings.enableHttp2")}
+                checked={form.enableHttp2}
+                onChange={(checked) => updateField("enableHttp2", checked)}
               />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                label={t("settings.rateLimitWindow")}
-                type="number"
-                value={String(form.rateLimit.windowSeconds)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    rateLimit: {
-                      ...form.rateLimit,
-                      windowSeconds: Number(e.target.value) || 0,
-                    },
-                  })
-                }
-                min="1"
-                disabled={!form.rateLimit.enabled}
-              />
-              <Input
-                label={t("settings.rateLimitMaxRequests")}
-                type="number"
-                value={String(form.rateLimit.maxRequests)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    rateLimit: {
-                      ...form.rateLimit,
-                      maxRequests: Number(e.target.value) || 0,
-                    },
-                  })
-                }
-                min="1"
-                disabled={!form.rateLimit.enabled}
-              />
-              <Input
-                label={t("settings.rateLimitMaxTokens")}
-                type="number"
-                value={String(form.rateLimit.maxTokensPerMinute)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    rateLimit: {
-                      ...form.rateLimit,
-                      maxTokensPerMinute: Number(e.target.value) || 0,
-                    },
-                  })
-                }
-                min="0"
-                disabled={!form.rateLimit.enabled}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Circuit Breaker section */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("settings.circuitBreaker")}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4">
               <ToggleSwitch
-                label={t("settings.circuitBreakerEnabled")}
-                checked={form.circuitBreaker.enabled}
-                onChange={(checked) =>
-                  setForm({
-                    ...form,
-                    circuitBreaker: {
-                      ...form.circuitBreaker,
-                      enabled: checked,
-                    },
-                  })
-                }
+                label={t("settings.enableHighConcurrencyMode")}
+                checked={form.enableHighConcurrencyMode}
+                onChange={(checked) => updateField("enableHighConcurrencyMode", checked)}
               />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                label={t("settings.cbFailureThreshold")}
-                type="number"
-                value={String(form.circuitBreaker.failureThreshold)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    circuitBreaker: {
-                      ...form.circuitBreaker,
-                      failureThreshold: Number(e.target.value) || 0,
-                    },
-                  })
-                }
-                min="1"
-                disabled={!form.circuitBreaker.enabled}
+              <ToggleSwitch
+                label={t("settings.verboseProviderError")}
+                checked={form.verboseProviderError}
+                onChange={(checked) => updateField("verboseProviderError", checked)}
               />
-              <Input
-                label={t("settings.cbRecoveryTimeout")}
-                type="number"
-                value={String(form.circuitBreaker.recoveryTimeout)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    circuitBreaker: {
-                      ...form.circuitBreaker,
-                      recoveryTimeout: Number(e.target.value) || 0,
-                    },
-                  })
-                }
-                min="1000"
-                step="1000"
-                disabled={!form.circuitBreaker.enabled}
+              <ToggleSwitch
+                label={t("settings.enableClientVersionCheck")}
+                checked={form.enableClientVersionCheck}
+                onChange={(checked) => updateField("enableClientVersionCheck", checked)}
               />
-              <Input
-                label={t("settings.cbHalfOpenMax")}
-                type="number"
-                value={String(form.circuitBreaker.halfOpenMaxRequests)}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    circuitBreaker: {
-                      ...form.circuitBreaker,
-                      halfOpenMaxRequests: Number(e.target.value) || 0,
-                    },
-                  })
-                }
-                min="1"
-                disabled={!form.circuitBreaker.enabled}
+              <ToggleSwitch
+                label={t("settings.interceptAnthropicWarmupRequests")}
+                checked={form.interceptAnthropicWarmupRequests}
+                onChange={(checked) => updateField("interceptAnthropicWarmupRequests", checked)}
+              />
+              <ToggleSwitch
+                label={t("settings.ipGeoLookupEnabled")}
+                checked={form.ipGeoLookupEnabled}
+                onChange={(checked) => updateField("ipGeoLookupEnabled", checked)}
               />
             </div>
           </CardContent>
@@ -377,125 +207,83 @@ function SettingsPage() {
             <div className="mb-4">
               <ToggleSwitch
                 label={t("settings.cleanupEnabled")}
-                checked={form.cleanup.enabled}
-                onChange={(checked) =>
-                  setForm({
-                    ...form,
-                    cleanup: { ...form.cleanup, enabled: checked },
-                  })
-                }
+                checked={form.enableAutoCleanup}
+                onChange={(checked) => updateField("enableAutoCleanup", checked)}
               />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
                 label={t("settings.cleanupRetentionDays")}
                 type="number"
-                value={String(form.cleanup.retentionDays)}
+                value={String(form.cleanupRetentionDays)}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    cleanup: {
-                      ...form.cleanup,
-                      retentionDays: Number(e.target.value) || 0,
-                    },
-                  })
+                  updateField("cleanupRetentionDays", Number(e.target.value) || 0)
                 }
                 min="1"
-                disabled={!form.cleanup.enabled}
+                disabled={!form.enableAutoCleanup}
               />
               <Input
                 label={t("settings.cleanupBatchSize")}
                 type="number"
-                value={String(form.cleanup.batchSize)}
+                value={String(form.cleanupBatchSize)}
                 onChange={(e) =>
-                  setForm({
-                    ...form,
-                    cleanup: {
-                      ...form.cleanup,
-                      batchSize: Number(e.target.value) || 0,
-                    },
-                  })
+                  updateField("cleanupBatchSize", Number(e.target.value) || 0)
                 }
                 min="1"
-                disabled={!form.cleanup.enabled}
+                disabled={!form.enableAutoCleanup}
               />
               <Input
-                label={t("settings.cleanupCron")}
-                value={form.cleanup.cronExpression}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    cleanup: {
-                      ...form.cleanup,
-                      cronExpression: e.target.value,
-                    },
-                  })
-                }
-                disabled={!form.cleanup.enabled}
-                placeholder="0 3 * * *"
+                label={t("settings.cleanupSchedule")}
+                value={form.cleanupSchedule}
+                onChange={(e) => updateField("cleanupSchedule", e.target.value)}
+                disabled={!form.enableAutoCleanup}
+                placeholder="0 2 * * *"
               />
             </div>
           </CardContent>
         </Card>
 
-        {/* Features section */}
+        {/* Rectifiers section */}
         <Card>
           <CardHeader>
-            <CardTitle>{t("settings.features")}</CardTitle>
+            <CardTitle>{t("settings.rectifiers")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               <ToggleSwitch
-                label={t("settings.featureRegistration")}
-                checked={form.features.enableRegistration}
-                onChange={(checked) =>
-                  setForm({
-                    ...form,
-                    features: {
-                      ...form.features,
-                      enableRegistration: checked,
-                    },
-                  })
-                }
+                label={t("settings.enableThinkingSignatureRectifier")}
+                checked={form.enableThinkingSignatureRectifier}
+                onChange={(checked) => updateField("enableThinkingSignatureRectifier", checked)}
               />
               <ToggleSwitch
-                label={t("settings.featureUsageTracking")}
-                checked={form.features.enableUsageTracking}
-                onChange={(checked) =>
-                  setForm({
-                    ...form,
-                    features: {
-                      ...form.features,
-                      enableUsageTracking: checked,
-                    },
-                  })
-                }
+                label={t("settings.enableThinkingBudgetRectifier")}
+                checked={form.enableThinkingBudgetRectifier}
+                onChange={(checked) => updateField("enableThinkingBudgetRectifier", checked)}
               />
               <ToggleSwitch
-                label={t("settings.featureCostTracking")}
-                checked={form.features.enableCostTracking}
-                onChange={(checked) =>
-                  setForm({
-                    ...form,
-                    features: {
-                      ...form.features,
-                      enableCostTracking: checked,
-                    },
-                  })
-                }
+                label={t("settings.enableBillingHeaderRectifier")}
+                checked={form.enableBillingHeaderRectifier}
+                onChange={(checked) => updateField("enableBillingHeaderRectifier", checked)}
               />
               <ToggleSwitch
-                label={t("settings.featureModelMapping")}
-                checked={form.features.enableModelMapping}
-                onChange={(checked) =>
-                  setForm({
-                    ...form,
-                    features: {
-                      ...form.features,
-                      enableModelMapping: checked,
-                    },
-                  })
-                }
+                label={t("settings.enableResponseInputRectifier")}
+                checked={form.enableResponseInputRectifier}
+                onChange={(checked) => updateField("enableResponseInputRectifier", checked)}
+              />
+              <ToggleSwitch
+                label={t("settings.enableCodexSessionIdCompletion")}
+                checked={form.enableCodexSessionIdCompletion}
+                onChange={(checked) => updateField("enableCodexSessionIdCompletion", checked)}
+              />
+              <ToggleSwitch
+                label={t("settings.enableClaudeMetadataUserIdInjection")}
+                checked={form.enableClaudeMetadataUserIdInjection}
+                onChange={(checked) => updateField("enableClaudeMetadataUserIdInjection", checked)}
+              />
+              <ToggleSwitch
+                label={t("settings.enableResponseFixer")}
+                checked={form.enableResponseFixer}
+                onChange={(checked) => updateField("enableResponseFixer", checked)}
               />
             </div>
           </CardContent>
