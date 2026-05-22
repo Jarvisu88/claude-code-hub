@@ -19,6 +19,7 @@ import { NotificationsPage } from "@/pages/Notifications";
 import { AuditLogsPage } from "@/pages/AuditLogs";
 import { MyUsagePage } from "@/pages/MyUsage";
 import { SettingsPage } from "@/pages/Settings";
+import { BigScreen } from "@/pages/BigScreen";
 import { NotFound } from "@/pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -38,6 +39,7 @@ function App() {
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
+          <Route path="/big-screen" element={<BigScreen />} />
 
           {/* Protected routes */}
           <Route element={<Layout />}>

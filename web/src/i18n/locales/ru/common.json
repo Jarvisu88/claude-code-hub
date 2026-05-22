@@ -372,5 +372,19 @@
     "title": "Страница не найдена",
     "description": "Запрашиваемая страница не существует.",
     "backHome": "Вернуться на панель управления"
+  },
+  "bigScreen": {
+    "title": "Мониторинг в реальном времени",
+    "todayRequests": "Запросы за сегодня",
+    "activeSessions": "Активные сессии",
+    "totalCost": "Расходы за сегодня",
+    "requestsPerMin": "Запросов / мин",
+    "errorRate": "Частота ошибок",
+    "requestFlow": "Поток запросов (по часам)",
+    "topModels": "Популярные модели",
+    "providerHealth": "Состояние провайдеров",
+    "recentActivity": "Лента активности",
+    "lastUpdate": "Обновлено",
+    "exitToDashboard": "Выход"
   }
 }

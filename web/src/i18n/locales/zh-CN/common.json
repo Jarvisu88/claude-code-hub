@@ -372,5 +372,19 @@
     "title": "页面未找到",
     "description": "您访问的页面不存在。",
     "backHome": "返回仪表盘"
+  },
+  "bigScreen": {
+    "title": "实时监控大屏",
+    "todayRequests": "今日请求",
+    "activeSessions": "活跃会话",
+    "totalCost": "今日费用",
+    "requestsPerMin": "请求数/分钟",
+    "errorRate": "错误率",
+    "requestFlow": "请求趋势 (按小时)",
+    "topModels": "热门模型",
+    "providerHealth": "服务商健康状态",
+    "recentActivity": "实时活动流",
+    "lastUpdate": "更新时间",
+    "exitToDashboard": "退出"
   }
 }

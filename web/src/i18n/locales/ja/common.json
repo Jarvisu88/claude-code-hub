@@ -372,5 +372,19 @@
     "title": "ページが見つかりません",
     "description": "お探しのページは存在しません。",
     "backHome": "ダッシュボードに戻る"
+  },
+  "bigScreen": {
+    "title": "リアルタイムモニタリング",
+    "todayRequests": "本日のリクエスト",
+    "activeSessions": "アクティブセッション",
+    "totalCost": "本日のコスト",
+    "requestsPerMin": "リクエスト/分",
+    "errorRate": "エラー率",
+    "requestFlow": "リクエスト推移 (時間別)",
+    "topModels": "人気モデル",
+    "providerHealth": "プロバイダーの状態",
+    "recentActivity": "ライブアクティビティ",
+    "lastUpdate": "更新時刻",
+    "exitToDashboard": "終了"
   }
 }

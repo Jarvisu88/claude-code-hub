@@ -372,5 +372,19 @@
     "title": "頁面未找到",
     "description": "您造訪的頁面不存在。",
     "backHome": "返回儀表板"
+  },
+  "bigScreen": {
+    "title": "即時監控大螢幕",
+    "todayRequests": "今日請求",
+    "activeSessions": "活躍工作階段",
+    "totalCost": "今日費用",
+    "requestsPerMin": "請求數/分鐘",
+    "errorRate": "錯誤率",
+    "requestFlow": "請求趨勢 (按小時)",
+    "topModels": "熱門模型",
+    "providerHealth": "供應商健康狀態",
+    "recentActivity": "即時活動串流",
+    "lastUpdate": "更新時間",
+    "exitToDashboard": "退出"
   }
 }
