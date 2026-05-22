@@ -7,51 +7,46 @@ import (
 	"time"
 )
 
-// OpenAIToClaudeConverter OpenAI API 到 Claude API 的转换器
+// OpenAIToClaudeConverter OpenAI API -> Claude API converter
 type OpenAIToClaudeConverter struct{}
 
-// ConvertRequest 将 OpenAI 请求转换为 Claude 格式
+// ConvertRequest converts an OpenAI Chat Completions request to Claude Messages API format
 func (c *OpenAIToClaudeConverter) ConvertRequest(input map[string]interface{}) (map[string]interface{}, error) {
 	output := make(map[string]interface{})
 
-	// 转换模型名称
+	// Model passthrough
 	if model := getStringField(input, "model"); model != "" {
 		output["model"] = model
 	}
 
-	// 转换消息
+	// Convert messages (extract system messages into top-level "system")
 	if messages := getArrayField(input, "messages"); messages != nil {
 		convertedMessages, systemPrompt, err := c.convertMessages(messages)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert messages: %w", err)
 		}
 		output["messages"] = convertedMessages
-
-		// 如果有系统提示，单独设置
 		if systemPrompt != "" {
 			output["system"] = systemPrompt
 		}
 	}
 
-	// 转换参数
+	// Scalar parameters
 	if maxTokens := getIntField(input, "max_tokens"); maxTokens > 0 {
 		output["max_tokens"] = maxTokens
 	}
-
 	if temperature, ok := input["temperature"].(float64); ok {
 		output["temperature"] = temperature
 	}
-
 	if topP, ok := input["top_p"].(float64); ok {
 		output["top_p"] = topP
 	}
 
-	// 转换流式标志
 	if stream := getBoolField(input, "stream"); stream {
 		output["stream"] = true
 	}
 
-	// 转换停止序列
+	// Stop sequences
 	if stop := input["stop"]; stop != nil {
 		var stopSequences []string
 		switch v := stop.(type) {
@@ -69,7 +64,15 @@ func (c *OpenAIToClaudeConverter) ConvertRequest(input map[string]interface{}) (
 		}
 	}
 
-	// 转换用户 ID
+	// Convert tools: OpenAI function tools -> Claude tools
+	if tools := getArrayField(input, "tools"); tools != nil {
+		convertedTools := c.convertTools(tools)
+		if len(convertedTools) > 0 {
+			output["tools"] = convertedTools
+		}
+	}
+
+	// User -> metadata
 	if user := getStringField(input, "user"); user != "" {
 		output["metadata"] = map[string]interface{}{
 			"user_id": user,
@@ -79,75 +82,111 @@ func (c *OpenAIToClaudeConverter) ConvertRequest(input map[string]interface{}) (
 	return output, nil
 }
 
-// ConvertResponse 将 Claude 响应转换为 OpenAI 格式
+// ConvertResponse converts a Claude Messages API response to OpenAI Chat Completions format.
+// Direction: upstream Claude response -> client expecting OpenAI format.
 func (c *OpenAIToClaudeConverter) ConvertResponse(response map[string]interface{}) (map[string]interface{}, error) {
 	output := make(map[string]interface{})
 
-	// 转换 ID
 	if id := getStringField(response, "id"); id != "" {
 		output["id"] = id
 	} else {
 		output["id"] = "chatcmpl-" + generateID()
 	}
-
-	// 设置对象类型
 	output["object"] = "chat.completion"
-
-	// 转换时间戳
 	output["created"] = getCurrentTimestamp()
 
-	// 转换模型
 	if model := getStringField(response, "model"); model != "" {
 		output["model"] = model
 	}
 
-	// 转换内容
-	var content string
+	// Build content + tool_calls from Claude content blocks
+	var textContent string
+	var toolCalls []interface{}
+	var thinkingContent string
+	toolCallIndex := 0
+
 	if contentArray := getArrayField(response, "content"); contentArray != nil {
 		for _, item := range contentArray {
-			if block, ok := item.(map[string]interface{}); ok {
-				if blockType := getStringField(block, "type"); blockType == "text" {
-					if text := getStringField(block, "text"); text != "" {
-						content += text
+			block, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			blockType := getStringField(block, "type")
+			switch blockType {
+			case "text":
+				if text := getStringField(block, "text"); text != "" {
+					textContent += text
+				}
+			case "tool_use":
+				tc := map[string]interface{}{
+					"id":    getStringField(block, "id"),
+					"type":  "function",
+					"index": toolCallIndex,
+					"function": map[string]interface{}{
+						"name": getStringField(block, "name"),
+					},
+				}
+				if args := block["input"]; args != nil {
+					argsJSON, err := json.Marshal(args)
+					if err == nil {
+						tc["function"].(map[string]interface{})["arguments"] = string(argsJSON)
 					}
+				}
+				toolCalls = append(toolCalls, tc)
+				toolCallIndex++
+			case "thinking":
+				if text := getStringField(block, "thinking"); text != "" {
+					thinkingContent += text
 				}
 			}
 		}
 	}
 
-	// 构建 choices
-	choice := map[string]interface{}{
-		"index": 0,
-		"message": map[string]interface{}{
-			"role":    "assistant",
-			"content": content,
-		},
-		"finish_reason": c.convertStopReason(getStringField(response, "stop_reason")),
+	message := map[string]interface{}{
+		"role":    "assistant",
+		"content": textContent,
+	}
+	if len(toolCalls) > 0 {
+		message["tool_calls"] = toolCalls
+	}
+	if thinkingContent != "" {
+		message["reasoning_content"] = thinkingContent
 	}
 
+	choice := map[string]interface{}{
+		"index":         0,
+		"message":       message,
+		"finish_reason": openAIFinishFromClaudeStop(getStringField(response, "stop_reason")),
+	}
 	output["choices"] = []interface{}{choice}
 
-	// 转换使用统计
+	// Usage
 	if usage := getMapField(response, "usage"); usage != nil {
-		output["usage"] = map[string]interface{}{
+		openaiUsage := map[string]interface{}{
 			"prompt_tokens":     getIntField(usage, "input_tokens"),
 			"completion_tokens": getIntField(usage, "output_tokens"),
 			"total_tokens":      getIntField(usage, "input_tokens") + getIntField(usage, "output_tokens"),
 		}
+		if cacheRead := getIntField(usage, "cache_read_input_tokens"); cacheRead > 0 {
+			openaiUsage["cache_read_input_tokens"] = cacheRead
+		}
+		if cacheCreate := getIntField(usage, "cache_creation_input_tokens"); cacheCreate > 0 {
+			openaiUsage["cache_creation_input_tokens"] = cacheCreate
+		}
+		output["usage"] = openaiUsage
 	}
 
 	return output, nil
 }
 
-// ConvertStreamChunk 将 Claude 流式响应块转换为 OpenAI 格式
+// ConvertStreamChunk converts Claude SSE events -> OpenAI SSE chunks.
+// Input: raw SSE bytes with "event:" and "data:" lines.
 func (c *OpenAIToClaudeConverter) ConvertStreamChunk(chunk []byte) ([]byte, error) {
-	// 解析 SSE 数据
 	chunkStr := string(chunk)
 	lines := strings.Split(chunkStr, "\n")
 
 	var eventType string
 	var dataStr string
-
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "event: ") {
@@ -161,23 +200,21 @@ func (c *OpenAIToClaudeConverter) ConvertStreamChunk(chunk []byte) ([]byte, erro
 		return chunk, nil
 	}
 
-	// 解析 JSON
 	var data map[string]interface{}
 	if err := json.Unmarshal([]byte(dataStr), &data); err != nil {
 		return chunk, nil
 	}
 
-	// 根据事件类型转换
 	var openaiEvent map[string]interface{}
 
 	switch eventType {
 	case "message_start":
-		// 消息开始
+		msg := getMapField(data, "message")
 		openaiEvent = map[string]interface{}{
-			"id":      getStringField(data, "id"),
+			"id":      getStringField(msg, "id"),
 			"object":  "chat.completion.chunk",
 			"created": getCurrentTimestamp(),
-			"model":   getStringField(getMapField(data, "message"), "model"),
+			"model":   getStringField(msg, "model"),
 			"choices": []interface{}{
 				map[string]interface{}{
 					"index": 0,
@@ -189,50 +226,136 @@ func (c *OpenAIToClaudeConverter) ConvertStreamChunk(chunk []byte) ([]byte, erro
 			},
 		}
 
-	case "content_block_delta":
-		// 内容增量
-		if delta := getMapField(data, "delta"); delta != nil {
-			if text := getStringField(delta, "text"); text != "" {
-				openaiEvent = map[string]interface{}{
-					"id":      "chatcmpl-" + generateID(),
-					"object":  "chat.completion.chunk",
-					"created": getCurrentTimestamp(),
-					"model":   "",
-					"choices": []interface{}{
-						map[string]interface{}{
-							"index": 0,
-							"delta": map[string]interface{}{
-								"content": text,
+	case "content_block_start":
+		cb := getMapField(data, "content_block")
+		if cb != nil && getStringField(cb, "type") == "tool_use" {
+			openaiEvent = map[string]interface{}{
+				"id":      "chatcmpl-" + generateID(),
+				"object":  "chat.completion.chunk",
+				"created": getCurrentTimestamp(),
+				"choices": []interface{}{
+					map[string]interface{}{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"tool_calls": []interface{}{
+								map[string]interface{}{
+									"index": getIntField(data, "index"),
+									"id":    getStringField(cb, "id"),
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      getStringField(cb, "name"),
+										"arguments": "",
+									},
+								},
 							},
-							"finish_reason": nil,
 						},
+						"finish_reason": nil,
 					},
+				},
+			}
+		}
+
+	case "content_block_delta":
+		delta := getMapField(data, "delta")
+		if delta != nil {
+			deltaType := getStringField(delta, "type")
+			switch deltaType {
+			case "text_delta":
+				if text := getStringField(delta, "text"); text != "" {
+					openaiEvent = map[string]interface{}{
+						"id":      "chatcmpl-" + generateID(),
+						"object":  "chat.completion.chunk",
+						"created": getCurrentTimestamp(),
+						"choices": []interface{}{
+							map[string]interface{}{
+								"index": 0,
+								"delta": map[string]interface{}{
+									"content": text,
+								},
+								"finish_reason": nil,
+							},
+						},
+					}
+				}
+			case "input_json_delta":
+				if partial := getStringField(delta, "partial_json"); partial != "" {
+					openaiEvent = map[string]interface{}{
+						"id":      "chatcmpl-" + generateID(),
+						"object":  "chat.completion.chunk",
+						"created": getCurrentTimestamp(),
+						"choices": []interface{}{
+							map[string]interface{}{
+								"index": 0,
+								"delta": map[string]interface{}{
+									"tool_calls": []interface{}{
+										map[string]interface{}{
+											"index": getIntField(data, "index"),
+											"function": map[string]interface{}{
+												"arguments": partial,
+											},
+										},
+									},
+								},
+								"finish_reason": nil,
+							},
+						},
+					}
+				}
+			case "thinking_delta":
+				if text := getStringField(delta, "thinking"); text != "" {
+					openaiEvent = map[string]interface{}{
+						"id":      "chatcmpl-" + generateID(),
+						"object":  "chat.completion.chunk",
+						"created": getCurrentTimestamp(),
+						"choices": []interface{}{
+							map[string]interface{}{
+								"index": 0,
+								"delta": map[string]interface{}{
+									"reasoning_content": text,
+								},
+								"finish_reason": nil,
+							},
+						},
+					}
 				}
 			}
 		}
 
 	case "message_delta":
-		// 消息增量（包含停止原因）
-		if delta := getMapField(data, "delta"); delta != nil {
+		delta := getMapField(data, "delta")
+		if delta != nil {
 			if stopReason := getStringField(delta, "stop_reason"); stopReason != "" {
 				openaiEvent = map[string]interface{}{
 					"id":      "chatcmpl-" + generateID(),
 					"object":  "chat.completion.chunk",
 					"created": getCurrentTimestamp(),
-					"model":   "",
 					"choices": []interface{}{
 						map[string]interface{}{
 							"index":         0,
 							"delta":         map[string]interface{}{},
-							"finish_reason": c.convertStopReason(stopReason),
+							"finish_reason": openAIFinishFromClaudeStop(stopReason),
 						},
 					},
+				}
+			}
+			if usage := getMapField(data, "usage"); usage != nil {
+				if openaiEvent == nil {
+					openaiEvent = map[string]interface{}{
+						"id":      "chatcmpl-" + generateID(),
+						"object":  "chat.completion.chunk",
+						"created": getCurrentTimestamp(),
+						"choices": []interface{}{},
+					}
+				}
+				openaiEvent["usage"] = map[string]interface{}{
+					"prompt_tokens":     getIntField(usage, "input_tokens"),
+					"completion_tokens": getIntField(usage, "output_tokens"),
+					"total_tokens":      getIntField(usage, "input_tokens") + getIntField(usage, "output_tokens"),
 				}
 			}
 		}
 
 	case "message_stop":
-		// 消息结束
 		return []byte("data: [DONE]\n\n"), nil
 
 	default:
@@ -243,19 +366,13 @@ func (c *OpenAIToClaudeConverter) ConvertStreamChunk(chunk []byte) ([]byte, erro
 		return chunk, nil
 	}
 
-	// 序列化为 JSON
-	openaiData, err := json.Marshal(openaiEvent)
-	if err != nil {
-		return chunk, nil
-	}
-
-	return []byte(fmt.Sprintf("data: %s\n\n", openaiData)), nil
+	return []byte(fmt.Sprintf("data: %s\n\n", mustMarshal(openaiEvent))), nil
 }
 
-// convertMessages 转换消息列表，提取系统提示
+// convertMessages extracts system prompt and converts messages
 func (c *OpenAIToClaudeConverter) convertMessages(messages []interface{}) ([]interface{}, string, error) {
 	result := make([]interface{}, 0, len(messages))
-	var systemPrompt string
+	var systemParts []string
 
 	for _, msg := range messages {
 		msgMap, ok := msg.(map[string]interface{})
@@ -265,31 +382,93 @@ func (c *OpenAIToClaudeConverter) convertMessages(messages []interface{}) ([]int
 
 		role := getStringField(msgMap, "role")
 
-		// 提取系统消息
+		// Extract system messages
 		if role == "system" {
 			if content := msgMap["content"]; content != nil {
 				if str, ok := content.(string); ok {
-					if systemPrompt != "" {
-						systemPrompt += "\n"
+					systemParts = append(systemParts, str)
+				} else if arr, ok := content.([]interface{}); ok {
+					for _, item := range arr {
+						if m, ok := item.(map[string]interface{}); ok {
+							if getStringField(m, "type") == "text" {
+								systemParts = append(systemParts, getStringField(m, "text"))
+							}
+						}
 					}
-					systemPrompt += str
 				}
 			}
 			continue
 		}
 
-		// 转换用户和助手消息
-		convertedMsg := make(map[string]interface{})
-		convertedMsg["role"] = role
+		// Convert tool messages -> Claude tool_result within user message
+		if role == "tool" {
+			toolResult := map[string]interface{}{
+				"type":        "tool_result",
+				"tool_use_id": getStringField(msgMap, "tool_call_id"),
+			}
+			if content := msgMap["content"]; content != nil {
+				if str, ok := content.(string); ok {
+					toolResult["content"] = str
+				}
+			}
+			result = append(result, map[string]interface{}{
+				"role":    "user",
+				"content": []interface{}{toolResult},
+			})
+			continue
+		}
 
-		// 转换内容
+		convertedMsg := map[string]interface{}{
+			"role": role,
+		}
+
+		// Handle tool_calls in assistant messages
+		if role == "assistant" {
+			content, toolUseBlocks := c.convertAssistantMessage(msgMap)
+			if len(toolUseBlocks) > 0 || content != nil {
+				blocks := make([]interface{}, 0)
+				if content != nil {
+					switch v := content.(type) {
+					case string:
+						if v != "" {
+							blocks = append(blocks, map[string]interface{}{
+								"type": "text",
+								"text": v,
+							})
+						}
+					case []interface{}:
+						blocks = append(blocks, v...)
+					}
+				}
+				blocks = append(blocks, toolUseBlocks...)
+
+				// Add reasoning_content as thinking block if present
+				if reasoning := getStringField(msgMap, "reasoning_content"); reasoning != "" {
+					// Prepend thinking block
+					thinkingBlock := map[string]interface{}{
+						"type":     "thinking",
+						"thinking": reasoning,
+					}
+					blocks = append([]interface{}{thinkingBlock}, blocks...)
+				}
+
+				convertedMsg["content"] = blocks
+			} else {
+				// Simple assistant text
+				if content != nil {
+					convertedMsg["content"] = content
+				}
+			}
+			result = append(result, convertedMsg)
+			continue
+		}
+
+		// Convert user messages content
 		if content := msgMap["content"]; content != nil {
 			switch v := content.(type) {
 			case string:
-				// 简单字符串内容
 				convertedMsg["content"] = v
 			case []interface{}:
-				// 多模态内容
 				convertedContent, err := c.convertContent(v)
 				if err != nil {
 					return nil, "", err
@@ -301,12 +480,63 @@ func (c *OpenAIToClaudeConverter) convertMessages(messages []interface{}) ([]int
 		result = append(result, convertedMsg)
 	}
 
-	return result, systemPrompt, nil
+	return result, strings.Join(systemParts, "\n"), nil
 }
 
-// convertContent 转换多模态内容
+// convertAssistantMessage handles OpenAI assistant message with potential tool_calls
+func (c *OpenAIToClaudeConverter) convertAssistantMessage(msg map[string]interface{}) (interface{}, []interface{}) {
+	var content interface{}
+	var toolUseBlocks []interface{}
+
+	// Extract text content
+	if raw := msg["content"]; raw != nil {
+		if str, ok := raw.(string); ok {
+			content = str
+		} else if arr, ok := raw.([]interface{}); ok {
+			content = arr
+		}
+	}
+
+	// Convert tool_calls -> tool_use content blocks
+	if toolCalls := getArrayField(msg, "tool_calls"); toolCalls != nil {
+		for _, tc := range toolCalls {
+			tcMap, ok := tc.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			fn := getMapField(tcMap, "function")
+			if fn == nil {
+				continue
+			}
+
+			block := map[string]interface{}{
+				"type": "tool_use",
+				"id":   getStringField(tcMap, "id"),
+				"name": getStringField(fn, "name"),
+			}
+
+			// Parse arguments JSON string into object
+			if argsStr := getStringField(fn, "arguments"); argsStr != "" {
+				var args interface{}
+				if err := json.Unmarshal([]byte(argsStr), &args); err == nil {
+					block["input"] = args
+				} else {
+					block["input"] = map[string]interface{}{}
+				}
+			} else {
+				block["input"] = map[string]interface{}{}
+			}
+
+			toolUseBlocks = append(toolUseBlocks, block)
+		}
+	}
+
+	return content, toolUseBlocks
+}
+
+// convertContent converts OpenAI multimodal content parts to Claude format
 func (c *OpenAIToClaudeConverter) convertContent(content []interface{}) (interface{}, error) {
-	// 如果只有一个文本块，返回字符串
+	// Single text block optimization
 	if len(content) == 1 {
 		if block, ok := content[0].(map[string]interface{}); ok {
 			if blockType := getStringField(block, "type"); blockType == "text" {
@@ -317,15 +547,12 @@ func (c *OpenAIToClaudeConverter) convertContent(content []interface{}) (interfa
 		}
 	}
 
-	// 多个块或包含图片，转换为 Claude 格式
 	result := make([]interface{}, 0, len(content))
-
 	for _, item := range content {
 		block, ok := item.(map[string]interface{})
 		if !ok {
 			continue
 		}
-
 		blockType := getStringField(block, "type")
 		switch blockType {
 		case "text":
@@ -334,11 +561,9 @@ func (c *OpenAIToClaudeConverter) convertContent(content []interface{}) (interfa
 				"text": getStringField(block, "text"),
 			})
 		case "image_url":
-			// OpenAI 的图片格式转换为 Claude 格式
 			if imageURL := getMapField(block, "image_url"); imageURL != nil {
 				url := getStringField(imageURL, "url")
 				if strings.HasPrefix(url, "data:") {
-					// Base64 图片
 					parts := strings.SplitN(url, ",", 2)
 					if len(parts) == 2 {
 						mediaType := strings.TrimPrefix(strings.Split(parts[0], ";")[0], "data:")
@@ -352,7 +577,6 @@ func (c *OpenAIToClaudeConverter) convertContent(content []interface{}) (interfa
 						})
 					}
 				} else {
-					// URL 图片
 					result = append(result, map[string]interface{}{
 						"type": "image",
 						"source": map[string]interface{}{
@@ -368,28 +592,62 @@ func (c *OpenAIToClaudeConverter) convertContent(content []interface{}) (interfa
 	return result, nil
 }
 
-// convertStopReason 转换停止原因
-func (c *OpenAIToClaudeConverter) convertStopReason(reason string) string {
+// convertTools converts OpenAI function tool definitions to Claude tool definitions
+func (c *OpenAIToClaudeConverter) convertTools(tools []interface{}) []interface{} {
+	result := make([]interface{}, 0, len(tools))
+	for _, tool := range tools {
+		t, ok := tool.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if getStringField(t, "type") != "function" {
+			continue
+		}
+		fn := getMapField(t, "function")
+		if fn == nil {
+			continue
+		}
+		claudeTool := map[string]interface{}{
+			"name": getStringField(fn, "name"),
+		}
+		if desc := getStringField(fn, "description"); desc != "" {
+			claudeTool["description"] = desc
+		}
+		if params := getMapField(fn, "parameters"); params != nil {
+			claudeTool["input_schema"] = params
+		}
+		result = append(result, claudeTool)
+	}
+	return result
+}
+
+// openAIFinishFromClaudeStop maps Claude stop_reason to OpenAI finish_reason
+func openAIFinishFromClaudeStop(reason string) string {
 	switch reason {
 	case "end_turn":
 		return "stop"
 	case "max_tokens":
 		return "length"
+	case "tool_use":
+		return "tool_calls"
 	case "stop_sequence":
-		return "content_filter"
-	default:
 		return "stop"
+	default:
+		if reason == "" {
+			return "stop"
+		}
+		return reason
 	}
 }
 
 // Helper functions
 
-// generateID 生成随机 ID
+// generateID generates a simple numeric ID based on timestamp
 func generateID() string {
 	return fmt.Sprintf("%d", getCurrentTimestamp())
 }
 
-// getCurrentTimestamp 获取当前时间戳
+// getCurrentTimestamp returns current Unix timestamp
 func getCurrentTimestamp() int64 {
 	return time.Now().Unix()
 }
