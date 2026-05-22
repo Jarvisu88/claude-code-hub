@@ -46,6 +46,66 @@ type Service interface {
 	ResetAmount(ctx context.Context, userID int, period Period) error
 }
 
+// CheckCostLimitsRequest is the input for a lease-based cost limit check.
+type CheckCostLimitsRequest struct {
+	EntityType    LeaseEntityType
+	EntityID      int
+	Period        Period
+	ResetMode     DailyResetMode
+	ResetTime     string
+	EstimatedCost udecimal.Decimal
+	LimitAmount   udecimal.Decimal
+	CostResetAt   *time.Time
+}
+
+// CheckCostLimitsResult is the output of a lease-based cost limit check.
+type CheckCostLimitsResult struct {
+	Allowed   bool
+	Lease     *Lease
+	Remaining udecimal.Decimal
+	Reason    string
+}
+
+// CheckCostLimitsWithLease checks cost limits using the lease system.
+// It acquires a lease that reserves the estimated cost atomically.
+// On success, the caller MUST eventually call LeaseService.Release or
+// LeaseService.Expire to reconcile the reservation.
+func (s *RedisService) CheckCostLimitsWithLease(ctx context.Context, leaseService *LeaseService, req CheckCostLimitsRequest) (*CheckCostLimitsResult, error) {
+	if req.LimitAmount.IsZero() || req.LimitAmount.IsNeg() {
+		// No limit configured - always allow
+		return &CheckCostLimitsResult{
+			Allowed:   true,
+			Remaining: udecimal.Zero,
+			Reason:    "no limit configured",
+		}, nil
+	}
+
+	acquireReq := AcquireRequest{
+		EntityType:    req.EntityType,
+		EntityID:      req.EntityID,
+		Period:        req.Period,
+		ResetMode:     req.ResetMode,
+		ResetTime:     req.ResetTime,
+		EstimatedCost: req.EstimatedCost,
+		LimitAmount:   req.LimitAmount,
+		CostResetAt:   req.CostResetAt,
+	}
+
+	result, err := leaseService.Acquire(ctx, acquireReq)
+	if err != nil {
+		return &CheckCostLimitsResult{
+			Allowed: false,
+			Reason:  err.Error(),
+		}, nil
+	}
+
+	return &CheckCostLimitsResult{
+		Allowed:   true,
+		Lease:     result.Lease,
+		Remaining: result.Remaining,
+	}, nil
+}
+
 // Period 时间周期
 type Period string
 
