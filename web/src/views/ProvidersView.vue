@@ -12,7 +12,7 @@
         <template #cell-id="{ value }">
           <span class="font-mono text-xs">{{ value }}</span>
         </template>
-        <template #cell-enabled="{ value }">
+        <template #cell-isEnabled="{ value }">
           <UiBadge :variant="value ? 'success' : 'default'">
             {{ value ? $t("common.enabled") : $t("common.disabled") }}
           </UiBadge>
@@ -33,8 +33,26 @@
           <UiInput v-model="form.name" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-[var(--color-text)] mb-1">{{ $t("pages.providers.baseUrl") }}</label>
-          <UiInput v-model="form.baseUrl" />
+          <label class="block text-sm font-medium text-[var(--color-text)] mb-1">{{ $t("pages.providers.providerType") }}</label>
+          <select
+            v-model="form.providerType"
+            class="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)]"
+          >
+            <option value="claude">claude</option>
+            <option value="openai-compatible">openai-compatible</option>
+            <option value="codex">codex</option>
+            <option value="gemini">gemini</option>
+            <option value="gemini-cli">gemini-cli</option>
+            <option value="claude-auth">claude-auth</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-[var(--color-text)] mb-1">{{ $t("pages.providers.url") }}</label>
+          <UiInput v-model="form.url" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-[var(--color-text)] mb-1">{{ $t("pages.providers.key") }}</label>
+          <UiInput v-model="form.key" />
         </div>
         <div>
           <label class="block text-sm font-medium text-[var(--color-text)] mb-1">{{ $t("pages.providers.weight") }}</label>
@@ -73,14 +91,15 @@ const items = ref<any[]>([]);
 const dialogOpen = ref(false);
 const isEditing = ref(false);
 const editId = ref<any>(null);
-const form = ref({ name: "", baseUrl: "", weight: 1, model: "" });
+const form = ref({ name: "", providerType: "claude", url: "", key: "", weight: 1, model: "" });
 
 const columns = computed(() => [
   { key: "id", label: t("common.id") },
   { key: "name", label: t("common.name") },
-  { key: "baseUrl", label: t("pages.providers.baseUrl") },
+  { key: "providerType", label: t("pages.providers.providerType") },
+  { key: "url", label: t("pages.providers.url") },
   { key: "weight", label: t("pages.providers.weight") },
-  { key: "enabled", label: t("common.status") },
+  { key: "isEnabled", label: t("common.status") },
   { key: "actions", label: t("common.actions") },
 ]);
 
@@ -99,7 +118,7 @@ async function fetchData() {
 function openCreate() {
   isEditing.value = false;
   editId.value = null;
-  form.value = { name: "", baseUrl: "", weight: 1, model: "" };
+  form.value = { name: "", providerType: "claude", url: "", key: "", weight: 1, model: "" };
   dialogOpen.value = true;
 }
 
@@ -108,7 +127,9 @@ function openEdit(row: any) {
   editId.value = row?.id;
   form.value = {
     name: row?.name ?? "",
-    baseUrl: row?.baseUrl ?? "",
+    providerType: row?.providerType ?? "claude",
+    url: row?.url ?? "",
+    key: row?.key ?? "",
     weight: row?.weight ?? 1,
     model: row?.model ?? "",
   };

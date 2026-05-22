@@ -51,8 +51,21 @@
           <UiInput v-model="form.name" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-[var(--color-text)] mb-1">{{ $t("pages.notifications.url") }}</label>
-          <UiInput v-model="form.url" />
+          <label class="block text-sm font-medium text-[var(--color-text)] mb-1">{{ $t("pages.notifications.providerType") }}</label>
+          <select
+            v-model="form.providerType"
+            class="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)]"
+          >
+            <option value="wechat">wechat</option>
+            <option value="feishu">feishu</option>
+            <option value="dingtalk">dingtalk</option>
+            <option value="telegram">telegram</option>
+            <option value="custom">custom</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-[var(--color-text)] mb-1">{{ $t("pages.notifications.webhookUrl") }}</label>
+          <UiInput v-model="form.webhookUrl" />
         </div>
       </form>
       <template #footer>
@@ -91,7 +104,7 @@ const webhookTargets = ref<any[]>([]);
 const dialogOpen = ref(false);
 const isEditing = ref(false);
 const editId = ref<any>(null);
-const form = ref({ name: "", url: "" });
+const form = ref({ name: "", webhookUrl: "", providerType: "custom" });
 
 const notifFields = computed(() => {
   return Object.keys(notifSettings.value ?? {}).filter(
@@ -102,7 +115,8 @@ const notifFields = computed(() => {
 const whColumns = computed(() => [
   { key: "id", label: t("common.id") },
   { key: "name", label: t("common.name") },
-  { key: "url", label: t("pages.notifications.url") },
+  { key: "providerType", label: t("pages.notifications.providerType") },
+  { key: "webhookUrl", label: t("pages.notifications.webhookUrl") },
   { key: "actions", label: t("common.actions") },
 ]);
 
@@ -137,14 +151,18 @@ async function handleSaveSettings() {
 function openCreate() {
   isEditing.value = false;
   editId.value = null;
-  form.value = { name: "", url: "" };
+  form.value = { name: "", webhookUrl: "", providerType: "custom" };
   dialogOpen.value = true;
 }
 
 function openEdit(row: any) {
   isEditing.value = true;
   editId.value = row?.id;
-  form.value = { name: row?.name ?? "", url: row?.url ?? "" };
+  form.value = {
+    name: row?.name ?? "",
+    webhookUrl: row?.webhookUrl ?? "",
+    providerType: row?.providerType ?? "custom",
+  };
   dialogOpen.value = true;
 }
 

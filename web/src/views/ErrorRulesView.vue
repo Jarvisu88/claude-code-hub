@@ -12,7 +12,7 @@
         <template #cell-id="{ value }">
           <span class="font-mono text-xs">{{ value }}</span>
         </template>
-        <template #cell-enabled="{ value }">
+        <template #cell-isEnabled="{ value }">
           <UiBadge :variant="value ? 'success' : 'default'">
             {{ value ? $t("common.enabled") : $t("common.disabled") }}
           </UiBadge>
@@ -76,7 +76,7 @@ const columns = computed(() => [
   { key: "name", label: t("common.name") },
   { key: "pattern", label: t("pages.errorRules.pattern") },
   { key: "action", label: t("pages.errorRules.action") },
-  { key: "enabled", label: t("common.status") },
+  { key: "isEnabled", label: t("common.status") },
   { key: "actions", label: t("common.actions") },
 ]);
 
