@@ -1,0 +1,20 @@
+[
+  {
+    "name": "authorized responses request proxies upstream",
+    "method": "POST",
+    "path": "/v1/responses",
+    "body": {
+      "input": [
+        {"role": "user", "content": "hello"}
+      ],
+      "model": "gpt-5.4"
+    },
+    "headers": {
+      "Authorization": "Bearer proxy-key",
+      "Content-Type": "application/json"
+    },
+    "expected_status": 201,
+    "expected_response_contains": "resp_123",
+    "node_evidence": "minimal /v1/responses runnable loop should not return 501 once auth+session+provider+forwarding path is wired"
+  }
+]

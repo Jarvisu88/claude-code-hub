@@ -1,0 +1,44 @@
+{
+  "source": [
+    "../claude-code-hub plus/src/lib/session-manager.ts"
+  ],
+  "cases": [
+    {
+      "name": "uses first three string messages",
+      "messages": [
+        {"content": "alpha"},
+        {"content": "beta"},
+        {"content": "gamma"},
+        {"content": "delta"}
+      ],
+      "want_hash": "27e1a9b200ae113f",
+      "node_evidence": "SessionManager.calculateMessagesHash -> first 3 messages, string content"
+    },
+    {
+      "name": "joins multimodal text parts only",
+      "messages": [
+        {
+          "content": [
+            {"type": "text", "text": "hello "},
+            {"type": "input_image", "image_url": "ignored"},
+            {"type": "text", "text": "world"}
+          ]
+        }
+      ],
+      "want_hash": "b94d27b9934d3e08",
+      "node_evidence": "SessionManager.calculateMessagesHash -> array content joins text parts only"
+    },
+    {
+      "name": "returns empty when no usable contents",
+      "messages": [
+        {
+          "content": [
+            {"type": "image", "text": "ignored"}
+          ]
+        }
+      ],
+      "want_hash": "",
+      "node_evidence": "SessionManager.calculateMessagesHash -> no string/text content returns null"
+    }
+  ]
+}

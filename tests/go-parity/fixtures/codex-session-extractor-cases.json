@@ -1,0 +1,81 @@
+{
+  "source": "../claude-code-hub plus/src/app/v1/_lib/codex/session-extractor.ts",
+  "cases": [
+    {
+      "name": "prefers session_id header",
+      "headers": {
+        "session_id": "sess_header_priority_1234567890",
+        "x-session-id": "sess_x_header_123456789012345"
+      },
+      "body": {
+        "prompt_cache_key": "resp_prompt_cache_1234567890123",
+        "metadata": {
+          "session_id": "sess_metadata_123456789012345"
+        },
+        "previous_response_id": "resp_previous_1234567890123456"
+      },
+      "want_session_id": "sess_header_priority_1234567890",
+      "want_source": "header_session_id",
+      "node_evidence": "extractCodexSessionId(): header_session_id precedence"
+    },
+    {
+      "name": "falls back to x-session-id header",
+      "headers": {
+        "x-session-id": "sess_x_header_123456789012345"
+      },
+      "body": {
+        "prompt_cache_key": "resp_prompt_cache_1234567890123"
+      },
+      "want_session_id": "sess_x_header_123456789012345",
+      "want_source": "header_x_session_id",
+      "node_evidence": "extractCodexSessionId(): header_x_session_id fallback"
+    },
+    {
+      "name": "uses prompt_cache_key when headers missing",
+      "headers": {},
+      "body": {
+        "prompt_cache_key": "resp_prompt_cache_1234567890123"
+      },
+      "want_session_id": "resp_prompt_cache_1234567890123",
+      "want_source": "body_prompt_cache_key",
+      "node_evidence": "extractCodexSessionId(): body_prompt_cache_key fallback"
+    },
+    {
+      "name": "uses metadata session id when prompt cache missing",
+      "headers": {},
+      "body": {
+        "metadata": {
+          "session_id": "sess_metadata_123456789012345"
+        }
+      },
+      "want_session_id": "sess_metadata_123456789012345",
+      "want_source": "body_metadata_session_id",
+      "node_evidence": "extractCodexSessionId(): body_metadata_session_id fallback"
+    },
+    {
+      "name": "uses previous_response_id with codex prefix",
+      "headers": {},
+      "body": {
+        "previous_response_id": "resp_previous_1234567890123456"
+      },
+      "want_session_id": "codex_prev_resp_previous_1234567890123456",
+      "want_source": "body_previous_response_id",
+      "node_evidence": "extractCodexSessionId(): body_previous_response_id fallback"
+    },
+    {
+      "name": "rejects short invalid values",
+      "headers": {
+        "session_id": "short"
+      },
+      "body": {
+        "prompt_cache_key": "tiny",
+        "metadata": {
+          "session_id": "invalid/value"
+        }
+      },
+      "want_session_id": "",
+      "want_source": "",
+      "node_evidence": "normalizeCodexSessionId(): min length and charset guard"
+    }
+  ]
+}
