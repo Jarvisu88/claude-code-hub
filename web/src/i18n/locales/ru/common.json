@@ -4,9 +4,25 @@
     "users": "Пользователи",
     "keys": "API-ключи",
     "providers": "Провайдеры",
+    "providerGroups": "Группы провайдеров",
+    "endpoints": "Эндпоинты",
     "usage": "Журнал использования",
+    "statistics": "Статистика",
+    "leaderboard": "Рейтинг",
+    "prices": "Цены",
+    "errorRules": "Правила ошибок",
+    "requestFilters": "Фильтры запросов",
+    "sensitiveWords": "Запрещенные слова",
+    "notifications": "Уведомления",
+    "auditLogs": "Журнал аудита",
+    "myUsage": "Мое использование",
     "settings": "Настройки",
-    "logout": "Выйти"
+    "logout": "Выйти",
+    "sectionUsers": "Пользователи",
+    "sectionProviders": "Провайдеры",
+    "sectionAnalytics": "Аналитика",
+    "sectionSecurity": "Безопасность",
+    "sectionSystem": "Система"
   },
   "auth": {
     "login": "Вход",
@@ -116,6 +132,178 @@
     "testSuccess": "Соединение успешно",
     "testFailed": "Соединение не удалось",
     "latency": "Задержка"
+  },
+  "providerGroups": {
+    "title": "Группы провайдеров",
+    "createGroup": "Создать группу",
+    "editGroup": "Редактировать группу",
+    "deleteGroup": "Удалить группу",
+    "deleteConfirm": "Вы уверены, что хотите удалить группу \"{{name}}\"? Это действие необратимо.",
+    "costMultiplier": "Множитель стоимости",
+    "description": "Описание",
+    "providerCount": "Кол-во провайдеров"
+  },
+  "endpoints": {
+    "title": "Эндпоинты",
+    "vendor": "Вендор",
+    "type": "Тип",
+    "url": "URL",
+    "probeStatus": "Статус проверки",
+    "probeStatusValues": {
+      "ok": "ОК",
+      "fail": "Ошибка",
+      "unknown": "Неизвестно"
+    },
+    "latency": "Задержка",
+    "probeLogs": "Логи проверок",
+    "probeTime": "Время проверки",
+    "error": "Ошибка"
+  },
+  "statistics": {
+    "title": "Статистика",
+    "range24h": "За 24 часа",
+    "range7d": "За 7 дней",
+    "range30d": "За 30 дней",
+    "requestsOverTime": "Динамика запросов",
+    "costOverTime": "Динамика затрат",
+    "topModels": "Популярные модели",
+    "topUsers": "Активные пользователи",
+    "requests": "Запросы",
+    "cost": "Стоимость"
+  },
+  "leaderboard": {
+    "title": "Рейтинг",
+    "periodToday": "Сегодня",
+    "period7d": "За 7 дней",
+    "period30d": "За 30 дней",
+    "rank": "Место",
+    "user": "Пользователь",
+    "totalRequests": "Всего запросов",
+    "totalCost": "Общая стоимость",
+    "avgCost": "Средняя стоимость"
+  },
+  "prices": {
+    "title": "Цены моделей",
+    "model": "Модель",
+    "inputPrice": "Цена ввода ($/1К токенов)",
+    "outputPrice": "Цена вывода ($/1К токенов)",
+    "source": "Источник",
+    "updated": "Обновлено",
+    "editPrice": "Редактировать цену",
+    "syncFromLiteLLM": "Синхронизировать из LiteLLM",
+    "syncSuccess": "Успешно синхронизировано {{count}} цен моделей.",
+    "searchPlaceholder": "Поиск по названию модели..."
+  },
+  "errorRules": {
+    "title": "Правила ошибок",
+    "createRule": "Создать правило",
+    "editRule": "Редактировать правило",
+    "deleteRule": "Удалить правило",
+    "deleteConfirm": "Вы уверены, что хотите удалить это правило ошибок?",
+    "pattern": "Шаблон",
+    "matchType": "Тип соответствия",
+    "matchTypes": {
+      "contains": "Содержит",
+      "regex": "Регулярное выражение",
+      "exact": "Точное"
+    },
+    "category": "Категория",
+    "priority": "Приоритет",
+    "description": "Описание"
+  },
+  "requestFilters": {
+    "title": "Фильтры запросов",
+    "createFilter": "Создать фильтр",
+    "editFilter": "Редактировать фильтр",
+    "deleteFilter": "Удалить фильтр",
+    "deleteConfirm": "Вы уверены, что хотите удалить фильтр \"{{name}}\"?",
+    "scope": "Область",
+    "scopes": {
+      "global": "Глобальная",
+      "user": "Пользователь",
+      "key": "Ключ",
+      "model": "Модель"
+    },
+    "action": "Действие",
+    "actions": {
+      "block": "Блокировать",
+      "allow": "Разрешить",
+      "rewrite": "Перезаписать"
+    },
+    "priority": "Приоритет",
+    "config": "Конфигурация (JSON)",
+    "configPlaceholder": "{}"
+  },
+  "sensitiveWords": {
+    "title": "Запрещенные слова",
+    "createWord": "Добавить слово",
+    "editWord": "Редактировать слово",
+    "deleteWord": "Удалить слово",
+    "deleteConfirm": "Вы уверены, что хотите удалить слово \"{{word}}\"?",
+    "word": "Слово",
+    "matchType": "Тип соответствия",
+    "matchTypes": {
+      "contains": "Содержит",
+      "regex": "Регулярное выражение",
+      "exact": "Точное"
+    },
+    "description": "Описание",
+    "refreshCache": "Обновить кэш"
+  },
+  "notifications": {
+    "title": "Уведомления",
+    "settingsSection": "Настройки уведомлений",
+    "circuitBreaker": "Автоматический выключатель",
+    "leaderboard": "Рейтинг",
+    "costAlert": "Оповещение о стоимости",
+    "cacheHitRate": "Процент попаданий кэша",
+    "threshold": "Порог",
+    "cron": "Cron-выражение",
+    "dailyThreshold": "Дневной порог ($)",
+    "monthlyThreshold": "Месячный порог ($)",
+    "minRate": "Мин. процент (%)",
+    "webhookTargets": "Цели Webhook",
+    "addWebhook": "Добавить Webhook",
+    "webhookUrl": "URL Webhook",
+    "webhookType": "Тип",
+    "testWebhook": "Тест Webhook",
+    "testSuccess": "Тест Webhook успешен",
+    "testFailed": "Тест Webhook не удался",
+    "bindings": "Привязки уведомлений",
+    "addBinding": "Добавить привязку",
+    "notificationType": "Тип уведомления",
+    "webhookTarget": "Цель Webhook",
+    "types": {
+      "circuit_breaker": "Автоматический выключатель",
+      "leaderboard": "Рейтинг",
+      "cost_alert": "Оповещение о стоимости",
+      "cache_hit_rate": "Процент попаданий кэша"
+    }
+  },
+  "auditLogs": {
+    "title": "Журнал аудита",
+    "time": "Время",
+    "action": "Действие",
+    "user": "Пользователь",
+    "details": "Подробности",
+    "ip": "IP-адрес",
+    "actionFilter": "Тип действия",
+    "actionFilterPlaceholder": "Фильтр по типу действия...",
+    "startDate": "Дата начала",
+    "endDate": "Дата окончания",
+    "apply": "Применить",
+    "clear": "Очистить"
+  },
+  "myUsage": {
+    "title": "Мое использование",
+    "dailyQuota": "Дневная квота затрат",
+    "monthlyQuota": "Месячная квота затрат",
+    "rateLimit": "Лимит запросов",
+    "perMinute": "запр./мин",
+    "unlimited": "Без ограничений",
+    "recentUsage": "Недавнее использование",
+    "tokens": "токены (вход/выход)",
+    "availableModels": "Доступные модели"
   },
   "usage": {
     "title": "Журнал использования",

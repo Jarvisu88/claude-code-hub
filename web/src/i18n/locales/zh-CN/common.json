@@ -4,9 +4,25 @@
     "users": "用户管理",
     "keys": "API 密钥",
     "providers": "服务商",
+    "providerGroups": "服务商分组",
+    "endpoints": "端点管理",
     "usage": "使用日志",
+    "statistics": "统计图表",
+    "leaderboard": "排行榜",
+    "prices": "价格管理",
+    "errorRules": "错误规则",
+    "requestFilters": "请求过滤",
+    "sensitiveWords": "敏感词",
+    "notifications": "通知设置",
+    "auditLogs": "审计日志",
+    "myUsage": "我的用量",
     "settings": "系统设置",
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "sectionUsers": "用户",
+    "sectionProviders": "服务商",
+    "sectionAnalytics": "数据分析",
+    "sectionSecurity": "安全",
+    "sectionSystem": "系统"
   },
   "auth": {
     "login": "登录",
@@ -116,6 +132,178 @@
     "testSuccess": "连接成功",
     "testFailed": "连接失败",
     "latency": "延迟"
+  },
+  "providerGroups": {
+    "title": "服务商分组",
+    "createGroup": "创建分组",
+    "editGroup": "编辑分组",
+    "deleteGroup": "删除分组",
+    "deleteConfirm": "确定要删除分组 \"{{name}}\" 吗？此操作不可撤销。",
+    "costMultiplier": "费用倍率",
+    "description": "描述",
+    "providerCount": "服务商数量"
+  },
+  "endpoints": {
+    "title": "端点管理",
+    "vendor": "厂商",
+    "type": "类型",
+    "url": "URL",
+    "probeStatus": "探测状态",
+    "probeStatusValues": {
+      "ok": "正常",
+      "fail": "失败",
+      "unknown": "未知"
+    },
+    "latency": "延迟",
+    "probeLogs": "探测日志",
+    "probeTime": "探测时间",
+    "error": "错误"
+  },
+  "statistics": {
+    "title": "统计图表",
+    "range24h": "近 24 小时",
+    "range7d": "近 7 天",
+    "range30d": "近 30 天",
+    "requestsOverTime": "请求趋势",
+    "costOverTime": "费用趋势",
+    "topModels": "热门模型",
+    "topUsers": "活跃用户",
+    "requests": "请求数",
+    "cost": "费用"
+  },
+  "leaderboard": {
+    "title": "排行榜",
+    "periodToday": "今日",
+    "period7d": "近 7 天",
+    "period30d": "近 30 天",
+    "rank": "排名",
+    "user": "用户",
+    "totalRequests": "总请求数",
+    "totalCost": "总费用",
+    "avgCost": "平均费用"
+  },
+  "prices": {
+    "title": "价格管理",
+    "model": "模型",
+    "inputPrice": "输入价格 ($/1K tokens)",
+    "outputPrice": "输出价格 ($/1K tokens)",
+    "source": "来源",
+    "updated": "更新时间",
+    "editPrice": "编辑价格",
+    "syncFromLiteLLM": "从 LiteLLM 同步",
+    "syncSuccess": "成功同步 {{count}} 个模型价格。",
+    "searchPlaceholder": "按模型名称搜索..."
+  },
+  "errorRules": {
+    "title": "错误规则",
+    "createRule": "创建规则",
+    "editRule": "编辑规则",
+    "deleteRule": "删除规则",
+    "deleteConfirm": "确定要删除此错误规则吗？",
+    "pattern": "匹配模式",
+    "matchType": "匹配类型",
+    "matchTypes": {
+      "contains": "包含",
+      "regex": "正则",
+      "exact": "精确"
+    },
+    "category": "分类",
+    "priority": "优先级",
+    "description": "描述"
+  },
+  "requestFilters": {
+    "title": "请求过滤",
+    "createFilter": "创建过滤器",
+    "editFilter": "编辑过滤器",
+    "deleteFilter": "删除过滤器",
+    "deleteConfirm": "确定要删除过滤器 \"{{name}}\" 吗？",
+    "scope": "作用域",
+    "scopes": {
+      "global": "全局",
+      "user": "用户",
+      "key": "密钥",
+      "model": "模型"
+    },
+    "action": "动作",
+    "actions": {
+      "block": "阻止",
+      "allow": "允许",
+      "rewrite": "重写"
+    },
+    "priority": "优先级",
+    "config": "配置 (JSON)",
+    "configPlaceholder": "{}"
+  },
+  "sensitiveWords": {
+    "title": "敏感词",
+    "createWord": "添加敏感词",
+    "editWord": "编辑敏感词",
+    "deleteWord": "删除敏感词",
+    "deleteConfirm": "确定要删除敏感词 \"{{word}}\" 吗？",
+    "word": "敏感词",
+    "matchType": "匹配类型",
+    "matchTypes": {
+      "contains": "包含",
+      "regex": "正则",
+      "exact": "精确"
+    },
+    "description": "描述",
+    "refreshCache": "刷新缓存"
+  },
+  "notifications": {
+    "title": "通知设置",
+    "settingsSection": "通知配置",
+    "circuitBreaker": "熔断器",
+    "leaderboard": "排行榜",
+    "costAlert": "费用告警",
+    "cacheHitRate": "缓存命中率",
+    "threshold": "阈值",
+    "cron": "Cron 表达式",
+    "dailyThreshold": "每日阈值 ($)",
+    "monthlyThreshold": "每月阈值 ($)",
+    "minRate": "最低比率 (%)",
+    "webhookTargets": "Webhook 目标",
+    "addWebhook": "添加 Webhook",
+    "webhookUrl": "Webhook URL",
+    "webhookType": "类型",
+    "testWebhook": "测试 Webhook",
+    "testSuccess": "Webhook 测试成功",
+    "testFailed": "Webhook 测试失败",
+    "bindings": "通知绑定",
+    "addBinding": "添加绑定",
+    "notificationType": "通知类型",
+    "webhookTarget": "Webhook 目标",
+    "types": {
+      "circuit_breaker": "熔断器",
+      "leaderboard": "排行榜",
+      "cost_alert": "费用告警",
+      "cache_hit_rate": "缓存命中率"
+    }
+  },
+  "auditLogs": {
+    "title": "审计日志",
+    "time": "时间",
+    "action": "操作",
+    "user": "用户",
+    "details": "详情",
+    "ip": "IP 地址",
+    "actionFilter": "操作类型",
+    "actionFilterPlaceholder": "按操作类型筛选...",
+    "startDate": "开始日期",
+    "endDate": "结束日期",
+    "apply": "应用",
+    "clear": "清除"
+  },
+  "myUsage": {
+    "title": "我的用量",
+    "dailyQuota": "每日费用配额",
+    "monthlyQuota": "每月费用配额",
+    "rateLimit": "速率限制",
+    "perMinute": "请求/分钟",
+    "unlimited": "无限制",
+    "recentUsage": "最近使用记录",
+    "tokens": "令牌 (输入/输出)",
+    "availableModels": "可用模型"
   },
   "usage": {
     "title": "使用日志",

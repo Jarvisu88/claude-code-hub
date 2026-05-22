@@ -4,9 +4,25 @@
     "users": "使用者管理",
     "keys": "API 金鑰",
     "providers": "服務商",
+    "providerGroups": "服務商分組",
+    "endpoints": "端點管理",
     "usage": "使用紀錄",
+    "statistics": "統計圖表",
+    "leaderboard": "排行榜",
+    "prices": "價格管理",
+    "errorRules": "錯誤規則",
+    "requestFilters": "請求過濾",
+    "sensitiveWords": "敏感詞",
+    "notifications": "通知設定",
+    "auditLogs": "稽核日誌",
+    "myUsage": "我的用量",
     "settings": "系統設定",
-    "logout": "登出"
+    "logout": "登出",
+    "sectionUsers": "使用者",
+    "sectionProviders": "服務商",
+    "sectionAnalytics": "資料分析",
+    "sectionSecurity": "安全",
+    "sectionSystem": "系統"
   },
   "auth": {
     "login": "登入",
@@ -116,6 +132,178 @@
     "testSuccess": "連線成功",
     "testFailed": "連線失敗",
     "latency": "延遲"
+  },
+  "providerGroups": {
+    "title": "服務商分組",
+    "createGroup": "建立分組",
+    "editGroup": "編輯分組",
+    "deleteGroup": "刪除分組",
+    "deleteConfirm": "確定要刪除分組 \"{{name}}\" 嗎？此操作無法復原。",
+    "costMultiplier": "費用倍率",
+    "description": "描述",
+    "providerCount": "服務商數量"
+  },
+  "endpoints": {
+    "title": "端點管理",
+    "vendor": "廠商",
+    "type": "類型",
+    "url": "URL",
+    "probeStatus": "探測狀態",
+    "probeStatusValues": {
+      "ok": "正常",
+      "fail": "失敗",
+      "unknown": "未知"
+    },
+    "latency": "延遲",
+    "probeLogs": "探測日誌",
+    "probeTime": "探測時間",
+    "error": "錯誤"
+  },
+  "statistics": {
+    "title": "統計圖表",
+    "range24h": "近 24 小時",
+    "range7d": "近 7 天",
+    "range30d": "近 30 天",
+    "requestsOverTime": "請求趨勢",
+    "costOverTime": "費用趨勢",
+    "topModels": "熱門模型",
+    "topUsers": "活躍使用者",
+    "requests": "請求數",
+    "cost": "費用"
+  },
+  "leaderboard": {
+    "title": "排行榜",
+    "periodToday": "今日",
+    "period7d": "近 7 天",
+    "period30d": "近 30 天",
+    "rank": "排名",
+    "user": "使用者",
+    "totalRequests": "總請求數",
+    "totalCost": "總費用",
+    "avgCost": "平均費用"
+  },
+  "prices": {
+    "title": "價格管理",
+    "model": "模型",
+    "inputPrice": "輸入價格 ($/1K tokens)",
+    "outputPrice": "輸出價格 ($/1K tokens)",
+    "source": "來源",
+    "updated": "更新時間",
+    "editPrice": "編輯價格",
+    "syncFromLiteLLM": "從 LiteLLM 同步",
+    "syncSuccess": "成功同步 {{count}} 個模型價格。",
+    "searchPlaceholder": "依模型名稱搜尋..."
+  },
+  "errorRules": {
+    "title": "錯誤規則",
+    "createRule": "建立規則",
+    "editRule": "編輯規則",
+    "deleteRule": "刪除規則",
+    "deleteConfirm": "確定要刪除此錯誤規則嗎？",
+    "pattern": "匹配模式",
+    "matchType": "匹配類型",
+    "matchTypes": {
+      "contains": "包含",
+      "regex": "正則",
+      "exact": "精確"
+    },
+    "category": "分類",
+    "priority": "優先級",
+    "description": "描述"
+  },
+  "requestFilters": {
+    "title": "請求過濾",
+    "createFilter": "建立過濾器",
+    "editFilter": "編輯過濾器",
+    "deleteFilter": "刪除過濾器",
+    "deleteConfirm": "確定要刪除過濾器 \"{{name}}\" 嗎？",
+    "scope": "作用域",
+    "scopes": {
+      "global": "全域",
+      "user": "使用者",
+      "key": "金鑰",
+      "model": "模型"
+    },
+    "action": "動作",
+    "actions": {
+      "block": "阻止",
+      "allow": "允許",
+      "rewrite": "重寫"
+    },
+    "priority": "優先級",
+    "config": "設定 (JSON)",
+    "configPlaceholder": "{}"
+  },
+  "sensitiveWords": {
+    "title": "敏感詞",
+    "createWord": "新增敏感詞",
+    "editWord": "編輯敏感詞",
+    "deleteWord": "刪除敏感詞",
+    "deleteConfirm": "確定要刪除敏感詞 \"{{word}}\" 嗎？",
+    "word": "敏感詞",
+    "matchType": "匹配類型",
+    "matchTypes": {
+      "contains": "包含",
+      "regex": "正則",
+      "exact": "精確"
+    },
+    "description": "描述",
+    "refreshCache": "重新整理快取"
+  },
+  "notifications": {
+    "title": "通知設定",
+    "settingsSection": "通知設定",
+    "circuitBreaker": "熔斷器",
+    "leaderboard": "排行榜",
+    "costAlert": "費用告警",
+    "cacheHitRate": "快取命中率",
+    "threshold": "閾值",
+    "cron": "Cron 運算式",
+    "dailyThreshold": "每日閾值 ($)",
+    "monthlyThreshold": "每月閾值 ($)",
+    "minRate": "最低比率 (%)",
+    "webhookTargets": "Webhook 目標",
+    "addWebhook": "新增 Webhook",
+    "webhookUrl": "Webhook URL",
+    "webhookType": "類型",
+    "testWebhook": "測試 Webhook",
+    "testSuccess": "Webhook 測試成功",
+    "testFailed": "Webhook 測試失敗",
+    "bindings": "通知繫結",
+    "addBinding": "新增繫結",
+    "notificationType": "通知類型",
+    "webhookTarget": "Webhook 目標",
+    "types": {
+      "circuit_breaker": "熔斷器",
+      "leaderboard": "排行榜",
+      "cost_alert": "費用告警",
+      "cache_hit_rate": "快取命中率"
+    }
+  },
+  "auditLogs": {
+    "title": "稽核日誌",
+    "time": "時間",
+    "action": "操作",
+    "user": "使用者",
+    "details": "詳情",
+    "ip": "IP 位址",
+    "actionFilter": "操作類型",
+    "actionFilterPlaceholder": "依操作類型篩選...",
+    "startDate": "開始日期",
+    "endDate": "結束日期",
+    "apply": "套用",
+    "clear": "清除"
+  },
+  "myUsage": {
+    "title": "我的用量",
+    "dailyQuota": "每日費用配額",
+    "monthlyQuota": "每月費用配額",
+    "rateLimit": "速率限制",
+    "perMinute": "請求/分鐘",
+    "unlimited": "無限制",
+    "recentUsage": "最近使用紀錄",
+    "tokens": "令牌 (輸入/輸出)",
+    "availableModels": "可用模型"
   },
   "usage": {
     "title": "使用紀錄",

@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
+	"path"
 	"strings"
 	"syscall"
 	"time"
@@ -23,6 +25,7 @@ import (
 	providertrackersvc "github.com/ding113/claude-code-hub/internal/service/providertracker"
 	sessionsvc "github.com/ding113/claude-code-hub/internal/service/session"
 	sessiontrackersvc "github.com/ding113/claude-code-hub/internal/service/sessiontracker"
+	"github.com/ding113/claude-code-hub/web"
 	"github.com/gin-gonic/gin"
 	"github.com/uptrace/bun"
 )
@@ -175,6 +178,9 @@ func setupRouter(cfg *config.Config, db *bun.DB, rdb *database.RedisClient) *gin
 		apihandler.NewNotificationBindingsActionHandler(proxyAuthService, repoFactory.NotificationTargetBinding()).RegisterRoutes(api)
 	}
 
+	// Serve embedded frontend (SPA fallback)
+	registerFrontend(router)
+
 	return router
 }
 
@@ -243,4 +249,65 @@ func healthCheck(db *bun.DB, rdb *database.RedisClient) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{"status": "healthy", "database": "connected", "redis": redisStatus})
 	}
+}
+
+// registerFrontend serves the embedded frontend SPA from web/dist.
+// Static assets are served directly; all other non-API routes get index.html
+// for client-side routing.
+func registerFrontend(router *gin.Engine) {
+	distFS, err := fs.Sub(web.DistFS, "dist")
+	if err != nil {
+		logger.Warn().Err(err).Msg("Embedded frontend dist not available, skipping SPA serving")
+		return
+	}
+
+	// Check if dist actually contains files (it will be empty if not built)
+	entries, err := fs.ReadDir(distFS, ".")
+	if err != nil || len(entries) == 0 {
+		logger.Info().Msg("No embedded frontend files found, skipping SPA serving")
+		return
+	}
+
+	logger.Info().Msg("Serving embedded frontend from web/dist")
+
+	httpFS := http.FS(distFS)
+
+	// Read index.html once for SPA fallback
+	indexHTML, err := fs.ReadFile(distFS, "index.html")
+	if err != nil {
+		logger.Warn().Err(err).Msg("No index.html in embedded dist, skipping SPA fallback")
+		return
+	}
+
+	router.NoRoute(func(c *gin.Context) {
+		reqPath := c.Request.URL.Path
+
+		// Skip API and proxy routes
+		if strings.HasPrefix(reqPath, "/api/") ||
+			strings.HasPrefix(reqPath, "/v1/") ||
+			strings.HasPrefix(reqPath, "/health") ||
+			strings.HasPrefix(reqPath, "/__mock__/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+
+		// Try to serve the static file directly
+		cleanPath := strings.TrimPrefix(reqPath, "/")
+		if cleanPath == "" {
+			cleanPath = "index.html"
+		}
+
+		// Check if the file exists in the embedded FS
+		if f, err := distFS.Open(cleanPath); err == nil {
+			f.Close()
+			// Check if it has a file extension (static asset)
+			if ext := path.Ext(cleanPath); ext != "" {
+				c.FileFromFS(reqPath, httpFS)
+				return
+			}
+		}
+
+		// SPA fallback: serve index.html for all non-file routes
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
+	})
 }
