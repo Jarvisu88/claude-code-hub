@@ -1,0 +1,44 @@
+# Git metadata
+.git
+.gitignore
+
+# IDE / editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# Node.js artifacts (legacy, not used in Go build)
+node_modules
+.next
+out
+coverage
+dist
+bun.lockb
+pnpm-lock.yaml
+
+# Local env files (provided at runtime)
+.env
+.env.*
+!.env.example
+
+# Data directories (runtime volumes)
+data/
+.local-runtime/
+
+# Documentation / non-build assets
+docs-site
+*.md
+!config.example.yaml
+
+# Test artifacts
+tests/
+**/*_test.go
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Container build context should be lean
+deploy/
+scripts/

@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+
+# ---------------------------------------------------------------------------
+# Development Dockerfile - includes Go toolchain for live reload with air
+# ---------------------------------------------------------------------------
+
+FROM golang:1.26-alpine
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+# Install air for live reload
+RUN go install github.com/air-verse/air@latest
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+EXPOSE 23000
+
+CMD ["air", "-c", ".air.toml"]

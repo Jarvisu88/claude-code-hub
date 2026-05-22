@@ -1,0 +1,24 @@
+# Tools container configuration
+# For running maintenance scripts inside the Docker network.
+#
+# Usage (from project root):
+#   docker compose -f docker-compose.yaml -f deploy/docker-compose.tools.yaml \
+#       run --rm tools /app/server --help
+#
+# The tools service shares the app network, so it can reach postgres and redis directly.
+
+services:
+  tools:
+    build: .
+    working_dir: /app
+    init: true
+    env_file:
+      - .env
+    environment:
+      CCH_DATABASE_DSN: "postgres://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-claude_code_hub}?sslmode=disable"
+      CCH_REDIS_URL: "redis://redis:6379/0"
+      TZ: Asia/Shanghai
+    profiles:
+      - tools
+    stdin_open: true
+    tty: true

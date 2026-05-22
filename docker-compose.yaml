@@ -1,0 +1,67 @@
+name: ${COMPOSE_PROJECT_NAME:-claude-code-hub}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-claude_code_hub}
+      PGDATA: /data/pgdata
+      TZ: ${TZ:-Asia/Shanghai}
+      PGTZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - ./data/postgres:/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-claude_code_hub}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - ./data/redis:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  app:
+    build: .
+    image: ${APP_IMAGE:-ghcr.io/ding113/claude-code-hub:latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./.env
+    environment:
+      CCH_SERVER_PORT: "23000"
+      CCH_SERVER_HOST: "0.0.0.0"
+      CCH_SERVER_MODE: "release"
+      CCH_DATABASE_DSN: "postgres://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-claude_code_hub}?sslmode=disable"
+      CCH_REDIS_URL: "redis://redis:6379/0"
+      CCH_AUTH_ADMIN_TOKEN: "${ADMIN_TOKEN:-change-me}"
+      CCH_AUTO_MIGRATE: "${AUTO_MIGRATE:-true}"
+      CCH_LOG_LEVEL: "${LOG_LEVEL:-info}"
+      CCH_LOG_FORMAT: "json"
+      CCH_RATE_LIMIT_ENABLED: "${ENABLE_RATE_LIMIT:-true}"
+      CCH_PROXY_SESSION_TTL: "${SESSION_TTL:-300}"
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${APP_PORT:-23000}:23000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:23000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
