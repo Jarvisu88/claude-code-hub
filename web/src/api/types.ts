@@ -223,8 +223,17 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
-  token: string;
-  expiresAt: string;
+  ok: boolean;
+  redirectTo?: string;
+  loginType?: string;
+  user?: {
+    id: number;
+    name: string;
+    description?: string;
+    role: string;
+  };
+  error?: string;
+  errorCode?: string;
 }
 
 export interface TestConnectionResult {

@@ -56,7 +56,7 @@ export function useOverview() {
   return useQuery<OverviewData>({
     queryKey: ["overview"],
     queryFn: () =>
-      apiClient.get<OverviewData>("/actions/overview/getOverviewData"),
+      apiClient.post<OverviewData>("/actions/overview/getOverviewData", {}),
     refetchInterval: 60_000,
   });
 }
@@ -66,12 +66,11 @@ export function useOverview() {
 // ============================================================
 
 export function useUsers(params: { page: number; pageSize: number; search?: string }) {
-  const searchParam = params.search ? `&search=${encodeURIComponent(params.search)}` : "";
   return useQuery<PaginatedResponse<User>>({
     queryKey: ["users", params.page, params.pageSize, params.search],
     queryFn: () =>
       apiClient.get<PaginatedResponse<User>>(
-        `/actions/users/list?page=${params.page}&pageSize=${params.pageSize}${searchParam}`,
+        `/actions/users?page=${params.page}&pageSize=${params.pageSize}${params.search ? `&search=${encodeURIComponent(params.search)}` : ""}`,
       ),
   });
 }
@@ -80,9 +79,10 @@ export function useCreateUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateUserRequest) =>
-      apiClient.post<User>("/actions/users/create", data),
+      apiClient.post<User>("/actions/users", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["overview"] });
     },
   });
 }
@@ -115,7 +115,7 @@ export function useToggleUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      apiClient.patch<User>(`/actions/users/${id}`, { enabled }),
+      apiClient.put<User>(`/actions/users/${id}`, { isEnabled: enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
@@ -127,12 +127,11 @@ export function useToggleUser() {
 // ============================================================
 
 export function useKeys(params: { page: number; pageSize: number; search?: string }) {
-  const searchParam = params.search ? `&search=${encodeURIComponent(params.search)}` : "";
   return useQuery<PaginatedResponse<ApiKey>>({
     queryKey: ["keys", params.page, params.pageSize, params.search],
     queryFn: () =>
       apiClient.get<PaginatedResponse<ApiKey>>(
-        `/actions/keys/list?page=${params.page}&pageSize=${params.pageSize}${searchParam}`,
+        `/actions/keys?page=${params.page}&pageSize=${params.pageSize}${params.search ? `&search=${encodeURIComponent(params.search)}` : ""}`,
       ),
   });
 }
@@ -141,7 +140,7 @@ export function useCreateKey() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateKeyRequest) =>
-      apiClient.post<ApiKey>("/actions/keys/create", data),
+      apiClient.post<ApiKey>("/actions/keys", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["keys"] });
     },
@@ -174,7 +173,7 @@ export function useToggleKey() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      apiClient.patch<ApiKey>(`/actions/keys/${id}`, { enabled }),
+      apiClient.put<ApiKey>(`/actions/keys/${id}`, { isEnabled: enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["keys"] });
     },
@@ -186,12 +185,11 @@ export function useToggleKey() {
 // ============================================================
 
 export function useProviders(params: { page: number; pageSize: number; search?: string }) {
-  const searchParam = params.search ? `&search=${encodeURIComponent(params.search)}` : "";
   return useQuery<PaginatedResponse<Provider>>({
     queryKey: ["providers", params.page, params.pageSize, params.search],
     queryFn: () =>
       apiClient.get<PaginatedResponse<Provider>>(
-        `/actions/providers/list?page=${params.page}&pageSize=${params.pageSize}${searchParam}`,
+        `/actions/providers?page=${params.page}&pageSize=${params.pageSize}${params.search ? `&search=${encodeURIComponent(params.search)}` : ""}`,
       ),
   });
 }
@@ -200,7 +198,7 @@ export function useCreateProvider() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: CreateProviderRequest) =>
-      apiClient.post<Provider>("/actions/providers/create", data),
+      apiClient.post<Provider>("/actions/providers", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["providers"] });
       queryClient.invalidateQueries({ queryKey: ["overview"] });
@@ -235,7 +233,7 @@ export function useToggleProvider() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      apiClient.patch<Provider>(`/actions/providers/${id}`, { enabled }),
+      apiClient.put<Provider>(`/actions/providers/${id}`, { isEnabled: enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["providers"] });
     },
@@ -254,22 +252,10 @@ export function useTestProvider() {
 // ============================================================
 
 export function useUsageLogs(filters: UsageFilters) {
-  const params = new URLSearchParams();
-  if (filters.page) params.set("page", String(filters.page));
-  if (filters.pageSize) params.set("pageSize", String(filters.pageSize));
-  if (filters.startDate) params.set("startDate", filters.startDate);
-  if (filters.endDate) params.set("endDate", filters.endDate);
-  if (filters.userId) params.set("userId", filters.userId);
-  if (filters.model) params.set("model", filters.model);
-  if (filters.status !== undefined) params.set("status", String(filters.status));
-
-  const queryString = params.toString();
   return useQuery<PaginatedResponse<UsageLog>>({
     queryKey: ["usage-logs", filters],
     queryFn: () =>
-      apiClient.get<PaginatedResponse<UsageLog>>(
-        `/actions/usage-logs/getUsageLogs${queryString ? `?${queryString}` : ""}`,
-      ),
+      apiClient.post<PaginatedResponse<UsageLog>>("/actions/usage-logs/getUsageLogs", filters),
   });
 }
 
@@ -304,9 +290,7 @@ export function useProviderGroups(params: { page: number; pageSize: number }) {
   return useQuery<PaginatedResponse<ProviderGroup>>({
     queryKey: ["provider-groups", params.page, params.pageSize],
     queryFn: () =>
-      apiClient.get<PaginatedResponse<ProviderGroup>>(
-        `/actions/providers/getProviderGroups?page=${params.page}&pageSize=${params.pageSize}`,
-      ),
+      apiClient.post<PaginatedResponse<ProviderGroup>>("/actions/providers/getProviderGroups", params),
   });
 }
 
@@ -325,7 +309,7 @@ export function useUpdateProviderGroup() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateProviderGroupRequest }) =>
-      apiClient.put<ProviderGroup>(`/actions/providers/updateProviderGroup/${id}`, data),
+      apiClient.post<ProviderGroup>("/actions/providers/updateProviderGroup", { id, ...data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["provider-groups"] });
     },
@@ -336,7 +320,7 @@ export function useDeleteProviderGroup() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.delete(`/actions/providers/deleteProviderGroup/${id}`),
+      apiClient.post("/actions/providers/deleteProviderGroup", { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["provider-groups"] });
     },
@@ -351,9 +335,7 @@ export function useEndpoints(params: { page: number; pageSize: number }) {
   return useQuery<PaginatedResponse<ProviderEndpoint>>({
     queryKey: ["endpoints", params.page, params.pageSize],
     queryFn: () =>
-      apiClient.get<PaginatedResponse<ProviderEndpoint>>(
-        `/actions/providers/getProviderEndpoints?page=${params.page}&pageSize=${params.pageSize}`,
-      ),
+      apiClient.post<PaginatedResponse<ProviderEndpoint>>("/actions/providers/getProviderEndpoints", params),
   });
 }
 
@@ -361,7 +343,7 @@ export function useProbeEndpoint() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.post<{ success: boolean; latency: number }>(`/actions/providers/probeEndpoint/${id}`),
+      apiClient.post<{ success: boolean; latency: number }>("/actions/providers/probeProviderEndpoint", { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["endpoints"] });
     },
@@ -372,7 +354,7 @@ export function useEndpointProbeLogs(endpointId: string | null) {
   return useQuery<ProbeLog[]>({
     queryKey: ["probe-logs", endpointId],
     queryFn: () =>
-      apiClient.get<ProbeLog[]>(`/actions/providers/getProbeLog/${endpointId}`),
+      apiClient.post<ProbeLog[]>("/actions/providers/getProviderEndpointProbeLogs", { endpointId }),
     enabled: !!endpointId,
   });
 }
@@ -385,7 +367,7 @@ export function useStatistics(range: string) {
   return useQuery<StatisticsData>({
     queryKey: ["statistics", range],
     queryFn: () =>
-      apiClient.get<StatisticsData>(`/actions/statistics/getStatistics?range=${range}`),
+      apiClient.post<StatisticsData>("/actions/statistics/getUserStatistics", { range }),
     refetchInterval: 120_000,
   });
 }
@@ -398,7 +380,7 @@ export function useLeaderboard(period: string) {
   return useQuery<LeaderboardEntry[]>({
     queryKey: ["leaderboard", period],
     queryFn: () =>
-      apiClient.get<LeaderboardEntry[]>(`/api/leaderboard?period=${period}`),
+      apiClient.get<LeaderboardEntry[]>(`/leaderboard?period=${period}`),
   });
 }
 
@@ -412,7 +394,7 @@ export function usePrices(params: { page: number; pageSize: number; search?: str
     queryKey: ["prices", params.page, params.pageSize, params.search],
     queryFn: () =>
       apiClient.get<PaginatedResponse<ModelPrice>>(
-        `/api/prices?page=${params.page}&pageSize=${params.pageSize}${searchParam}`,
+        `/prices?page=${params.page}&pageSize=${params.pageSize}${searchParam}`,
       ),
   });
 }
@@ -421,7 +403,7 @@ export function useUpdatePrice() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateModelPriceRequest }) =>
-      apiClient.put<ModelPrice>(`/api/prices/${id}`, data),
+      apiClient.put<ModelPrice>(`/prices/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prices"] });
     },
@@ -432,7 +414,7 @@ export function useSyncPrices() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiClient.post<{ synced: number }>("/api/prices/sync"),
+      apiClient.post<{ synced: number }>("/actions/prices/syncLiteLLMPrices", {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["prices"] });
     },
@@ -447,9 +429,7 @@ export function useErrorRules(params: { page: number; pageSize: number }) {
   return useQuery<PaginatedResponse<ErrorRule>>({
     queryKey: ["error-rules", params.page, params.pageSize],
     queryFn: () =>
-      apiClient.get<PaginatedResponse<ErrorRule>>(
-        `/actions/error-rules/list?page=${params.page}&pageSize=${params.pageSize}`,
-      ),
+      apiClient.post<PaginatedResponse<ErrorRule>>("/actions/error-rules/list", params),
   });
 }
 
@@ -468,7 +448,7 @@ export function useUpdateErrorRule() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateErrorRuleRequest }) =>
-      apiClient.put<ErrorRule>(`/actions/error-rules/${id}`, data),
+      apiClient.post<ErrorRule>("/actions/error-rules/update", { id, ...data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["error-rules"] });
     },
@@ -479,7 +459,7 @@ export function useDeleteErrorRule() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.delete(`/actions/error-rules/${id}`),
+      apiClient.post("/actions/error-rules/delete", { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["error-rules"] });
     },
@@ -490,7 +470,7 @@ export function useToggleErrorRule() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      apiClient.patch<ErrorRule>(`/actions/error-rules/${id}`, { enabled }),
+      apiClient.post<ErrorRule>("/actions/error-rules/update", { id, isEnabled: enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["error-rules"] });
     },
@@ -505,9 +485,7 @@ export function useRequestFilters(params: { page: number; pageSize: number }) {
   return useQuery<PaginatedResponse<RequestFilter>>({
     queryKey: ["request-filters", params.page, params.pageSize],
     queryFn: () =>
-      apiClient.get<PaginatedResponse<RequestFilter>>(
-        `/actions/request-filters/list?page=${params.page}&pageSize=${params.pageSize}`,
-      ),
+      apiClient.post<PaginatedResponse<RequestFilter>>("/actions/request-filters/list", params),
   });
 }
 
@@ -526,7 +504,7 @@ export function useUpdateRequestFilter() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateRequestFilterRequest }) =>
-      apiClient.put<RequestFilter>(`/actions/request-filters/${id}`, data),
+      apiClient.post<RequestFilter>("/actions/request-filters/update", { id, ...data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["request-filters"] });
     },
@@ -537,7 +515,7 @@ export function useDeleteRequestFilter() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.delete(`/actions/request-filters/${id}`),
+      apiClient.post("/actions/request-filters/delete", { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["request-filters"] });
     },
@@ -548,7 +526,7 @@ export function useToggleRequestFilter() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      apiClient.patch<RequestFilter>(`/actions/request-filters/${id}`, { enabled }),
+      apiClient.post<RequestFilter>("/actions/request-filters/update", { id, isEnabled: enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["request-filters"] });
     },
@@ -563,9 +541,7 @@ export function useSensitiveWords(params: { page: number; pageSize: number }) {
   return useQuery<PaginatedResponse<SensitiveWord>>({
     queryKey: ["sensitive-words", params.page, params.pageSize],
     queryFn: () =>
-      apiClient.get<PaginatedResponse<SensitiveWord>>(
-        `/actions/sensitive-words/list?page=${params.page}&pageSize=${params.pageSize}`,
-      ),
+      apiClient.post<PaginatedResponse<SensitiveWord>>("/actions/sensitive-words/list", params),
   });
 }
 
@@ -584,7 +560,7 @@ export function useUpdateSensitiveWord() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateSensitiveWordRequest }) =>
-      apiClient.put<SensitiveWord>(`/actions/sensitive-words/${id}`, data),
+      apiClient.post<SensitiveWord>("/actions/sensitive-words/update", { id, ...data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sensitive-words"] });
     },
@@ -595,7 +571,7 @@ export function useDeleteSensitiveWord() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.delete(`/actions/sensitive-words/${id}`),
+      apiClient.post("/actions/sensitive-words/delete", { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sensitive-words"] });
     },
@@ -606,7 +582,7 @@ export function useToggleSensitiveWord() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      apiClient.patch<SensitiveWord>(`/actions/sensitive-words/${id}`, { enabled }),
+      apiClient.post<SensitiveWord>("/actions/sensitive-words/update", { id, isEnabled: enabled }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sensitive-words"] });
     },
@@ -616,7 +592,7 @@ export function useToggleSensitiveWord() {
 export function useRefreshSensitiveWordCache() {
   return useMutation({
     mutationFn: () =>
-      apiClient.post("/actions/sensitive-words/refreshCache"),
+      apiClient.post("/actions/sensitive-words/refreshCache", {}),
   });
 }
 
@@ -628,7 +604,7 @@ export function useNotificationSettings() {
   return useQuery<NotificationSettings>({
     queryKey: ["notification-settings"],
     queryFn: () =>
-      apiClient.get<NotificationSettings>("/actions/notifications/getSettings"),
+      apiClient.post<NotificationSettings>("/actions/notifications/getNotificationSettings", {}),
   });
 }
 
@@ -636,7 +612,7 @@ export function useUpdateNotificationSettings() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: NotificationSettings) =>
-      apiClient.put<NotificationSettings>("/actions/notifications/updateSettings", data),
+      apiClient.post<NotificationSettings>("/actions/notifications/updateNotificationSettings", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notification-settings"] });
     },
@@ -647,7 +623,7 @@ export function useWebhookTargets() {
   return useQuery<WebhookTarget[]>({
     queryKey: ["webhook-targets"],
     queryFn: () =>
-      apiClient.get<WebhookTarget[]>("/actions/webhook-targets/list"),
+      apiClient.post<WebhookTarget[]>("/actions/webhook-targets/list", {}),
   });
 }
 
@@ -666,7 +642,7 @@ export function useUpdateWebhookTarget() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateWebhookTargetRequest }) =>
-      apiClient.put<WebhookTarget>(`/actions/webhook-targets/${id}`, data),
+      apiClient.post<WebhookTarget>("/actions/webhook-targets/update", { id, ...data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["webhook-targets"] });
     },
@@ -677,7 +653,7 @@ export function useDeleteWebhookTarget() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.delete(`/actions/webhook-targets/${id}`),
+      apiClient.post("/actions/webhook-targets/delete", { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["webhook-targets"] });
     },
@@ -687,7 +663,7 @@ export function useDeleteWebhookTarget() {
 export function useTestWebhook() {
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.post<{ success: boolean; message: string }>(`/actions/webhook-targets/${id}/test`),
+      apiClient.post<{ success: boolean; message: string }>("/actions/webhook-targets/testWebhook", { id }),
   });
 }
 
@@ -695,7 +671,7 @@ export function useNotificationBindings() {
   return useQuery<NotificationBinding[]>({
     queryKey: ["notification-bindings"],
     queryFn: () =>
-      apiClient.get<NotificationBinding[]>("/actions/notification-bindings/list"),
+      apiClient.post<NotificationBinding[]>("/actions/notification-bindings/list", {}),
   });
 }
 
@@ -714,7 +690,7 @@ export function useDeleteNotificationBinding() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiClient.delete(`/actions/notification-bindings/${id}`),
+      apiClient.post("/actions/notification-bindings/delete", { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notification-bindings"] });
     },
@@ -726,20 +702,10 @@ export function useDeleteNotificationBinding() {
 // ============================================================
 
 export function useAuditLogs(filters: AuditLogFilters) {
-  const params = new URLSearchParams();
-  if (filters.page) params.set("page", String(filters.page));
-  if (filters.pageSize) params.set("pageSize", String(filters.pageSize));
-  if (filters.action) params.set("action", filters.action);
-  if (filters.startDate) params.set("startDate", filters.startDate);
-  if (filters.endDate) params.set("endDate", filters.endDate);
-
-  const queryString = params.toString();
   return useQuery<PaginatedResponse<AuditLog>>({
     queryKey: ["audit-logs", filters],
     queryFn: () =>
-      apiClient.get<PaginatedResponse<AuditLog>>(
-        `/actions/audit-logs/list${queryString ? `?${queryString}` : ""}`,
-      ),
+      apiClient.post<PaginatedResponse<AuditLog>>("/actions/audit-logs/getAuditLogsBatch", filters),
   });
 }
 
@@ -751,7 +717,7 @@ export function useMyUsage() {
   return useQuery<MyUsageData>({
     queryKey: ["my-usage"],
     queryFn: () =>
-      apiClient.get<MyUsageData>("/actions/my-usage/getData"),
+      apiClient.post<MyUsageData>("/actions/my-usage/getMyUsageMetadata", {}),
     refetchInterval: 60_000,
   });
 }

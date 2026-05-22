@@ -25,14 +25,21 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         try {
           const response = await apiClient.post<LoginResponse>("/auth/login", {
-            token: adminToken,
+            key: adminToken,
           });
           set({
-            token: response.token,
-            isAuthenticated: true,
+            token: adminToken,
+            isAuthenticated: response.ok === true,
             isLoading: false,
-            error: null,
+            error: response.ok ? null : "auth.error",
           });
+          if (!response.ok) {
+            set({
+              token: null,
+              isAuthenticated: false,
+              error: "auth.error",
+            });
+          }
         } catch {
           set({
             token: null,
