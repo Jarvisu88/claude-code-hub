@@ -48,17 +48,13 @@ function NotificationsPage() {
   const currentSettings = localSettings ?? settings ?? null;
 
   const handleSettingsChange = (
-    section: keyof NotificationSettings,
     field: string,
     value: boolean | number | string,
   ) => {
     if (!currentSettings) return;
     const updated = {
       ...currentSettings,
-      [section]: {
-        ...currentSettings[section],
-        [field]: value,
-      },
+      [field]: value,
     };
     setLocalSettings(updated);
   };
@@ -132,9 +128,9 @@ function NotificationsPage() {
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={currentSettings.circuitBreaker.enabled}
+                      checked={!!currentSettings.circuitBreakerEnabled}
                       onChange={(e) =>
-                        handleSettingsChange("circuitBreaker", "enabled", e.target.checked)
+                        handleSettingsChange("circuitBreakerEnabled", e.target.checked)
                       }
                       className="h-4 w-4"
                     />
@@ -144,16 +140,11 @@ function NotificationsPage() {
                   </label>
                   <Input
                     label={t("notifications.threshold")}
-                    type="number"
-                    value={String(currentSettings.circuitBreaker.threshold)}
+                    type="text"
+                    value={String(currentSettings.costAlertThreshold ?? "")}
                     onChange={(e) =>
-                      handleSettingsChange(
-                        "circuitBreaker",
-                        "threshold",
-                        Number(e.target.value) || 0,
-                      )
+                      handleSettingsChange("costAlertThreshold", e.target.value)
                     }
-                    min="1"
                   />
                 </div>
 
@@ -165,9 +156,9 @@ function NotificationsPage() {
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={currentSettings.leaderboard.enabled}
+                      checked={!!currentSettings.dailyLeaderboardEnabled}
                       onChange={(e) =>
-                        handleSettingsChange("leaderboard", "enabled", e.target.checked)
+                        handleSettingsChange("dailyLeaderboardEnabled", e.target.checked)
                       }
                       className="h-4 w-4"
                     />
@@ -177,9 +168,9 @@ function NotificationsPage() {
                   </label>
                   <Input
                     label={t("notifications.cron")}
-                    value={currentSettings.leaderboard.cron}
+                    value={String(currentSettings.dailyLeaderboardTime ?? "09:00")}
                     onChange={(e) =>
-                      handleSettingsChange("leaderboard", "cron", e.target.value)
+                      handleSettingsChange("dailyLeaderboardTime", e.target.value)
                     }
                   />
                 </div>
@@ -192,59 +183,9 @@ function NotificationsPage() {
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={currentSettings.costAlert.enabled}
+                      checked={!!currentSettings.costAlertEnabled}
                       onChange={(e) =>
-                        handleSettingsChange("costAlert", "enabled", e.target.checked)
-                      }
-                      className="h-4 w-4"
-                    />
-                    <span className="text-sm text-[var(--color-text)]">
-                      {t("common.enabled")}
-                    </span>
-                  </label>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Input
-                      label={t("notifications.dailyThreshold")}
-                      type="number"
-                      value={String(currentSettings.costAlert.dailyThreshold)}
-                      onChange={(e) =>
-                        handleSettingsChange(
-                          "costAlert",
-                          "dailyThreshold",
-                          Number(e.target.value) || 0,
-                        )
-                      }
-                      min="0"
-                      step="0.01"
-                    />
-                    <Input
-                      label={t("notifications.monthlyThreshold")}
-                      type="number"
-                      value={String(currentSettings.costAlert.monthlyThreshold)}
-                      onChange={(e) =>
-                        handleSettingsChange(
-                          "costAlert",
-                          "monthlyThreshold",
-                          Number(e.target.value) || 0,
-                        )
-                      }
-                      min="0"
-                      step="0.01"
-                    />
-                  </div>
-                </div>
-
-                {/* Cache Hit Rate */}
-                <div className="space-y-2">
-                  <h4 className="text-sm font-medium text-[var(--color-text)]">
-                    {t("notifications.cacheHitRate")}
-                  </h4>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={currentSettings.cacheHitRate.enabled}
-                      onChange={(e) =>
-                        handleSettingsChange("cacheHitRate", "enabled", e.target.checked)
+                        handleSettingsChange("costAlertEnabled", e.target.checked)
                       }
                       className="h-4 w-4"
                     />
@@ -253,19 +194,28 @@ function NotificationsPage() {
                     </span>
                   </label>
                   <Input
-                    label={t("notifications.minRate")}
-                    type="number"
-                    value={String(currentSettings.cacheHitRate.minRate)}
+                    label={t("notifications.dailyThreshold")}
+                    type="text"
+                    value={String(currentSettings.costAlertThreshold ?? "0.8")}
                     onChange={(e) =>
-                      handleSettingsChange(
-                        "cacheHitRate",
-                        "minRate",
-                        Number(e.target.value) || 0,
-                      )
+                      handleSettingsChange("costAlertThreshold", e.target.value)
                     }
-                    min="0"
-                    max="100"
-                    step="1"
+                  />
+                </div>
+
+                {/* Check Interval */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium text-[var(--color-text)]">
+                    {t("notifications.checkInterval")}
+                  </h4>
+                  <Input
+                    label={t("notifications.intervalSeconds")}
+                    type="number"
+                    value={String(currentSettings.costAlertCheckInterval ?? 60)}
+                    onChange={(e) =>
+                      handleSettingsChange("costAlertCheckInterval", Number(e.target.value) || 60)
+                    }
+                    min="10"
                   />
                 </div>
 

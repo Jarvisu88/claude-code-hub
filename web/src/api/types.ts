@@ -449,10 +449,16 @@ export interface UpdateSensitiveWordRequest {
 // ============================================================
 
 export interface NotificationSettings {
-  circuitBreaker: { enabled: boolean; threshold: number };
-  leaderboard: { enabled: boolean; cron: string };
-  costAlert: { enabled: boolean; dailyThreshold: number; monthlyThreshold: number };
-  cacheHitRate: { enabled: boolean; minRate: number };
+  id: number;
+  enabled: boolean;
+  circuitBreakerEnabled: boolean;
+  dailyLeaderboardEnabled: boolean;
+  dailyLeaderboardTime: string;
+  dailyLeaderboardTopN: number;
+  costAlertEnabled: boolean;
+  costAlertThreshold: string;
+  costAlertCheckInterval: number;
+  [key: string]: unknown;
 }
 
 export interface WebhookTarget {

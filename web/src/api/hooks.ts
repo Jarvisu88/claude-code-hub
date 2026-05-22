@@ -429,7 +429,9 @@ export function useErrorRules(params: { page: number; pageSize: number }) {
   return useQuery<PaginatedResponse<ErrorRule>>({
     queryKey: ["error-rules", params.page, params.pageSize],
     queryFn: () =>
-      apiClient.post<PaginatedResponse<ErrorRule>>("/actions/error-rules/list", params),
+      apiClient.get<PaginatedResponse<ErrorRule>>(
+        `/actions/error-rules?page=${params.page}&pageSize=${params.pageSize}`,
+      ),
   });
 }
 
@@ -485,7 +487,9 @@ export function useRequestFilters(params: { page: number; pageSize: number }) {
   return useQuery<PaginatedResponse<RequestFilter>>({
     queryKey: ["request-filters", params.page, params.pageSize],
     queryFn: () =>
-      apiClient.post<PaginatedResponse<RequestFilter>>("/actions/request-filters/list", params),
+      apiClient.get<PaginatedResponse<RequestFilter>>(
+        `/actions/request-filters?page=${params.page}&pageSize=${params.pageSize}`,
+      ),
   });
 }
 
@@ -541,7 +545,9 @@ export function useSensitiveWords(params: { page: number; pageSize: number }) {
   return useQuery<PaginatedResponse<SensitiveWord>>({
     queryKey: ["sensitive-words", params.page, params.pageSize],
     queryFn: () =>
-      apiClient.post<PaginatedResponse<SensitiveWord>>("/actions/sensitive-words/list", params),
+      apiClient.get<PaginatedResponse<SensitiveWord>>(
+        `/actions/sensitive-words?page=${params.page}&pageSize=${params.pageSize}`,
+      ),
   });
 }
 
@@ -604,7 +610,7 @@ export function useNotificationSettings() {
   return useQuery<NotificationSettings>({
     queryKey: ["notification-settings"],
     queryFn: () =>
-      apiClient.post<NotificationSettings>("/actions/notifications/getNotificationSettings", {}),
+      apiClient.get<NotificationSettings>("/actions/notifications"),
   });
 }
 
@@ -623,7 +629,7 @@ export function useWebhookTargets() {
   return useQuery<WebhookTarget[]>({
     queryKey: ["webhook-targets"],
     queryFn: () =>
-      apiClient.post<WebhookTarget[]>("/actions/webhook-targets/list", {}),
+      apiClient.get<WebhookTarget[]>("/actions/webhook-targets"),
   });
 }
 
@@ -671,7 +677,7 @@ export function useNotificationBindings() {
   return useQuery<NotificationBinding[]>({
     queryKey: ["notification-bindings"],
     queryFn: () =>
-      apiClient.post<NotificationBinding[]>("/actions/notification-bindings/list", {}),
+      apiClient.get<NotificationBinding[]>("/actions/notification-bindings"),
   });
 }
 
