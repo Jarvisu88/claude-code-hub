@@ -1,74 +1,35 @@
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import { apiClient } from "@/api/client";
-import type { LoginResponse } from "@/api/types";
+import { defineStore } from "pinia";
+import { ref, computed } from "vue";
+import { client } from "@/api/client";
 
-interface AuthState {
-  token: string | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  error: string | null;
-  login: (adminToken: string) => Promise<void>;
-  logout: () => void;
-  clearError: () => void;
-}
+export const useAuthStore = defineStore("auth", () => {
+  const token = ref<string>(localStorage.getItem("auth_token") || "");
+  const user = ref<any>(null);
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      token: null,
-      isAuthenticated: false,
-      isLoading: false,
-      error: null,
+  const isAuthenticated = computed(() => !!token.value);
 
-      login: async (adminToken: string) => {
-        set({ isLoading: true, error: null });
-        try {
-          const response = await apiClient.post<LoginResponse>("/auth/login", {
-            key: adminToken,
-          });
-          set({
-            token: adminToken,
-            isAuthenticated: response.ok === true,
-            isLoading: false,
-            error: response.ok ? null : "auth.error",
-          });
-          if (!response.ok) {
-            set({
-              token: null,
-              isAuthenticated: false,
-              error: "auth.error",
-            });
-          }
-        } catch {
-          set({
-            token: null,
-            isAuthenticated: false,
-            isLoading: false,
-            error: "auth.error",
-          });
-        }
-      },
+  async function login(key: string) {
+    const res = await client.post("/auth/login", { key });
+    const data = res?.data;
+    if (data?.ok) {
+      token.value = key;
+      user.value = data?.user ?? null;
+      localStorage.setItem("auth_token", key);
+      return true;
+    }
+    return false;
+  }
 
-      logout: () => {
-        set({
-          token: null,
-          isAuthenticated: false,
-          isLoading: false,
-          error: null,
-        });
-      },
+  async function logout() {
+    try {
+      await client.post("/auth/logout");
+    } catch {
+      // ignore logout errors
+    }
+    token.value = "";
+    user.value = null;
+    localStorage.removeItem("auth_token");
+  }
 
-      clearError: () => {
-        set({ error: null });
-      },
-    }),
-    {
-      name: "auth-storage",
-      partialize: (state) => ({
-        token: state.token,
-        isAuthenticated: state.isAuthenticated,
-      }),
-    },
-  ),
-);
+  return { token, user, isAuthenticated, login, logout };
+});
