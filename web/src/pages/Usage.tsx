@@ -270,18 +270,18 @@ function UsagePage() {
         <>
           <Table<UsageLog>
             columns={columns}
-            data={data?.data ?? []}
+            data={(data as any)?.logs ?? (data as any)?.data ?? []}
             keyExtractor={(row) => row.id}
             page={page}
             pageSize={pageSize}
-            total={data?.total ?? 0}
+            total={(data as any)?.total ?? 0}
             onPageChange={setPage}
           />
 
           {/* Expanded row details */}
-          {expandedRow && data?.data && (
+          {expandedRow && ((data as any)?.logs ?? (data as any)?.data) && (
             <ExpandedRowDetails
-              log={data.data.find((l) => l.id === expandedRow) ?? null}
+              log={((data as any)?.logs ?? (data as any)?.data ?? []).find((l: UsageLog) => l.id === expandedRow) ?? null}
             />
           )}
         </>

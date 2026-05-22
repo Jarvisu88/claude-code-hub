@@ -60,7 +60,15 @@ class ApiClient {
       return undefined as T;
     }
 
-    return response.json();
+    const body = await response.json();
+
+    // Go backend wraps responses in {"data": ..., "ok": true}
+    // Unwrap automatically so hooks get the inner data directly
+    if (body && typeof body === "object" && "ok" in body && "data" in body) {
+      return body.data as T;
+    }
+
+    return body as T;
   }
 
   async get<T>(path: string): Promise<T> {

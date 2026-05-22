@@ -18,32 +18,32 @@ import { BarChart3, DollarSign, Users, Server, Clock } from "lucide-react";
 
 function Dashboard() {
   const { t } = useTranslation();
-  const { data, isLoading, error } = useOverview();
+  const { data: overview, isLoading, error } = useOverview();
 
   const stats = [
     {
       labelKey: "dashboard.totalRequests",
-      value: data?.stats.totalRequests ?? "--",
+      value: overview?.totalRequests ?? overview?.todayRequests ?? "--",
       icon: BarChart3,
       color: "text-blue-500",
     },
     {
       labelKey: "dashboard.totalCost",
-      value: data?.stats.totalCost !== undefined
-        ? `$${data.stats.totalCost.toFixed(2)}`
+      value: overview?.totalCost !== undefined
+        ? `$${Number(overview.totalCost).toFixed(2)}`
         : "--",
       icon: DollarSign,
       color: "text-green-500",
     },
     {
       labelKey: "dashboard.activeUsers",
-      value: data?.stats.activeUsers ?? "--",
+      value: overview?.totalUsers ?? "--",
       icon: Users,
       color: "text-purple-500",
     },
     {
       labelKey: "dashboard.activeProviders",
-      value: data?.stats.activeProviders ?? "--",
+      value: overview?.totalProviders ?? "--",
       icon: Server,
       color: "text-orange-500",
     },
@@ -109,9 +109,9 @@ function Dashboard() {
               <div className="flex h-64 items-center justify-center">
                 <Spinner />
               </div>
-            ) : data?.requestsPerHour && data.requestsPerHour.length > 0 ? (
+            ) : overview?.requestsPerHour && overview.requestsPerHour.length > 0 ? (
               <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={data.requestsPerHour}>
+                <BarChart data={overview.requestsPerHour}>
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke="var(--color-border)"
@@ -161,9 +161,9 @@ function Dashboard() {
               <div className="flex h-64 items-center justify-center">
                 <Spinner />
               </div>
-            ) : data?.costPerDay && data.costPerDay.length > 0 ? (
+            ) : overview?.costPerDay && overview.costPerDay.length > 0 ? (
               <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={data.costPerDay}>
+                <LineChart data={overview.costPerDay}>
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke="var(--color-border)"
@@ -218,9 +218,9 @@ function Dashboard() {
               <div className="flex h-40 items-center justify-center">
                 <Spinner />
               </div>
-            ) : data?.recentActivity && data.recentActivity.length > 0 ? (
+            ) : overview?.recentActivity && overview.recentActivity.length > 0 ? (
               <div className="space-y-3">
-                {data.recentActivity.map((activity) => (
+                {overview.recentActivity.map((activity: any) => (
                   <div
                     key={activity.id}
                     className="flex items-center justify-between rounded-md border border-[var(--color-border)] p-3"
