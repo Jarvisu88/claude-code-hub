@@ -1,0 +1,73 @@
+{
+  "nav": {
+    "dashboard": "儀表板",
+    "users": "使用者管理",
+    "keys": "API 金鑰",
+    "providers": "服務商",
+    "usage": "使用紀錄",
+    "settings": "系統設定",
+    "logout": "登出"
+  },
+  "auth": {
+    "login": "登入",
+    "password": "管理員令牌",
+    "submit": "登入",
+    "error": "管理員令牌無效"
+  },
+  "dashboard": {
+    "title": "儀表板",
+    "totalRequests": "總請求數",
+    "totalCost": "總費用",
+    "activeUsers": "活躍使用者",
+    "activeProviders": "活躍服務商"
+  },
+  "common": {
+    "search": "搜尋",
+    "create": "建立",
+    "edit": "編輯",
+    "delete": "刪除",
+    "save": "儲存",
+    "cancel": "取消",
+    "loading": "載入中...",
+    "noData": "暫無資料",
+    "confirm": "確認",
+    "actions": "操作",
+    "status": "狀態",
+    "name": "名稱",
+    "enabled": "已啟用",
+    "disabled": "已停用",
+    "back": "返回",
+    "next": "下一頁",
+    "previous": "上一頁",
+    "total": "總計",
+    "perPage": "每頁",
+    "darkMode": "深色模式",
+    "lightMode": "淺色模式",
+    "language": "語言"
+  },
+  "users": {
+    "title": "使用者管理",
+    "placeholder": "使用者管理功能即將上線"
+  },
+  "keys": {
+    "title": "API 金鑰",
+    "placeholder": "API 金鑰管理功能即將上線"
+  },
+  "providers": {
+    "title": "服務商",
+    "placeholder": "服務商管理功能即將上線"
+  },
+  "usage": {
+    "title": "使用紀錄",
+    "placeholder": "使用紀錄功能即將上線"
+  },
+  "settings": {
+    "title": "系統設定",
+    "placeholder": "系統設定功能即將上線"
+  },
+  "notFound": {
+    "title": "頁面未找到",
+    "description": "您造訪的頁面不存在。",
+    "backHome": "返回儀表板"
+  }
+}

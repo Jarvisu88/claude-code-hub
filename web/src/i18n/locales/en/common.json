@@ -1,0 +1,73 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "users": "Users",
+    "keys": "API Keys",
+    "providers": "Providers",
+    "usage": "Usage Logs",
+    "settings": "Settings",
+    "logout": "Logout"
+  },
+  "auth": {
+    "login": "Login",
+    "password": "Admin Token",
+    "submit": "Sign In",
+    "error": "Invalid admin token"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "totalRequests": "Total Requests",
+    "totalCost": "Total Cost",
+    "activeUsers": "Active Users",
+    "activeProviders": "Active Providers"
+  },
+  "common": {
+    "search": "Search",
+    "create": "Create",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel",
+    "loading": "Loading...",
+    "noData": "No data available",
+    "confirm": "Confirm",
+    "actions": "Actions",
+    "status": "Status",
+    "name": "Name",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "total": "Total",
+    "perPage": "Per page",
+    "darkMode": "Dark Mode",
+    "lightMode": "Light Mode",
+    "language": "Language"
+  },
+  "users": {
+    "title": "Users",
+    "placeholder": "User management coming soon"
+  },
+  "keys": {
+    "title": "API Keys",
+    "placeholder": "API key management coming soon"
+  },
+  "providers": {
+    "title": "Providers",
+    "placeholder": "Provider management coming soon"
+  },
+  "usage": {
+    "title": "Usage Logs",
+    "placeholder": "Usage logs coming soon"
+  },
+  "settings": {
+    "title": "Settings",
+    "placeholder": "Settings coming soon"
+  },
+  "notFound": {
+    "title": "Page Not Found",
+    "description": "The page you are looking for does not exist.",
+    "backHome": "Back to Dashboard"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "nav": {
+    "dashboard": "仪表盘",
+    "users": "用户管理",
+    "keys": "API 密钥",
+    "providers": "服务商",
+    "usage": "使用日志",
+    "settings": "系统设置",
+    "logout": "退出登录"
+  },
+  "auth": {
+    "login": "登录",
+    "password": "管理员令牌",
+    "submit": "登录",
+    "error": "管理员令牌无效"
+  },
+  "dashboard": {
+    "title": "仪表盘",
+    "totalRequests": "总请求数",
+    "totalCost": "总费用",
+    "activeUsers": "活跃用户",
+    "activeProviders": "活跃服务商"
+  },
+  "common": {
+    "search": "搜索",
+    "create": "创建",
+    "edit": "编辑",
+    "delete": "删除",
+    "save": "保存",
+    "cancel": "取消",
+    "loading": "加载中...",
+    "noData": "暂无数据",
+    "confirm": "确认",
+    "actions": "操作",
+    "status": "状态",
+    "name": "名称",
+    "enabled": "已启用",
+    "disabled": "已禁用",
+    "back": "返回",
+    "next": "下一页",
+    "previous": "上一页",
+    "total": "总计",
+    "perPage": "每页",
+    "darkMode": "深色模式",
+    "lightMode": "浅色模式",
+    "language": "语言"
+  },
+  "users": {
+    "title": "用户管理",
+    "placeholder": "用户管理功能即将上线"
+  },
+  "keys": {
+    "title": "API 密钥",
+    "placeholder": "API 密钥管理功能即将上线"
+  },
+  "providers": {
+    "title": "服务商",
+    "placeholder": "服务商管理功能即将上线"
+  },
+  "usage": {
+    "title": "使用日志",
+    "placeholder": "使用日志功能即将上线"
+  },
+  "settings": {
+    "title": "系统设置",
+    "placeholder": "系统设置功能即将上线"
+  },
+  "notFound": {
+    "title": "页面未找到",
+    "description": "您访问的页面不存在。",
+    "backHome": "返回仪表盘"
+  }
+}
