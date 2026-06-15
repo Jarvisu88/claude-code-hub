@@ -23,6 +23,7 @@ import type { IpExtractionConfig } from "@/types/ip-extraction";
 import type { AuditCategory } from "@/types/audit-log";
 
 // Enums
+export const providerSortStrategyEnum = pgEnum('provider_sort_strategy', ['none', 'price', 'latency']);
 export const dailyResetModeEnum = pgEnum('daily_reset_mode', ['fixed', 'rolling']);
 export const webhookProviderTypeEnum = pgEnum('webhook_provider_type', [
   'wechat',
@@ -47,6 +48,7 @@ export const users = pgTable('users', {
   rpmLimit: integer('rpm_limit'),
   dailyLimitUsd: numeric('daily_limit_usd', { precision: 10, scale: 2 }),
   providerGroup: varchar('provider_group', { length: 200 }).default('default'),
+  sortStrategy: providerSortStrategyEnum('sort_strategy').notNull().default('none'),
   // 用户标签（用于分类和筛选）
   tags: jsonb('tags').$type<string[]>().default([]),
 
@@ -137,6 +139,7 @@ export const keys = pgTable('keys', {
 
   // Provider group for this key (explicit; defaults to "default")
   providerGroup: varchar('provider_group', { length: 200 }).default('default'),
+  sortStrategy: providerSortStrategyEnum('sort_strategy').notNull().default('none'),
 
   // Cache TTL override：null/NULL 表示遵循供应商或客户端请求
   cacheTtlPreference: varchar('cache_ttl_preference', { length: 10 }),
