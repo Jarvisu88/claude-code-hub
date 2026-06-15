@@ -1945,6 +1945,13 @@
           "label": "プロバイダーグループ",
           "placeholder": "default"
         },
+        "sortStrategy": {
+          "label": "ソート戦略",
+          "optionNone": "デフォルト(優先度 + 重み)",
+          "optionPrice": "価格優先(最も安いものを優先)",
+          "optionLatency": "レイテンシ優先(最速を優先)",
+          "hint": "このユーザーのグループ内プロバイダーのリクエスト順序を制御します"
+        },
         "allowedClients": {
           "label": "クライアント制限",
           "description": "このアカウントを使用できるCLI/IDEクライアントを制限します。空欄は制限なし。",
@@ -2048,6 +2055,13 @@
             "5m": "5m",
             "1h": "1h"
           }
+        },
+        "sortStrategy": {
+          "label": "ソート戦略",
+          "optionNone": "ユーザーに従う(優先度 + 重み)",
+          "optionPrice": "価格優先(最も安いものを優先)",
+          "optionLatency": "レイテンシ優先(最速を優先)",
+          "hint": "このキーのグループ内プロバイダーのリクエスト順序を制御します"
         }
       },
       "limitRules": {

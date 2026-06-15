@@ -1953,6 +1953,13 @@
           "label": "供應商分組",
           "placeholder": "default"
         },
+        "sortStrategy": {
+          "label": "排序策略",
+          "optionNone": "預設（優先級 + 權重）",
+          "optionPrice": "價格優先（最便宜先請求）",
+          "optionLatency": "延遲優先（最快先請求）",
+          "hint": "決定此使用者在分組內的供應商請求順序"
+        },
         "allowedClients": {
           "label": "用戶端限制",
           "description": "限制哪些 CLI/IDE 用戶端可以使用此帳戶。留空表示無限制。",
@@ -2056,6 +2063,13 @@
             "5m": "5m",
             "1h": "1h"
           }
+        },
+        "sortStrategy": {
+          "label": "排序策略",
+          "optionNone": "跟隨使用者（優先級 + 權重）",
+          "optionPrice": "價格優先（最便宜先請求）",
+          "optionLatency": "延遲優先（最快先請求）",
+          "hint": "決定此 Key 在分組內的供應商請求順序"
         }
       },
       "limitRules": {

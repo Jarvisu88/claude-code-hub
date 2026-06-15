@@ -2009,6 +2009,13 @@
           "label": "Provider Group",
           "placeholder": "default"
         },
+        "sortStrategy": {
+          "label": "Sort strategy",
+          "optionNone": "Default (priority + weight)",
+          "optionPrice": "Price first (cheapest requested first)",
+          "optionLatency": "Latency first (fastest requested first)",
+          "hint": "Controls provider request order within the group for this user"
+        },
         "allowedClients": {
           "label": "Client Restrictions",
           "description": "Restrict which CLI/IDE clients can use this account. Empty = no restriction.",
@@ -2112,6 +2119,13 @@
             "5m": "5m",
             "1h": "1h"
           }
+        },
+        "sortStrategy": {
+          "label": "Sort strategy",
+          "optionNone": "Follow user (priority + weight)",
+          "optionPrice": "Price first (cheapest requested first)",
+          "optionLatency": "Latency first (fastest requested first)",
+          "hint": "Controls provider request order within the group for this key"
         }
       },
       "limitRules": {
