@@ -101,6 +101,7 @@ function buildDefaultValues(): CreateFormValues {
       expiresAt: undefined,
       canLoginWebUi: false,
       providerGroup: PROVIDER_GROUP.DEFAULT,
+      sortStrategy: "none" as const,
       cacheTtlPreference: "inherit" as const,
       limit5hUsd: null,
       limit5hResetMode: "rolling",

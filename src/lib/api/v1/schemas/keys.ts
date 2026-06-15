@@ -52,6 +52,10 @@ const KeyMutationFields = {
     .optional()
     .describe("Concurrent session limit."),
   providerGroup: z.string().max(200).nullable().optional().describe("Provider group expression."),
+  sortStrategy: z
+    .enum(["none", "price", "latency"])
+    .optional()
+    .describe("Provider sort strategy (none=inherit user)."),
   cacheTtlPreference: CacheTtlPreferenceSchema.optional().describe("Cache TTL preference."),
 };
 

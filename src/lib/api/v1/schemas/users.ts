@@ -13,6 +13,10 @@ const UserMutationFieldsSchema = {
   name: z.string().trim().min(1).max(64).describe("User name."),
   note: z.string().max(200).optional().describe("Operator note."),
   providerGroup: z.string().max(200).nullable().optional().describe("Provider group expression."),
+  sortStrategy: z
+    .enum(["none", "price", "latency"])
+    .optional()
+    .describe("Provider sort strategy (none=inherit user)."),
   tags: z.array(z.string().max(32)).max(20).optional().describe("User tags."),
   rpm: z.number().int().min(0).max(1_000_000).nullable().optional().describe("RPM limit."),
   dailyQuota: z.number().min(0).max(10_000).nullable().optional().describe("Daily USD quota."),

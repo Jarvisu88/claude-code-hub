@@ -18,6 +18,7 @@ import { ERROR_CODES } from "@/lib/utils/error-messages";
 import { normalizeProviderGroup, parseProviderGroups } from "@/lib/utils/provider-group";
 import { resolveSystemTimezone } from "@/lib/utils/timezone";
 import { KeyFormSchema } from "@/lib/validation/schemas";
+import type { SortStrategy } from "@/lib/provider-sort/types";
 import { toKey } from "@/repository/_shared/transformers";
 import type { KeyStatistics } from "@/repository/key";
 import {
@@ -123,6 +124,7 @@ export async function addKey(data: {
   limitTotalUsd?: number | null;
   limitConcurrentSessions?: number;
   providerGroup?: string | null;
+  sortStrategy?: SortStrategy;
   cacheTtlPreference?: "inherit" | "5m" | "1h";
 }): Promise<ActionResult<{ id: number; generatedKey: string; name: string }>> {
   try {
@@ -197,6 +199,7 @@ export async function addKey(data: {
       limitTotalUsd: data.limitTotalUsd,
       limitConcurrentSessions: data.limitConcurrentSessions,
       providerGroup: providerGroupForKey,
+      sortStrategy: data.sortStrategy,
       cacheTtlPreference: data.cacheTtlPreference,
     });
 
@@ -366,6 +369,7 @@ export async function addKey(data: {
       limit_total_usd: validatedData.limitTotalUsd,
       limit_concurrent_sessions: validatedData.limitConcurrentSessions,
       provider_group: validatedData.providerGroup,
+      sort_strategy: validatedData.sortStrategy,
       cache_ttl_preference: validatedData.cacheTtlPreference,
     });
 
@@ -443,6 +447,7 @@ export async function editKey(
     limitTotalUsd?: number | null;
     limitConcurrentSessions?: number;
     providerGroup?: string | null;
+    sortStrategy?: SortStrategy;
     cacheTtlPreference?: "inherit" | "5m" | "1h";
   }
 ): Promise<ActionResult> {
@@ -667,6 +672,7 @@ export async function editKey(
       ...(isAdmin
         ? {
             provider_group: normalizeProviderGroup(validatedData.providerGroup),
+            sort_strategy: validatedData.sortStrategy,
           }
         : {}),
       cache_ttl_preference: validatedData.cacheTtlPreference,

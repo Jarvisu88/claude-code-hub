@@ -21,6 +21,7 @@ import { resolveSystemTimezone } from "@/lib/utils/timezone";
 import { maskKey } from "@/lib/utils/validation";
 import { formatZodError } from "@/lib/utils/zod-i18n";
 import { CreateUserSchema, UpdateUserSchema } from "@/lib/validation/schemas";
+import type { SortStrategy } from "@/lib/provider-sort/types";
 import {
   createKey,
   findKeyList,
@@ -1418,6 +1419,7 @@ export async function addUser(data: {
       name: validatedData.name,
       description: validatedData.note || "",
       providerGroup,
+      sortStrategy: validatedData.sortStrategy,
       tags: validatedData.tags,
       rpm: validatedData.rpm,
       dailyQuota: validatedData.dailyQuota ?? undefined,
@@ -1619,6 +1621,7 @@ export async function createUserOnly(data: {
       name: validatedData.name,
       description: validatedData.note || "",
       providerGroup,
+      sortStrategy: validatedData.sortStrategy,
       tags: validatedData.tags,
       rpm: validatedData.rpm,
       dailyQuota: validatedData.dailyQuota ?? undefined,
@@ -1689,6 +1692,7 @@ export async function editUser(
     name?: string;
     note?: string;
     providerGroup?: string | null;
+    sortStrategy?: SortStrategy;
     tags?: string[];
     rpm?: number | null;
     dailyQuota?: number | null;
@@ -1797,6 +1801,9 @@ export async function editUser(
       name: validatedData.name,
       description: validatedData.note,
       ...(nextProviderGroup !== undefined ? { providerGroup: nextProviderGroup } : {}),
+      ...(validatedData.sortStrategy !== undefined
+        ? { sortStrategy: validatedData.sortStrategy }
+        : {}),
       tags: validatedData.tags,
       rpm: validatedData.rpm,
       dailyQuota: validatedData.dailyQuota,

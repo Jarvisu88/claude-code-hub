@@ -123,6 +123,7 @@ export const CreateUserSchema = z.object({
     .nullable()
     .optional()
     .default(""),
+  sortStrategy: z.enum(["none", "price", "latency"]).optional().default("none"),
   tags: z
     .array(z.string().max(32, "标签长度不能超过32个字符"))
     .max(20, "标签数量不能超过20个")
@@ -246,6 +247,7 @@ export const UpdateUserSchema = z.object({
   name: z.string().min(1, "用户名不能为空").max(64, "用户名不能超过64个字符").optional(),
   note: z.string().max(200, "备注不能超过200个字符").optional(),
   providerGroup: z.string().max(200, "供应商分组不能超过200个字符").nullable().optional(),
+  sortStrategy: z.enum(["none", "price", "latency"]).optional(),
   tags: z
     .array(z.string().max(32, "标签长度不能超过32个字符"))
     .max(20, "标签数量不能超过20个")
@@ -424,6 +426,7 @@ export const KeyFormSchema = z.object({
     .nullable()
     .optional()
     .default(""),
+  sortStrategy: z.enum(["none", "price", "latency"]).optional().default("none"),
   cacheTtlPreference: CACHE_TTL_PREFERENCE.optional().default("inherit"),
 });
 
