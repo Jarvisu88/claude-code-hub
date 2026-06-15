@@ -1,6 +1,8 @@
 /**
  * 用户数据库实体类型
  */
+import type { SortStrategy } from "@/lib/provider-sort/types";
+
 export interface User {
   id: number;
   name: string;
@@ -9,6 +11,7 @@ export interface User {
   rpm: number | null; // 每分钟请求数限制，null = 无限制
   dailyQuota: number | null; // 每日额度限制（美元），null = 无限制
   providerGroup: string | null; // 供应商分组
+  sortStrategy: SortStrategy; // 排序策略 (none = 跟随用户)
   tags?: string[]; // 用户标签（可选）
   createdAt: Date;
   updatedAt: Date;
@@ -44,6 +47,7 @@ export interface CreateUserData {
   rpm?: number | null; // 可选，null = 无限制
   dailyQuota?: number | null; // 可选，null = 无限制
   providerGroup?: string | null; // 可选，供应商分组
+  sortStrategy?: SortStrategy; // 可选，排序策略
   tags?: string[]; // 可选，用户标签
   // User-level quota fields
   limit5hUsd?: number;
@@ -74,6 +78,7 @@ export interface UpdateUserData {
   rpm?: number | null;
   dailyQuota?: number | null;
   providerGroup?: string | null; // 可选，供应商分组
+  sortStrategy?: SortStrategy; // 可选，排序策略
   tags?: string[]; // 可选，用户标签
   // User-level quota fields
   limit5hUsd?: number | null;

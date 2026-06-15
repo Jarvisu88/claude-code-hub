@@ -40,6 +40,7 @@ export async function findKeyById(id: number): Promise<Key | null> {
       costResetAt: keys.costResetAt,
       limitConcurrentSessions: keys.limitConcurrentSessions,
       providerGroup: keys.providerGroup,
+      sortStrategy: keys.sortStrategy,
       cacheTtlPreference: keys.cacheTtlPreference,
       createdAt: keys.createdAt,
       updatedAt: keys.updatedAt,
@@ -73,6 +74,7 @@ export async function findKeyList(userId: number): Promise<Key[]> {
       costResetAt: keys.costResetAt,
       limitConcurrentSessions: keys.limitConcurrentSessions,
       providerGroup: keys.providerGroup,
+      sortStrategy: keys.sortStrategy,
       cacheTtlPreference: keys.cacheTtlPreference,
       createdAt: keys.createdAt,
       updatedAt: keys.updatedAt,
@@ -114,6 +116,7 @@ export async function findKeyListBatch(userIds: number[]): Promise<Map<number, K
       costResetAt: keys.costResetAt,
       limitConcurrentSessions: keys.limitConcurrentSessions,
       providerGroup: keys.providerGroup,
+      sortStrategy: keys.sortStrategy,
       cacheTtlPreference: keys.cacheTtlPreference,
       createdAt: keys.createdAt,
       updatedAt: keys.updatedAt,
@@ -159,6 +162,7 @@ export async function createKey(keyData: CreateKeyData): Promise<Key> {
     costResetAt: keyData.cost_reset_at ?? null,
     limitConcurrentSessions: keyData.limit_concurrent_sessions,
     providerGroup: keyData.provider_group ?? null,
+    sortStrategy: keyData.sort_strategy ?? "none",
     cacheTtlPreference: keyData.cache_ttl_preference ?? null,
   };
 
@@ -181,6 +185,7 @@ export async function createKey(keyData: CreateKeyData): Promise<Key> {
     costResetAt: keys.costResetAt,
     limitConcurrentSessions: keys.limitConcurrentSessions,
     providerGroup: keys.providerGroup,
+    sortStrategy: keys.sortStrategy,
     cacheTtlPreference: keys.cacheTtlPreference,
     createdAt: keys.createdAt,
     updatedAt: keys.updatedAt,
@@ -253,6 +258,7 @@ export async function updateKey(id: number, keyData: UpdateKeyData): Promise<Key
   if (keyData.limit_concurrent_sessions !== undefined)
     dbData.limitConcurrentSessions = keyData.limit_concurrent_sessions;
   if (keyData.provider_group !== undefined) dbData.providerGroup = keyData.provider_group;
+  if (keyData.sort_strategy !== undefined) dbData.sortStrategy = keyData.sort_strategy;
   if (keyData.cache_ttl_preference !== undefined)
     dbData.cacheTtlPreference = keyData.cache_ttl_preference ?? null;
 
@@ -279,6 +285,7 @@ export async function updateKey(id: number, keyData: UpdateKeyData): Promise<Key
       costResetAt: keys.costResetAt,
       limitConcurrentSessions: keys.limitConcurrentSessions,
       providerGroup: keys.providerGroup,
+      sortStrategy: keys.sortStrategy,
       cacheTtlPreference: keys.cacheTtlPreference,
       createdAt: keys.createdAt,
       updatedAt: keys.updatedAt,
@@ -323,6 +330,7 @@ export async function findActiveKeyByUserIdAndName(
       costResetAt: keys.costResetAt,
       limitConcurrentSessions: keys.limitConcurrentSessions,
       providerGroup: keys.providerGroup,
+      sortStrategy: keys.sortStrategy,
       cacheTtlPreference: keys.cacheTtlPreference,
       createdAt: keys.createdAt,
       updatedAt: keys.updatedAt,
@@ -520,6 +528,7 @@ export async function findActiveKeyByKeyString(keyString: string): Promise<Key |
       costResetAt: keys.costResetAt,
       limitConcurrentSessions: keys.limitConcurrentSessions,
       providerGroup: keys.providerGroup,
+      sortStrategy: keys.sortStrategy,
       cacheTtlPreference: keys.cacheTtlPreference,
       createdAt: keys.createdAt,
       updatedAt: keys.updatedAt,
@@ -593,6 +602,7 @@ export async function resolveApiKeyAuthOutcome(keyString: string): Promise<ApiKe
         rpm: users.rpmLimit,
         dailyQuota: users.dailyLimitUsd,
         providerGroup: users.providerGroup,
+        sortStrategy: users.sortStrategy,
         tags: users.tags,
         createdAt: users.createdAt,
         updatedAt: users.updatedAt,
@@ -655,6 +665,7 @@ export async function resolveApiKeyAuthOutcome(keyString: string): Promise<ApiKe
       keyCostResetAt: keys.costResetAt,
       keyLimitConcurrentSessions: keys.limitConcurrentSessions,
       keyProviderGroup: keys.providerGroup,
+      keySortStrategy: keys.sortStrategy,
       keyCacheTtlPreference: keys.cacheTtlPreference,
       keyCreatedAt: keys.createdAt,
       keyUpdatedAt: keys.updatedAt,
@@ -667,6 +678,7 @@ export async function resolveApiKeyAuthOutcome(keyString: string): Promise<ApiKe
       userRpm: users.rpmLimit,
       userDailyQuota: users.dailyLimitUsd,
       userProviderGroup: users.providerGroup,
+      userSortStrategy: users.sortStrategy,
       userLimit5hUsd: users.limit5hUsd,
       userLimit5hResetMode: users.limit5hResetMode,
       userLimitWeeklyUsd: users.limitWeeklyUsd,
@@ -722,6 +734,7 @@ export async function resolveApiKeyAuthOutcome(keyString: string): Promise<ApiKe
     rpm: row.userRpm,
     dailyQuota: row.userDailyQuota,
     providerGroup: row.userProviderGroup,
+    sortStrategy: row.userSortStrategy ?? "none",
     limit5hUsd: row.userLimit5hUsd,
     limit5hResetMode: row.userLimit5hResetMode,
     limitWeeklyUsd: row.userLimitWeeklyUsd,
@@ -760,6 +773,7 @@ export async function resolveApiKeyAuthOutcome(keyString: string): Promise<ApiKe
     costResetAt: row.keyCostResetAt,
     limitConcurrentSessions: row.keyLimitConcurrentSessions,
     providerGroup: row.keyProviderGroup,
+    sortStrategy: row.keySortStrategy ?? "none",
     cacheTtlPreference: row.keyCacheTtlPreference,
     createdAt: row.keyCreatedAt,
     updatedAt: row.keyUpdatedAt,

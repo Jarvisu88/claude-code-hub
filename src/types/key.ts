@@ -1,3 +1,4 @@
+import type { SortStrategy } from "@/lib/provider-sort/types";
 import type { CacheTtlPreference } from "./cache";
 
 /**
@@ -28,6 +29,9 @@ export interface Key {
 
   // Provider group override (null = inherit from user)
   providerGroup: string | null;
+
+  // 排序策略 (none = 跟随用户)
+  sortStrategy: SortStrategy;
 
   // Cache TTL override (inherit -> follow provider/client)
   cacheTtlPreference: CacheTtlPreference | null;
@@ -61,6 +65,8 @@ export interface CreateKeyData {
   limit_concurrent_sessions?: number;
   // Provider group override (null = inherit from user)
   provider_group?: string | null;
+  // 排序策略 (none = 跟随用户)
+  sort_strategy?: SortStrategy;
 
   // Cache TTL override
   cache_ttl_preference?: CacheTtlPreference;
@@ -88,6 +94,8 @@ export interface UpdateKeyData {
   limit_concurrent_sessions?: number;
   // Provider group override (null = inherit from user)
   provider_group?: string | null;
+  // 排序策略 (none = 跟随用户)
+  sort_strategy?: SortStrategy;
 
   // Cache TTL override
   cache_ttl_preference?: CacheTtlPreference;

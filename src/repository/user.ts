@@ -3,6 +3,7 @@
 import { and, asc, eq, isNull, type SQL, sql } from "drizzle-orm";
 import { db } from "@/drizzle/db";
 import { keys as keysTable, users } from "@/drizzle/schema";
+import type { SortStrategy } from "@/lib/provider-sort/types";
 import { cacheUser, invalidateCachedUser } from "@/lib/security/api-key-auth-cache";
 import { parseProviderGroups } from "@/lib/utils/provider-group";
 import type { CreateUserData, UpdateUserData, User } from "@/types/user";
@@ -49,6 +50,7 @@ export async function createUser(userData: CreateUserData): Promise<User> {
     rpmLimit: userData.rpm,
     dailyLimitUsd: userData.dailyQuota?.toString(),
     providerGroup: userData.providerGroup,
+    sortStrategy: userData.sortStrategy ?? "none",
     tags: userData.tags ?? [],
     limit5hUsd: userData.limit5hUsd?.toString(),
     limit5hResetMode: userData.limit5hResetMode ?? "rolling",
@@ -73,6 +75,7 @@ export async function createUser(userData: CreateUserData): Promise<User> {
     rpm: users.rpmLimit,
     dailyQuota: users.dailyLimitUsd,
     providerGroup: users.providerGroup,
+    sortStrategy: users.sortStrategy,
     tags: users.tags,
     createdAt: users.createdAt,
     updatedAt: users.updatedAt,
@@ -109,6 +112,7 @@ export async function findUserList(limit: number = 50, offset: number = 0): Prom
       rpm: users.rpmLimit,
       dailyQuota: users.dailyLimitUsd,
       providerGroup: users.providerGroup,
+      sortStrategy: users.sortStrategy,
       tags: users.tags,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
@@ -359,6 +363,7 @@ export async function findUserListBatch(
       rpm: users.rpmLimit,
       dailyQuota: users.dailyLimitUsd,
       providerGroup: users.providerGroup,
+      sortStrategy: users.sortStrategy,
       tags: users.tags,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
@@ -420,6 +425,7 @@ export async function findUserById(id: number): Promise<User | null> {
       rpm: users.rpmLimit,
       dailyQuota: users.dailyLimitUsd,
       providerGroup: users.providerGroup,
+      sortStrategy: users.sortStrategy,
       tags: users.tags,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
@@ -459,6 +465,7 @@ export async function updateUser(id: number, userData: UpdateUserData): Promise<
     rpmLimit?: number | null;
     dailyLimitUsd?: string | null;
     providerGroup?: string | null;
+    sortStrategy?: SortStrategy;
     tags?: string[];
     updatedAt?: Date;
     limit5hUsd?: string | null;
@@ -485,6 +492,7 @@ export async function updateUser(id: number, userData: UpdateUserData): Promise<
   if (userData.dailyQuota !== undefined)
     dbData.dailyLimitUsd = userData.dailyQuota === null ? null : userData.dailyQuota.toString();
   if (userData.providerGroup !== undefined) dbData.providerGroup = userData.providerGroup;
+  if (userData.sortStrategy !== undefined) dbData.sortStrategy = userData.sortStrategy;
   if (userData.tags !== undefined) dbData.tags = userData.tags;
   if (userData.limit5hUsd !== undefined)
     dbData.limit5hUsd = userData.limit5hUsd === null ? null : userData.limit5hUsd.toString();
@@ -520,6 +528,7 @@ export async function updateUser(id: number, userData: UpdateUserData): Promise<
       rpm: users.rpmLimit,
       dailyQuota: users.dailyLimitUsd,
       providerGroup: users.providerGroup,
+      sortStrategy: users.sortStrategy,
       tags: users.tags,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,

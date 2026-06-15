@@ -44,6 +44,7 @@ export function toUser(dbUser: any): User {
       return parsed > 0 ? parsed : null;
     })(),
     providerGroup: dbUser?.providerGroup ?? null,
+    sortStrategy: dbUser?.sortStrategy ?? "none",
     tags: dbUser?.tags ?? [],
     limit5hUsd: parseOptionalNumber(dbUser?.limit5hUsd),
     limit5hResetMode: dbUser?.limit5hResetMode ?? "rolling",
@@ -85,6 +86,7 @@ export function toKey(dbKey: any): Key {
     costResetAt: dbKey?.costResetAt ? new Date(dbKey.costResetAt) : null,
     limitConcurrentSessions: dbKey?.limitConcurrentSessions ?? 0,
     providerGroup: dbKey?.providerGroup ?? null,
+    sortStrategy: dbKey?.sortStrategy ?? "none",
     cacheTtlPreference: dbKey?.cacheTtlPreference ?? null,
     createdAt: dbKey?.createdAt ? new Date(dbKey.createdAt) : new Date(),
     updatedAt: dbKey?.updatedAt ? new Date(dbKey.updatedAt) : new Date(),
