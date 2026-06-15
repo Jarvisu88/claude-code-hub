@@ -1295,6 +1295,7 @@ export async function addUser(data: {
   name: string;
   note?: string;
   providerGroup?: string | null;
+  sortStrategy?: SortStrategy;
   tags?: string[];
   rpm?: number | null;
   dailyQuota?: number | null;
@@ -1358,6 +1359,7 @@ export async function addUser(data: {
       name: data.name,
       note: data.note || "",
       providerGroup: data.providerGroup || "",
+      sortStrategy: data.sortStrategy ?? "none",
       tags: data.tags || [],
       rpm: data.rpm ?? null,
       dailyQuota: data.dailyQuota ?? null,
@@ -1505,6 +1507,7 @@ export async function createUserOnly(data: {
   name: string;
   note?: string;
   providerGroup?: string | null;
+  sortStrategy?: SortStrategy;
   tags?: string[];
   rpm?: number | null;
   dailyQuota?: number | null;
@@ -1561,6 +1564,7 @@ export async function createUserOnly(data: {
       name: data.name,
       note: data.note || "",
       providerGroup: data.providerGroup || "",
+      sortStrategy: data.sortStrategy ?? "none",
       tags: data.tags || [],
       rpm: data.rpm ?? null,
       dailyQuota: data.dailyQuota ?? null,
