@@ -22,6 +22,7 @@ import {
   stringifyCustomHeadersForTextarea,
 } from "@/lib/custom-headers";
 import { isValidUrl } from "@/lib/utils/validation";
+import { DEFAULT_TEST_MODELS } from "@/lib/provider-testing/default-test-models";
 import type { AllowedModelRuleInput, ProviderType } from "@/types/provider";
 import { TestResultCard, type UnifiedTestResultData } from "./test-result-card";
 
@@ -29,15 +30,6 @@ const API_TEST_UI_CONFIG = {
   TOAST_SUCCESS_DURATION: 3000,
   TOAST_ERROR_DURATION: 5000,
 } as const;
-
-const DEFAULT_MODELS: Record<ProviderType, string> = {
-  claude: "claude-haiku-4-5-20251001",
-  "claude-auth": "claude-haiku-4-5-20251001",
-  codex: "gpt-5.5",
-  "openai-compatible": "gpt-4.1-mini",
-  gemini: "gemini-2.5-flash",
-  "gemini-cli": "gemini-2.5-flash",
-};
 
 function resolveProviderType(providerType?: ProviderType | null): ProviderType {
   return providerType ?? "claude";
@@ -47,7 +39,7 @@ function getDefaultModelForProvider(
   providerType?: ProviderType | null,
   whitelistDefault?: string
 ): string {
-  return whitelistDefault ?? DEFAULT_MODELS[resolveProviderType(providerType)];
+  return whitelistDefault ?? DEFAULT_TEST_MODELS[resolveProviderType(providerType)];
 }
 
 function getTimeoutMsForProvider(providerType: ProviderType): number {
@@ -439,7 +431,7 @@ export function ApiTestButton({
             setIsModelManuallyEdited(true);
             setTestModel(event.target.value);
           }}
-          placeholder={DEFAULT_MODELS[resolvedProviderType]}
+          placeholder={DEFAULT_TEST_MODELS[resolvedProviderType]}
           disabled={isTesting}
         />
         <div className="text-xs text-muted-foreground">{t("testModelDesc")}</div>
