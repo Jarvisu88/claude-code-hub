@@ -20,7 +20,7 @@ export async function readLatencyCache(
   if (providerIds.length === 0) return map;
   // allowWhenRateLimitDisabled: 探测/缓存应在 ENABLE_RATE_LIMIT=false 时仍可用 (与 leader-lock 对齐)
   const redis = getRedisClient({ allowWhenRateLimitDisabled: true });
-  if (!redis || redis.status !== "ready") return map;
+  if (redis?.status !== "ready") return map;
   try {
     const raw = await redis.mget(...providerIds.map(cacheKey));
     raw.forEach((value, idx) => {
@@ -43,7 +43,7 @@ export async function readLatencyCache(
 /** 写一个延迟样本 (带 TTL)。Redis 不可用静默跳过。 */
 export async function writeLatencySample(sample: ProviderLatencySample): Promise<void> {
   const redis = getRedisClient({ allowWhenRateLimitDisabled: true });
-  if (!redis || redis.status !== "ready") return;
+  if (redis?.status !== "ready") return;
   try {
     await redis.set(cacheKey(sample.providerId), JSON.stringify(sample), "EX", TTL_SECONDS);
   } catch (error) {
