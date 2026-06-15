@@ -88,6 +88,18 @@ export async function runApplicationCleanup(
       "stopEndpointProbeScheduler"
     );
 
+    // 2b. 延迟探测调度器
+    await withTimeout(
+      (async () => {
+        const { stopLatencyProbeScheduler } = await import(
+          "@/lib/provider-sort/latency-probe-scheduler"
+        );
+        stopLatencyProbeScheduler();
+      })(),
+      stepMs,
+      "stopLatencyProbeScheduler"
+    );
+
     // 3. 公共状态重建调度器
     await withTimeout(
       (async () => {
