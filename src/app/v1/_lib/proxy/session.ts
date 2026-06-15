@@ -616,6 +616,8 @@ export class ProxySession {
         | "session_reuse"
         | "weighted_random"
         | "group_filtered"
+        | "sort_price"
+        | "sort_latency"
         | "fail_open_fallback";
       circuitState?: "closed" | "open" | "half-open";
       attemptNumber?: number;

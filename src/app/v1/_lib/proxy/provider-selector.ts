@@ -2,6 +2,10 @@ import { matchesAllowedModelRules } from "@/lib/allowed-model-rules";
 import { getCircuitState, isCircuitOpen } from "@/lib/circuit-breaker";
 import { PROVIDER_GROUP } from "@/lib/constants/provider.constants";
 import { logger } from "@/lib/logger";
+import { applySortStrategy } from "@/lib/provider-sort/apply-sort-strategy";
+import { resolveEffectiveSortStrategy } from "@/lib/provider-sort/get-effective-sort-strategy";
+import { getLatencyMap } from "@/lib/provider-sort/latency-probe-service";
+import type { SortStrategy } from "@/lib/provider-sort/types";
 import { RateLimitService } from "@/lib/rate-limit";
 import { SessionManager } from "@/lib/session-manager";
 import { parseProviderGroups, resolveProviderGroupsWithDefault } from "@/lib/utils/provider-group";
@@ -126,6 +130,33 @@ function checkFormatProviderTypeCompatibility(
   }
 }
 
+/**
+ * 在最高优先级档内, 按排序策略 (price/latency) 确定性选择第一个供应商。
+ * - price: costMultiplier 升序 (最便宜优先)
+ * - latency: 平均延迟升序 (最快优先); 无数据排最后
+ * 调用方保证 candidates 非空 (与 selectOptimal 一致)。导出供单测。
+ */
+export function selectProviderByStrategy(
+  candidates: Provider[],
+  strategy: "price" | "latency",
+  latencyMap: Map<number, number | null>
+): Provider {
+  const ordered = applySortStrategy(candidates, strategy, latencyMap);
+  return ordered[0];
+}
+
+/**
+ * 根据决策上下文推导 selectionMethod (用于决策链展示)。
+ * 排序策略优先于 group_filtered/weighted_random。
+ */
+function deriveSelectionMethod(
+  ctx: NonNullable<ProviderChainItem["decisionContext"]> | undefined
+): "sort_price" | "sort_latency" | "group_filtered" | "weighted_random" {
+  if (ctx?.sortStrategy === "price") return "sort_price";
+  if (ctx?.sortStrategy === "latency") return "sort_latency";
+  return ctx?.groupFilterApplied ? "group_filtered" : "weighted_random";
+}
+
 export class ProxyProviderResolver {
   static async ensure(
     session: ProxySession,
@@ -242,9 +273,7 @@ export class ProxyProviderResolver {
           const failedContext = session.getLastSelectionContext();
           session.addProviderToChain(session.provider, {
             reason: "concurrent_limit_failed",
-            selectionMethod: failedContext?.groupFilterApplied
-              ? "group_filtered"
-              : "weighted_random",
+            selectionMethod: deriveSelectionMethod(failedContext),
             circuitState: getCircuitState(session.provider.id),
             attemptNumber: attemptCount,
             errorMessage: checkResult.reason || "并发限制已达到",
@@ -311,9 +340,7 @@ export class ProxyProviderResolver {
           const successContext = session.getLastSelectionContext();
           session.addProviderToChain(session.provider, {
             reason: "initial_selection",
-            selectionMethod: successContext?.groupFilterApplied
-              ? "group_filtered"
-              : "weighted_random",
+            selectionMethod: deriveSelectionMethod(successContext),
             circuitState: getCircuitState(session.provider.id),
             decisionContext: successContext || {
               totalProviders: 0,
@@ -1000,17 +1027,42 @@ export class ProxyProviderResolver {
       )
     );
 
-    // Step 6: 成本排序 + 加权选择 + 计算概率
-    const totalWeight = topPriorityProviders.reduce((sum, p) => sum + p.weight, 0);
-    context.candidatesAtPriority = topPriorityProviders.map((p) => ({
-      id: p.id,
-      name: p.name,
-      weight: p.weight,
-      costMultiplier: p.costMultiplier,
-      probability: totalWeight > 0 ? p.weight / totalWeight : 0,
-    }));
+    // Step 6: 选择供应商
+    // - none (默认): 成本排序 + 加权随机 (现有逻辑, 保持不变)
+    // - price/latency: 在最高优先级档内按策略确定性选择第一个 (最便宜/最快)
+    const sortStrategy: SortStrategy = resolveEffectiveSortStrategy(
+      session?.authState?.key?.sortStrategy,
+      session?.authState?.user?.sortStrategy
+    );
 
-    const selected = ProxyProviderResolver.selectOptimal(topPriorityProviders);
+    let selected: Provider;
+    if (sortStrategy === "none") {
+      const totalWeight = topPriorityProviders.reduce((sum, p) => sum + p.weight, 0);
+      context.candidatesAtPriority = topPriorityProviders.map((p) => ({
+        id: p.id,
+        name: p.name,
+        weight: p.weight,
+        costMultiplier: p.costMultiplier,
+        probability: totalWeight > 0 ? p.weight / totalWeight : 0,
+      }));
+      selected = ProxyProviderResolver.selectOptimal(topPriorityProviders);
+    } else {
+      const latencyMap =
+        sortStrategy === "latency"
+          ? await getLatencyMap(topPriorityProviders.map((p) => p.id))
+          : new Map<number, number | null>();
+      const ordered = applySortStrategy(topPriorityProviders, sortStrategy, latencyMap);
+      selected = ordered[0];
+      // 确定性顺序: 第一个概率视为 1, 其余 0 (便于决策链展示)
+      context.candidatesAtPriority = ordered.map((p, idx) => ({
+        id: p.id,
+        name: p.name,
+        weight: p.weight,
+        costMultiplier: p.costMultiplier,
+        probability: idx === 0 ? 1 : 0,
+      }));
+    }
+    context.sortStrategy = sortStrategy;
 
     // 详细的选择日志
     logger.info("ProviderSelector: Selection decision", {

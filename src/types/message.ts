@@ -54,6 +54,8 @@ export interface ProviderChainItem {
     | "session_reuse" // 会话复用
     | "weighted_random" // 加权随机
     | "group_filtered" // 分组筛选后随机
+    | "sort_price" // 按价格策略 (最便宜优先) 确定性选择
+    | "sort_latency" // 按延迟策略 (最快优先) 确定性选择
     | "fail_open_fallback"; // Fail Open 降级
 
   // 供应商配置（决策依据）
@@ -212,6 +214,9 @@ export interface ProviderChainItem {
       costMultiplier: number;
       probability?: number; // 被选中的概率（加权后）
     }>;
+
+    // --- 排序策略 (none=优先级+加权随机; price/latency=确定性排序) ---
+    sortStrategy?: "none" | "price" | "latency";
 
     // --- 会话复用特有 ---
     sessionId?: string; // 复用的 session ID
