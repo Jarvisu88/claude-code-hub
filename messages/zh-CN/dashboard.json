@@ -1968,6 +1968,13 @@
           "label": "供应商分组",
           "placeholder": "default"
         },
+        "sortStrategy": {
+          "label": "排序策略",
+          "optionNone": "默认（优先级 + 权重）",
+          "optionPrice": "价格优先（最便宜先请求）",
+          "optionLatency": "延迟优先（最快先请求）",
+          "hint": "决定此用户在分组内的供应商请求顺序"
+        },
         "allowedClients": {
           "label": "客户端限制",
           "description": "限制哪些 CLI/IDE 客户端可以使用此账户。留空表示无限制。",
@@ -2071,6 +2078,13 @@
             "5m": "5m",
             "1h": "1h"
           }
+        },
+        "sortStrategy": {
+          "label": "排序策略",
+          "optionNone": "跟随用户（优先级 + 权重）",
+          "optionPrice": "价格优先（最便宜先请求）",
+          "optionLatency": "延迟优先（最快先请求）",
+          "hint": "决定此 Key 在分组内的供应商请求顺序"
         }
       },
       "limitRules": {

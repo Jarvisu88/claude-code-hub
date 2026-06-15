@@ -168,6 +168,13 @@ export function useKeyTranslations(): KeyEditTranslations {
             "1h": t("keyEditSection.fields.cacheTtl.options.1h"),
           },
         },
+        sortStrategy: {
+          label: t("keyEditSection.fields.sortStrategy.label"),
+          optionNone: t("keyEditSection.fields.sortStrategy.optionNone"),
+          optionPrice: t("keyEditSection.fields.sortStrategy.optionPrice"),
+          optionLatency: t("keyEditSection.fields.sortStrategy.optionLatency"),
+          hint: t("keyEditSection.fields.sortStrategy.hint"),
+        },
         enableStatus: {
           label: t("keyEditSection.fields.enableStatus.label"),
           description: t("keyEditSection.fields.enableStatus.description"),

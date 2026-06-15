@@ -215,6 +215,15 @@ export function useUserTranslations(
               },
             }
           : undefined,
+        sortStrategy: showProviderGroup
+          ? {
+              label: t("userEditSection.fields.sortStrategy.label"),
+              optionNone: t("userEditSection.fields.sortStrategy.optionNone"),
+              optionPrice: t("userEditSection.fields.sortStrategy.optionPrice"),
+              optionLatency: t("userEditSection.fields.sortStrategy.optionLatency"),
+              hint: t("userEditSection.fields.sortStrategy.hint"),
+            }
+          : undefined,
         enableStatus: {
           label: t("userEditSection.fields.enableStatus.label"),
           enabledDescription: t("userEditSection.fields.enableStatus.enabledDescription"),

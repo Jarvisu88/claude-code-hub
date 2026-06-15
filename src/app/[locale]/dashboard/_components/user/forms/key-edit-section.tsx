@@ -33,6 +33,7 @@ export interface KeyEditSectionProps {
     expiresAt?: Date | null;
     canLoginWebUi?: boolean;
     providerGroup?: string | null;
+    sortStrategy?: "none" | "price" | "latency";
     cacheTtlPreference?: "inherit" | "5m" | "1h";
     // 所有限额字段
     limit5hUsd?: number | null;
@@ -83,6 +84,13 @@ export interface KeyEditSectionProps {
         noGroupHint?: string;
       };
       cacheTtl: { label: string; options: Record<string, string> };
+      sortStrategy?: {
+        label: string;
+        optionNone: string;
+        optionPrice: string;
+        optionLatency: string;
+        hint?: string;
+      };
       enableStatus?: {
         label: string;
         description: string;
@@ -556,6 +564,36 @@ export function KeyEditSection({
             </SelectContent>
           </Select>
         </div>
+
+        {isAdmin && translations.fields.sortStrategy ? (
+          <div className="space-y-2">
+            <Label>{translations.fields.sortStrategy.label}</Label>
+            <Select
+              value={keyData.sortStrategy ?? "none"}
+              onValueChange={(val) =>
+                onChange("sortStrategy", val as "none" | "price" | "latency")
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{translations.fields.sortStrategy.optionNone}</SelectItem>
+                <SelectItem value="price">
+                  {translations.fields.sortStrategy.optionPrice}
+                </SelectItem>
+                <SelectItem value="latency">
+                  {translations.fields.sortStrategy.optionLatency}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            {translations.fields.sortStrategy.hint ? (
+              <p className="text-xs text-muted-foreground">
+                {translations.fields.sortStrategy.hint}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     </div>
   );

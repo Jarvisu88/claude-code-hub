@@ -16,6 +16,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { PROVIDER_GROUP } from "@/lib/constants/provider.constants";
 import { cn } from "@/lib/utils";
@@ -33,6 +40,7 @@ export interface UserEditSectionProps {
     tags?: string[];
     expiresAt?: Date | null;
     providerGroup?: string | null;
+    sortStrategy?: "none" | "price" | "latency";
     // 所有限额字段
     rpm?: number | null;
     limit5hUsd?: number | null;
@@ -82,6 +90,13 @@ export interface UserEditSectionProps {
         errors?: {
           loadFailed?: string;
         };
+      };
+      sortStrategy?: {
+        label: string;
+        optionNone: string;
+        optionPrice: string;
+        optionLatency: string;
+        hint?: string;
       };
       enableStatus?: {
         label: string;
@@ -445,6 +460,37 @@ export function UserEditSection({
                 disabled={false}
                 translations={translations.fields.providerGroup}
               />
+            )}
+            {showProviderGroup && translations.fields.sortStrategy && (
+              <div className="space-y-2">
+                <Label>{translations.fields.sortStrategy.label}</Label>
+                <Select
+                  value={user.sortStrategy ?? "none"}
+                  onValueChange={(val) =>
+                    emitChange("sortStrategy", val as "none" | "price" | "latency")
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">
+                      {translations.fields.sortStrategy.optionNone}
+                    </SelectItem>
+                    <SelectItem value="price">
+                      {translations.fields.sortStrategy.optionPrice}
+                    </SelectItem>
+                    <SelectItem value="latency">
+                      {translations.fields.sortStrategy.optionLatency}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {translations.fields.sortStrategy.hint ? (
+                  <p className="text-xs text-muted-foreground">
+                    {translations.fields.sortStrategy.hint}
+                  </p>
+                ) : null}
+              </div>
             )}
           </div>
         </div>

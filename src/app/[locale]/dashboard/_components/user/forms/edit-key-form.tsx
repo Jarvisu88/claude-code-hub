@@ -45,6 +45,7 @@ interface EditKeyFormProps {
     expiresAt: string;
     canLoginWebUi?: boolean;
     providerGroup?: string | null;
+    sortStrategy?: "none" | "price" | "latency";
     cacheTtlPreference?: "inherit" | "5m" | "1h";
     limit5hUsd?: number | null;
     limit5hResetMode?: "fixed" | "rolling";
@@ -129,6 +130,7 @@ export function EditKeyForm({ keyData, user, isAdmin = false, onSuccess }: EditK
       expiresAt: formatExpiresAt(keyData?.expiresAt || ""),
       canLoginWebUi: keyData?.canLoginWebUi ?? true,
       providerGroup: keyData?.providerGroup || PROVIDER_GROUP.DEFAULT,
+      sortStrategy: keyData?.sortStrategy ?? "none",
       cacheTtlPreference: keyData?.cacheTtlPreference ?? "inherit",
       limit5hUsd: keyData?.limit5hUsd ?? null,
       limit5hResetMode: keyData?.limit5hResetMode ?? "rolling",
@@ -163,6 +165,7 @@ export function EditKeyForm({ keyData, user, isAdmin = false, onSuccess }: EditK
             limitTotalUsd: data.limitTotalUsd,
             limitConcurrentSessions: data.limitConcurrentSessions,
             ...(isAdmin ? { providerGroup: data.providerGroup || PROVIDER_GROUP.DEFAULT } : {}),
+            ...(isAdmin ? { sortStrategy: data.sortStrategy ?? "none" } : {}),
           });
           if (!res.ok) {
             const msg = res.errorCode

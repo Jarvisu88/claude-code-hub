@@ -159,6 +159,7 @@ export interface UserDisplay {
   rpm: number | null;
   dailyQuota: number | null;
   providerGroup?: string | null;
+  sortStrategy?: SortStrategy;
   tags?: string[]; // 用户标签
   keys: UserKeyDisplay[];
   // User-level quota fields
