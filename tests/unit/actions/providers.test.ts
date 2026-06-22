@@ -9,6 +9,14 @@ const createProviderMock = vi.fn();
 const updateProviderMock = vi.fn();
 const deleteProviderMock = vi.fn();
 const updateProviderPrioritiesBatchMock = vi.fn();
+const updateProviderGroupPrioritiesBatchMock = vi.fn();
+const findProviderUpstreamRateSyncConfigsByProviderIdsMock = vi.fn();
+const setProviderUpstreamRateSyncEnabledByProviderIdsMock = vi.fn();
+const findProviderUpstreamRateSyncConfigMock = vi.fn(async () => null);
+const shareUpstreamRateSyncAuthBySourceAndBaseUrlMock = vi.fn(async () => 0);
+const upsertProviderUpstreamRateSyncConfigMock = vi.fn(async () => ({}));
+const readChromeAuthForUpstreamMock = vi.fn();
+const probeProviderLatencyMock = vi.fn();
 
 const publishProviderCacheInvalidationMock = vi.fn();
 const saveProviderCircuitConfigMock = vi.fn();
@@ -36,7 +44,34 @@ vi.mock("@/repository/provider", () => ({
   getProviderStatistics: getProviderStatisticsMock,
   resetProviderTotalCostResetAt: vi.fn(async () => {}),
   updateProvider: updateProviderMock,
+  updateProviderGroupPrioritiesBatch: updateProviderGroupPrioritiesBatchMock,
+  updateProviderCostMultiplier: vi.fn(async () => true),
   updateProviderPrioritiesBatch: updateProviderPrioritiesBatchMock,
+  updateProvidersBatch: vi.fn(async () => []),
+}));
+
+vi.mock("@/repository/upstream-rate-sync", () => ({
+  deleteProviderUpstreamRateSyncConfig: vi.fn(async () => true),
+  findProviderUpstreamRateSyncConfig: findProviderUpstreamRateSyncConfigMock,
+  findProviderUpstreamRateSyncConfigsByProviderIds:
+    findProviderUpstreamRateSyncConfigsByProviderIdsMock,
+  recordUpstreamRateSyncFailure: vi.fn(async () => {}),
+  recordUpstreamRateSyncSuccess: vi.fn(async () => {}),
+  setProviderUpstreamRateSyncEnabledByProviderIds:
+    setProviderUpstreamRateSyncEnabledByProviderIdsMock,
+  shareUpstreamRateSyncAuthBySourceAndBaseUrl:
+    shareUpstreamRateSyncAuthBySourceAndBaseUrlMock,
+  upsertProviderUpstreamRateSyncConfig: upsertProviderUpstreamRateSyncConfigMock,
+}));
+
+vi.mock("@/lib/upstream-rate-sync/browser-auth", () => ({
+  openChromeForUpstreamAuth: vi.fn(async () => undefined),
+  readChromeAuthForUpstream: readChromeAuthForUpstreamMock,
+}));
+
+vi.mock("@/lib/provider-sort/latency-probe-service", () => ({
+  getLatencyMap: vi.fn(async () => new Map()),
+  probeProviderLatency: probeProviderLatencyMock,
 }));
 
 vi.mock("@/lib/cache/provider-cache", () => ({
@@ -185,6 +220,20 @@ describe("Provider Actions - Async Optimization", () => {
     clearProviderStateMock.mockResolvedValue(undefined);
     terminateProviderSessionsBatchMock.mockResolvedValue(0);
     updateProviderPrioritiesBatchMock.mockResolvedValue(0);
+    updateProviderGroupPrioritiesBatchMock.mockResolvedValue(0);
+    findProviderUpstreamRateSyncConfigsByProviderIdsMock.mockResolvedValue(new Map());
+    setProviderUpstreamRateSyncEnabledByProviderIdsMock.mockResolvedValue(0);
+    findProviderUpstreamRateSyncConfigMock.mockResolvedValue(null);
+    shareUpstreamRateSyncAuthBySourceAndBaseUrlMock.mockResolvedValue(0);
+    upsertProviderUpstreamRateSyncConfigMock.mockResolvedValue({});
+    readChromeAuthForUpstreamMock.mockResolvedValue({
+      authToken: "access-next",
+      refreshToken: "refresh-next",
+      tokenExpiresAt: 1_800_000,
+      cookie: "session=next",
+      userId: "1001",
+    });
+    probeProviderLatencyMock.mockResolvedValue(250);
   });
 
   describe("getProviders", () => {
@@ -209,6 +258,41 @@ describe("Provider Actions - Async Optimization", () => {
 
       expect(result).toHaveLength(1);
       expect(elapsed).toBeLessThan(500);
+    });
+
+    it("should include upstream rate sync summary for list display", async () => {
+      findProviderUpstreamRateSyncConfigsByProviderIdsMock.mockResolvedValue(
+        new Map([
+          [
+            1,
+            {
+              id: 10,
+              providerId: 1,
+              source: "newapi",
+              isEnabled: true,
+              lastSyncedAt: new Date("2026-06-22T06:00:00.000Z"),
+              lastSyncOk: true,
+              lastSyncRate: "0.75",
+              lastSyncError: null,
+              lastUpstreamGroupName: "codex-pro",
+            },
+          ],
+        ])
+      );
+
+      const { getProviders } = await import("@/actions/providers");
+      const result = await getProviders();
+
+      expect(result[0]?.upstreamRateSync).toEqual({
+        isConfigured: true,
+        isEnabled: true,
+        source: "newapi",
+        lastSyncedAt: "2026-06-22T06:00:00.000Z",
+        lastSyncOk: true,
+        lastSyncRate: 0.75,
+        lastSyncError: null,
+        lastUpstreamGroupName: "codex-pro",
+      });
     });
   });
 
@@ -468,6 +552,138 @@ describe("Provider Actions - Async Optimization", () => {
       const result = await getProviderStatisticsAsync();
 
       expect(result).toEqual({});
+    });
+  });
+
+  describe("batchSetProviderUpstreamRateSyncEnabled", () => {
+    it("updates existing upstream sync configs and reports skipped providers", async () => {
+      setProviderUpstreamRateSyncEnabledByProviderIdsMock.mockResolvedValueOnce(2);
+
+      const { batchSetProviderUpstreamRateSyncEnabled } = await import("@/actions/providers");
+      const result = await batchSetProviderUpstreamRateSyncEnabled({
+        providerIds: [1, 2, 2, 3],
+        enabled: true,
+      });
+
+      expect(result).toEqual({
+        ok: true,
+        data: { updatedCount: 2, skippedCount: 1 },
+      });
+      expect(setProviderUpstreamRateSyncEnabledByProviderIdsMock).toHaveBeenCalledWith(
+        [1, 2, 3],
+        true
+      );
+      expect(publishProviderCacheInvalidationMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects non-admin users", async () => {
+      getSessionMock.mockResolvedValueOnce({ user: { id: 2, role: "user" } });
+
+      const { batchSetProviderUpstreamRateSyncEnabled } = await import("@/actions/providers");
+      const result = await batchSetProviderUpstreamRateSyncEnabled({
+        providerIds: [1],
+        enabled: false,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(setProviderUpstreamRateSyncEnabledByProviderIdsMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("runProviderLatencyPriorityWorkflowNow", () => {
+    it("probes providers and writes latency priorities to the target group", async () => {
+      updateProviderGroupPrioritiesBatchMock.mockResolvedValueOnce(2);
+      findAllProvidersFreshMock.mockResolvedValueOnce([
+        {
+          id: 1,
+          name: "fast",
+          url: "https://fast.example.com",
+          key: "sk-fast",
+          isEnabled: true,
+          priority: 9,
+          groupPriorities: { price: 2 },
+          groupTag: "claude",
+          providerType: "openai-compatible",
+        },
+        {
+          id: 2,
+          name: "slow",
+          url: "https://slow.example.com",
+          key: "sk-slow",
+          isEnabled: true,
+          priority: 9,
+          groupPriorities: null,
+          groupTag: "claude",
+          providerType: "openai-compatible",
+        },
+      ]);
+      probeProviderLatencyMock.mockResolvedValueOnce(120).mockResolvedValueOnce(360);
+
+      const { runProviderLatencyPriorityWorkflowNow } = await import("@/actions/providers");
+      const result = await runProviderLatencyPriorityWorkflowNow({
+        confirm: true,
+        providerGroup: "claude",
+        targetGroup: "claude_speed",
+      });
+
+      expect(result.ok).toBe(true);
+      expect(updateProviderGroupPrioritiesBatchMock).toHaveBeenCalled();
+      expect(updateProviderPrioritiesBatchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("importProviderUpstreamRateAuthFromBrowser", () => {
+    it("shares imported auth across configs on the same source and upstream site", async () => {
+      const existingConfig = {
+        id: 10,
+        providerId: 1,
+        source: "newapi",
+        isEnabled: true,
+        baseUrl: "https://same.example/",
+        apiKey: "sk-target",
+        keyName: "p1",
+        accessToken: "access-old",
+        refreshToken: null,
+        tokenExpiresAt: null,
+        cookie: "session=old",
+        userId: null,
+        syncIntervalMinutes: 60,
+        lastSyncedAt: null,
+        lastSyncOk: null,
+        lastSyncRate: null,
+        lastSyncError: null,
+        lastUpstreamGroupName: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      };
+      const updatedConfig = {
+        ...existingConfig,
+        accessToken: "access-next",
+        refreshToken: "refresh-next",
+        tokenExpiresAt: 1_800_000,
+        cookie: "session=next",
+        userId: "1001",
+      };
+      findProviderUpstreamRateSyncConfigMock.mockResolvedValueOnce(existingConfig);
+      upsertProviderUpstreamRateSyncConfigMock.mockResolvedValueOnce(updatedConfig);
+      shareUpstreamRateSyncAuthBySourceAndBaseUrlMock.mockResolvedValueOnce(3);
+
+      const { importProviderUpstreamRateAuthFromBrowser } = await import("@/actions/providers");
+      const result = await importProviderUpstreamRateAuthFromBrowser(1);
+
+      expect(result.ok).toBe(true);
+      expect(shareUpstreamRateSyncAuthBySourceAndBaseUrlMock).toHaveBeenCalledWith(
+        {
+          source: "newapi",
+          baseUrl: "https://same.example/",
+          accessToken: "access-next",
+          refreshToken: "refresh-next",
+          tokenExpiresAt: 1_800_000,
+          cookie: "session=next",
+          userId: "1001",
+        },
+        10
+      );
     });
   });
 

@@ -6,6 +6,7 @@ import {
   startLeaderLockKeepAlive,
 } from "@/lib/provider-endpoints/leader-lock";
 import { findAllProvidersFresh } from "@/repository/provider";
+import type { Provider } from "@/types/provider";
 import { probeProviderLatency } from "./latency-probe-service";
 
 const LOCK_KEY = "locks:latency-probe-scheduler";
@@ -15,16 +16,44 @@ function parseIntWithDefault(value: string | undefined, fallback: number): numbe
   return Number.isFinite(n) ? n : fallback;
 }
 
-// 周期间隔 (默认 90s, 最低 10s)
+// 周期扫描间隔。单个供应商的 latencyProbeIntervalMs 控制自身到期频率；
+// 这里默认保守，避免后台频繁打上游。需要更快探测时可通过环境变量调小。
 const INTERVAL_MS = Math.max(
   10_000,
-  parseIntWithDefault(process.env.LATENCY_PROBE_INTERVAL_MS, 90_000)
+  parseIntWithDefault(process.env.LATENCY_PROBE_INTERVAL_MS, 3_600_000)
 );
 // 锁 TTL: 至少覆盖一个周期, 由 keep-alive 续租; 探测可能比周期长, 故续租是必须的
 const LOCK_TTL_MS = Math.max(INTERVAL_MS, 120_000);
 
 function isEnabled(): boolean {
-  return process.env.ENABLE_LATENCY_PROBE === "true";
+  return process.env.ENABLE_LATENCY_PROBE !== "false";
+}
+
+function isTimeInWindow(now: Date, start: string | null, end: string | null): boolean {
+  if (!start && !end) return true;
+  if (!start || !end) return true;
+  const [startHour, startMinute] = start.split(":").map((v) => Number.parseInt(v, 10));
+  const [endHour, endMinute] = end.split(":").map((v) => Number.parseInt(v, 10));
+  if (![startHour, startMinute, endHour, endMinute].every(Number.isFinite)) return true;
+
+  const current = now.getHours() * 60 + now.getMinutes();
+  const from = startHour * 60 + startMinute;
+  const to = endHour * 60 + endMinute;
+  if (from === to) return true;
+  return from < to ? current >= from && current <= to : current >= from || current <= to;
+}
+
+function shouldProbeProvider(provider: Provider, now: Date): boolean {
+  if (provider.latencyProbeEnabled !== true) return false;
+  if (
+    !isTimeInWindow(now, provider.latencyProbeTimeStart, provider.latencyProbeTimeEnd)
+  ) {
+    return false;
+  }
+
+  const intervalMs = Math.max(10_000, provider.latencyProbeIntervalMs ?? INTERVAL_MS);
+  const lastRunAt = provider.latencyProbeLastRunAt?.getTime();
+  return !lastRunAt || now.getTime() - lastRunAt >= intervalMs;
 }
 
 const state = globalThis as unknown as {
@@ -56,11 +85,14 @@ async function runCycle(nowFn: () => number): Promise<void> {
   });
 
   try {
-    const providers = (await findAllProvidersFresh()).filter((p) => p.isEnabled);
+    const now = new Date(nowFn());
+    const providers = (await findAllProvidersFresh()).filter(
+      (p) => p.isEnabled && shouldProbeProvider(p, now)
+    );
     // 低并发: 串行探测以避免打爆上游
     for (const p of providers) {
       if (lockLost) break; // 锁丢了就停, 让接管的实例去探测
-      await probeProviderLatency(p, nowFn());
+      await probeProviderLatency(p, now.getTime());
     }
   } catch (error) {
     logger.warn("[latency-probe-scheduler] cycle failed", {
@@ -78,6 +110,7 @@ async function runCycle(nowFn: () => number): Promise<void> {
 export function startLatencyProbeScheduler(): void {
   if (!isEnabled() || state.__CCH_LATENCY_PROBE_STARTED__) return;
   state.__CCH_LATENCY_PROBE_STARTED__ = true;
+  void runCycle(() => Date.now());
   const intervalId = setInterval(() => {
     void runCycle(() => Date.now());
   }, INTERVAL_MS);

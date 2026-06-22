@@ -11,6 +11,8 @@ export interface User {
   rpm: number | null; // 每分钟请求数限制，null = 无限制
   dailyQuota: number | null; // 每日额度限制（美元），null = 无限制
   providerGroup: string | null; // 供应商分组
+  priceProviderGroup: string | null; // 价格优先策略使用的供应商分组
+  latencyProviderGroup: string | null; // 速度优先策略使用的供应商分组
   sortStrategy: SortStrategy; // 排序策略 (none = 跟随用户)
   tags?: string[]; // 用户标签（可选）
   createdAt: Date;
@@ -47,6 +49,8 @@ export interface CreateUserData {
   rpm?: number | null; // 可选，null = 无限制
   dailyQuota?: number | null; // 可选，null = 无限制
   providerGroup?: string | null; // 可选，供应商分组
+  priceProviderGroup?: string | null; // 可选，价格优先策略分组
+  latencyProviderGroup?: string | null; // 可选，速度优先策略分组
   sortStrategy?: SortStrategy; // 可选，排序策略
   tags?: string[]; // 可选，用户标签
   // User-level quota fields
@@ -78,6 +82,8 @@ export interface UpdateUserData {
   rpm?: number | null;
   dailyQuota?: number | null;
   providerGroup?: string | null; // 可选，供应商分组
+  priceProviderGroup?: string | null; // 可选，价格优先策略分组
+  latencyProviderGroup?: string | null; // 可选，速度优先策略分组
   sortStrategy?: SortStrategy; // 可选，排序策略
   tags?: string[]; // 可选，用户标签
   // User-level quota fields
@@ -159,6 +165,8 @@ export interface UserDisplay {
   rpm: number | null;
   dailyQuota: number | null;
   providerGroup?: string | null;
+  priceProviderGroup?: string | null;
+  latencyProviderGroup?: string | null;
   sortStrategy?: SortStrategy;
   tags?: string[]; // 用户标签
   keys: UserKeyDisplay[];
@@ -190,6 +198,8 @@ export interface UserDisplay {
 export interface KeyDialogUserContext {
   id: number;
   providerGroup?: string | null;
+  priceProviderGroup?: string | null;
+  latencyProviderGroup?: string | null;
   limit5hUsd?: number;
   limit5hResetMode?: "fixed" | "rolling";
   limitWeeklyUsd?: number;

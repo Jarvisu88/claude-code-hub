@@ -33,6 +33,8 @@ export interface KeyEditSectionProps {
     expiresAt?: Date | null;
     canLoginWebUi?: boolean;
     providerGroup?: string | null;
+    priceProviderGroup?: string | null;
+    latencyProviderGroup?: string | null;
     sortStrategy?: "none" | "price" | "latency";
     cacheTtlPreference?: "inherit" | "5m" | "1h";
     // 所有限额字段
@@ -82,6 +84,14 @@ export interface KeyEditSectionProps {
         editHint?: string;
         allGroups?: string;
         noGroupHint?: string;
+      };
+      priceProviderGroup?: {
+        label: string;
+        placeholder: string;
+      };
+      latencyProviderGroup?: {
+        label: string;
+        placeholder: string;
       };
       cacheTtl: { label: string; options: Record<string, string> };
       sortStrategy?: {
@@ -467,15 +477,33 @@ export function KeyEditSection({
         </div>
 
         {isAdmin ? (
-          <ProviderGroupSelect
-            value={keyData.providerGroup || PROVIDER_GROUP.DEFAULT}
-            onChange={(val) => onChange("providerGroup", val)}
-            disabled={false}
-            translations={{
-              label: translations.fields.providerGroup.label,
-              placeholder: translations.fields.providerGroup.placeholder,
-            }}
-          />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <ProviderGroupSelect
+              value={keyData.providerGroup || PROVIDER_GROUP.DEFAULT}
+              onChange={(val) => onChange("providerGroup", val)}
+              disabled={false}
+              translations={{
+                label: translations.fields.providerGroup.label,
+                placeholder: translations.fields.providerGroup.placeholder,
+              }}
+            />
+            {translations.fields.priceProviderGroup ? (
+              <ProviderGroupSelect
+                value={keyData.priceProviderGroup || ""}
+                onChange={(val) => onChange("priceProviderGroup", val)}
+                disabled={false}
+                translations={translations.fields.priceProviderGroup}
+              />
+            ) : null}
+            {translations.fields.latencyProviderGroup ? (
+              <ProviderGroupSelect
+                value={keyData.latencyProviderGroup || ""}
+                onChange={(val) => onChange("latencyProviderGroup", val)}
+                disabled={false}
+                translations={translations.fields.latencyProviderGroup}
+              />
+            ) : null}
+          </div>
         ) : userGroups.length > 0 ? (
           <div className="space-y-2">
             {keyData.id > 0 ? (

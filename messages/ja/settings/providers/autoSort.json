@@ -4,7 +4,7 @@
   "changesTitle": "変更詳細",
   "confirm": "変更を適用",
   "costMultiplierHeader": "コスト倍率",
-  "dialogDescription": "コスト倍率に基づいて優先度を自動割り当て（低コスト = 高優先度）",
+  "dialogDescription": "コストまたは Mini プローブの初回バイト結果で優先度をプレビューして適用します。値が低いほど優先度が高くなります。",
   "dialogTitle": "プロバイダー優先度の自動ソート",
   "error": "優先度の更新に失敗しました",
   "noChanges": "変更不要（ソート済み）",
@@ -12,5 +12,18 @@
   "priorityHeader": "優先度",
   "providerHeader": "プロバイダー",
   "providersHeader": "プロバイダー",
-  "success": "{count} 件のプロバイダーの優先度を更新しました"
+  "success": "{count} 件のプロバイダーの優先度を更新しました",
+  "modeLabel": "ソート方式",
+  "modePrice": "コスト順",
+  "modeLatency": "速度順",
+  "providerGroupLabel": "プロバイダーグループ",
+  "providerGroupPlaceholder": "空欄なら全プロバイダー",
+  "targetGroupLabel": "対象戦略グループ",
+  "targetGroupPlaceholder": "空の場合はプロバイダーグループを使用。速度と価格には別グループを推奨",
+  "preview": "プレビュー",
+  "runLatencyWorkflow": "測定して速度グループへ適用",
+  "latencyWorkflowSuccess": "{count} 件のプロバイダーを測定し速度グループを更新しました",
+  "targetGroupRequired": "プロバイダーグループまたは対象戦略グループを入力してください",
+  "latencyHeader": "初回バイト",
+  "unknownLatency": "不明"
 }

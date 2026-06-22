@@ -4,7 +4,7 @@
   "changesTitle": "變更詳情",
   "confirm": "應用變更",
   "costMultiplierHeader": "成本倍數",
-  "dialogDescription": "根據成本倍數自動分配優先級（低成本 = 高優先級）",
+  "dialogDescription": "按成本或 Mini 探針首字節結果預覽並套用供應商優先級。數值越低，優先級越高。",
   "dialogTitle": "自動排序供應商優先級",
   "error": "更新優先級失敗",
   "noChanges": "無需更改（已排序）",
@@ -12,5 +12,18 @@
   "priorityHeader": "優先級",
   "providerHeader": "供應商",
   "providersHeader": "供應商",
-  "success": "已更新 {count} 個供應商的優先級"
+  "success": "已更新 {count} 個供應商的優先級",
+  "modeLabel": "排序方式",
+  "modePrice": "按成本",
+  "modeLatency": "按速度",
+  "providerGroupLabel": "供應商分組",
+  "providerGroupPlaceholder": "留空表示全部供應商",
+  "targetGroupLabel": "目標策略分組",
+  "targetGroupPlaceholder": "留空則使用供應商分組；速度/價格建議填寫不同分組",
+  "preview": "預覽",
+  "runLatencyWorkflow": "探測並套用速度分組",
+  "latencyWorkflowSuccess": "已探測並更新 {count} 個供應商的速度分組",
+  "targetGroupRequired": "請填寫供應商分組或目標策略分組",
+  "latencyHeader": "首字節",
+  "unknownLatency": "未知"
 }

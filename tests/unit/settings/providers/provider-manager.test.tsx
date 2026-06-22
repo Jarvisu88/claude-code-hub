@@ -3,6 +3,7 @@
  */
 
 import { NextIntlClientProvider } from "next-intl";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -151,18 +152,22 @@ function renderWithProviders(node: ReactNode) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
+  const queryClient = new QueryClient();
 
   act(() => {
     root.render(
-      <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
-        {node}
-      </NextIntlClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <NextIntlClientProvider locale="en" messages={enMessages} timeZone="UTC">
+          {node}
+        </NextIntlClientProvider>
+      </QueryClientProvider>
     );
   });
 
   return {
     unmount: () => {
       act(() => root.unmount());
+      queryClient.clear();
       container.remove();
     },
     container,

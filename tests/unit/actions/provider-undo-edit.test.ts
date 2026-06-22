@@ -23,6 +23,7 @@ vi.mock("@/repository/provider", () => ({
   updateProvider: updateProviderMock,
   updateProvidersBatch: updateProvidersBatchMock,
   deleteProvidersBatch: vi.fn(),
+  updateProviderCostMultiplier: vi.fn(async () => true),
 }));
 
 vi.mock("@/repository", () => ({

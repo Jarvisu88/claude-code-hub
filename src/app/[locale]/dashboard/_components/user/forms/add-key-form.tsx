@@ -59,6 +59,8 @@ export function AddKeyForm({ userId, user, isAdmin = false, onSuccess }: AddKeyF
       expiresAt: "",
       canLoginWebUi: false,
       providerGroup: PROVIDER_GROUP.DEFAULT,
+      priceProviderGroup: "",
+      latencyProviderGroup: "",
       cacheTtlPreference: "inherit",
       limit5hUsd: null,
       limit5hResetMode: "rolling" as const,
@@ -92,6 +94,8 @@ export function AddKeyForm({ userId, user, isAdmin = false, onSuccess }: AddKeyF
           limitConcurrentSessions: data.limitConcurrentSessions,
           cacheTtlPreference: data.cacheTtlPreference,
           providerGroup: data.providerGroup || PROVIDER_GROUP.DEFAULT,
+          priceProviderGroup: data.priceProviderGroup || "",
+          latencyProviderGroup: data.latencyProviderGroup || "",
         };
         // 非管理员走会话定向的自助端点，目标用户由服务端会话决定（U03：
         // 避免 admin 路由 403 后静默改为给会话用户建 key）
@@ -223,6 +227,56 @@ export function AddKeyForm({ userId, user, isAdmin = false, onSuccess }: AddKeyF
         error={form.getFieldProps("providerGroup").error}
         touched={form.getFieldProps("providerGroup").touched}
       />
+
+      {isAdmin && (
+        <FormGrid columns={2}>
+          <TagInputField
+            label={t("priceProviderGroup.label")}
+            maxTagLength={200}
+            placeholder={t("priceProviderGroup.placeholder")}
+            description={t("priceProviderGroup.description")}
+            suggestions={providerGroupSuggestions}
+            validateTag={() => true}
+            onInvalidTag={(_tag, reason) => {
+              const messages: Record<string, string> = {
+                empty: tUI("emptyTag"),
+                duplicate: tUI("duplicateTag"),
+                too_long: tUI("tooLong", { max: 200 }),
+                invalid_format: tUI("invalidFormat"),
+                max_tags: tUI("maxTags"),
+              };
+              toast.error(messages[reason] || reason);
+            }}
+            value={String(form.getFieldProps("priceProviderGroup").value)}
+            onChange={(value) => form.setValue("priceProviderGroup", value)}
+            error={form.getFieldProps("priceProviderGroup").error}
+            touched={form.getFieldProps("priceProviderGroup").touched}
+          />
+
+          <TagInputField
+            label={t("latencyProviderGroup.label")}
+            maxTagLength={200}
+            placeholder={t("latencyProviderGroup.placeholder")}
+            description={t("latencyProviderGroup.description")}
+            suggestions={providerGroupSuggestions}
+            validateTag={() => true}
+            onInvalidTag={(_tag, reason) => {
+              const messages: Record<string, string> = {
+                empty: tUI("emptyTag"),
+                duplicate: tUI("duplicateTag"),
+                too_long: tUI("tooLong", { max: 200 }),
+                invalid_format: tUI("invalidFormat"),
+                max_tags: tUI("maxTags"),
+              };
+              toast.error(messages[reason] || reason);
+            }}
+            value={String(form.getFieldProps("latencyProviderGroup").value)}
+            onChange={(value) => form.setValue("latencyProviderGroup", value)}
+            error={form.getFieldProps("latencyProviderGroup").error}
+            touched={form.getFieldProps("latencyProviderGroup").touched}
+          />
+        </FormGrid>
+      )}
 
       <div className="space-y-2">
         <Label>{t("cacheTtl.label")}</Label>

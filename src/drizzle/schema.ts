@@ -48,6 +48,8 @@ export const users = pgTable('users', {
   rpmLimit: integer('rpm_limit'),
   dailyLimitUsd: numeric('daily_limit_usd', { precision: 10, scale: 2 }),
   providerGroup: varchar('provider_group', { length: 200 }).default('default'),
+  priceProviderGroup: varchar('price_provider_group', { length: 200 }),
+  latencyProviderGroup: varchar('latency_provider_group', { length: 200 }),
   sortStrategy: providerSortStrategyEnum('sort_strategy').notNull().default('none'),
   // 用户标签（用于分类和筛选）
   tags: jsonb('tags').$type<string[]>().default([]),
@@ -139,6 +141,8 @@ export const keys = pgTable('keys', {
 
   // Provider group for this key (explicit; defaults to "default")
   providerGroup: varchar('provider_group', { length: 200 }).default('default'),
+  priceProviderGroup: varchar('price_provider_group', { length: 200 }),
+  latencyProviderGroup: varchar('latency_provider_group', { length: 200 }),
   sortStrategy: providerSortStrategyEnum('sort_strategy').notNull().default('none'),
 
   // Cache TTL override：null/NULL 表示遵循供应商或客户端请求
@@ -238,6 +242,18 @@ export const providers = pgTable('providers', {
   // Both null = always active; both set = active during window only
   activeTimeStart: varchar('active_time_start', { length: 5 }),
   activeTimeEnd: varchar('active_time_end', { length: 5 }),
+
+  // Mini latency probe settings.
+  // null enabled = inherit global env switch; false disables this provider only.
+  latencyProbeEnabled: boolean('latency_probe_enabled'),
+  latencyProbeModel: varchar('latency_probe_model', { length: 128 }),
+  latencyProbeIntervalMs: integer('latency_probe_interval_ms'),
+  latencyProbeTimeStart: varchar('latency_probe_time_start', { length: 5 }),
+  latencyProbeTimeEnd: varchar('latency_probe_time_end', { length: 5 }),
+  latencyProbeLastAvgMs: integer('latency_probe_last_avg_ms'),
+  latencyProbeLastStatus: varchar('latency_probe_last_status', { length: 20 }),
+  latencyProbeLastError: text('latency_probe_last_error'),
+  latencyProbeLastRunAt: timestamp('latency_probe_last_run_at', { withTimezone: true }),
 
   // Codex instructions 策略（已废弃）：历史字段保留以兼容旧数据
   // 当前运行时对 Codex 请求的 instructions 一律透传，不再读取/生效此配置
@@ -381,6 +397,42 @@ export const providers = pgTable('providers', {
     sql`${table.deletedAt} IS NULL AND ${table.isEnabled} = true AND ${table.providerVendorId} IS NOT NULL AND ${table.providerVendorId} > 0`
   ),
 }));
+
+export const providerUpstreamRateSyncConfigs = pgTable(
+  'provider_upstream_rate_sync_configs',
+  {
+    id: serial('id').primaryKey(),
+    providerId: integer('provider_id')
+      .notNull()
+      .references(() => providers.id, { onDelete: 'cascade' }),
+    source: varchar('source', { length: 20 }).notNull().$type<'sub2api' | 'newapi'>(),
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    baseUrl: text('base_url').notNull(),
+    apiKey: text('api_key'),
+    keyName: varchar('key_name', { length: 255 }),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    tokenExpiresAt: bigint('token_expires_at', { mode: 'number' }),
+    cookie: text('cookie'),
+    userId: varchar('user_id', { length: 128 }),
+    syncIntervalMinutes: integer('sync_interval_minutes').notNull().default(60),
+    lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+    lastSyncOk: boolean('last_sync_ok'),
+    lastSyncRate: numeric('last_sync_rate', { precision: 10, scale: 4 }),
+    lastSyncError: text('last_sync_error'),
+    lastUpstreamGroupName: varchar('last_upstream_group_name', { length: 255 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    providerUpstreamRateSyncProviderUnique: uniqueIndex(
+      'uniq_provider_upstream_rate_sync_provider'
+    ).on(table.providerId),
+    providerUpstreamRateSyncEnabledIdx: index(
+      'idx_provider_upstream_rate_sync_enabled'
+    ).on(table.isEnabled, table.lastSyncedAt),
+  })
+);
 
 // Provider Endpoints table - 供应商(官网域名) + 类型 维度的端点池
 export const providerEndpoints = pgTable('provider_endpoints', {

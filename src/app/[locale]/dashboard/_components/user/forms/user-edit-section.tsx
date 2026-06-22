@@ -40,6 +40,8 @@ export interface UserEditSectionProps {
     tags?: string[];
     expiresAt?: Date | null;
     providerGroup?: string | null;
+    priceProviderGroup?: string | null;
+    latencyProviderGroup?: string | null;
     sortStrategy?: "none" | "price" | "latency";
     // 所有限额字段
     rpm?: number | null;
@@ -77,6 +79,36 @@ export interface UserEditSectionProps {
       description: { label: string; placeholder: string };
       tags: { label: string; placeholder: string };
       providerGroup?: {
+        label: string;
+        placeholder: string;
+        providersSuffix?: string;
+        tagInputErrors?: {
+          empty?: string;
+          duplicate?: string;
+          too_long?: string;
+          invalid_format?: string;
+          max_tags?: string;
+        };
+        errors?: {
+          loadFailed?: string;
+        };
+      };
+      priceProviderGroup?: {
+        label: string;
+        placeholder: string;
+        providersSuffix?: string;
+        tagInputErrors?: {
+          empty?: string;
+          duplicate?: string;
+          too_long?: string;
+          invalid_format?: string;
+          max_tags?: string;
+        };
+        errors?: {
+          loadFailed?: string;
+        };
+      };
+      latencyProviderGroup?: {
         label: string;
         placeholder: string;
         providersSuffix?: string;
@@ -459,6 +491,22 @@ export function UserEditSection({
                 onChange={(val) => emitChange("providerGroup", val)}
                 disabled={false}
                 translations={translations.fields.providerGroup}
+              />
+            )}
+            {showProviderGroup && translations.fields.priceProviderGroup && (
+              <ProviderGroupSelect
+                value={user.priceProviderGroup || ""}
+                onChange={(val) => emitChange("priceProviderGroup", val)}
+                disabled={false}
+                translations={translations.fields.priceProviderGroup}
+              />
+            )}
+            {showProviderGroup && translations.fields.latencyProviderGroup && (
+              <ProviderGroupSelect
+                value={user.latencyProviderGroup || ""}
+                onChange={(val) => emitChange("latencyProviderGroup", val)}
+                disabled={false}
+                translations={translations.fields.latencyProviderGroup}
               />
             )}
             {showProviderGroup && translations.fields.sortStrategy && (

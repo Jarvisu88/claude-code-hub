@@ -227,6 +227,9 @@ async function buildUserDisplays(
         rpm: user.rpm,
         dailyQuota: user.dailyQuota,
         providerGroup: user.providerGroup || undefined,
+        priceProviderGroup: user.priceProviderGroup || undefined,
+        latencyProviderGroup: user.latencyProviderGroup || undefined,
+        sortStrategy: user.sortStrategy,
         tags: user.tags || [],
         limit5hUsd: user.limit5hUsd ?? null,
         limit5hResetMode: user.limit5hResetMode,
@@ -294,6 +297,9 @@ async function buildUserDisplays(
         rpm: user.rpm,
         dailyQuota: user.dailyQuota,
         providerGroup: user.providerGroup || undefined,
+        priceProviderGroup: user.priceProviderGroup || undefined,
+        latencyProviderGroup: user.latencyProviderGroup || undefined,
+        sortStrategy: user.sortStrategy,
         tags: user.tags || [],
         limit5hUsd: user.limit5hUsd ?? null,
         limit5hResetMode: user.limit5hResetMode,
@@ -758,6 +764,9 @@ export async function getUsersBatch(
           rpm: user.rpm,
           dailyQuota: user.dailyQuota,
           providerGroup: user.providerGroup || undefined,
+          priceProviderGroup: user.priceProviderGroup || undefined,
+          latencyProviderGroup: user.latencyProviderGroup || undefined,
+          sortStrategy: user.sortStrategy,
           tags: user.tags || [],
           limit5hUsd: user.limit5hUsd ?? null,
           limit5hResetMode: user.limit5hResetMode,
@@ -825,6 +834,9 @@ export async function getUsersBatch(
           rpm: user.rpm,
           dailyQuota: user.dailyQuota,
           providerGroup: user.providerGroup || undefined,
+          priceProviderGroup: user.priceProviderGroup || undefined,
+          latencyProviderGroup: user.latencyProviderGroup || undefined,
+          sortStrategy: user.sortStrategy,
           tags: user.tags || [],
           limit5hUsd: user.limit5hUsd ?? null,
           limit5hResetMode: user.limit5hResetMode,
@@ -907,6 +919,9 @@ export async function getUsersBatchCore(
         rpm: user.rpm,
         dailyQuota: user.dailyQuota,
         providerGroup: user.providerGroup || undefined,
+        priceProviderGroup: user.priceProviderGroup || undefined,
+        latencyProviderGroup: user.latencyProviderGroup || undefined,
+        sortStrategy: user.sortStrategy,
         tags: user.tags || [],
         limit5hUsd: user.limit5hUsd ?? null,
         limit5hResetMode: user.limit5hResetMode,
@@ -1295,6 +1310,8 @@ export async function addUser(data: {
   name: string;
   note?: string;
   providerGroup?: string | null;
+  priceProviderGroup?: string | null;
+  latencyProviderGroup?: string | null;
   sortStrategy?: SortStrategy;
   tags?: string[];
   rpm?: number | null;
@@ -1359,6 +1376,8 @@ export async function addUser(data: {
       name: data.name,
       note: data.note || "",
       providerGroup: data.providerGroup || "",
+      priceProviderGroup: data.priceProviderGroup || "",
+      latencyProviderGroup: data.latencyProviderGroup || "",
       sortStrategy: data.sortStrategy ?? "none",
       tags: data.tags || [],
       rpm: data.rpm ?? null,
@@ -1416,11 +1435,15 @@ export async function addUser(data: {
 
     const validatedData = validationResult.data;
     const providerGroup = normalizeProviderGroup(validatedData.providerGroup);
+    const priceProviderGroup = normalizeProviderGroup(validatedData.priceProviderGroup);
+    const latencyProviderGroup = normalizeProviderGroup(validatedData.latencyProviderGroup);
 
     const newUser = await createUser({
       name: validatedData.name,
       description: validatedData.note || "",
       providerGroup,
+      priceProviderGroup,
+      latencyProviderGroup,
       sortStrategy: validatedData.sortStrategy,
       tags: validatedData.tags,
       rpm: validatedData.rpm,
@@ -1507,6 +1530,8 @@ export async function createUserOnly(data: {
   name: string;
   note?: string;
   providerGroup?: string | null;
+  priceProviderGroup?: string | null;
+  latencyProviderGroup?: string | null;
   sortStrategy?: SortStrategy;
   tags?: string[];
   rpm?: number | null;
@@ -1564,6 +1589,8 @@ export async function createUserOnly(data: {
       name: data.name,
       note: data.note || "",
       providerGroup: data.providerGroup || "",
+      priceProviderGroup: data.priceProviderGroup || "",
+      latencyProviderGroup: data.latencyProviderGroup || "",
       sortStrategy: data.sortStrategy ?? "none",
       tags: data.tags || [],
       rpm: data.rpm ?? null,
@@ -1620,11 +1647,15 @@ export async function createUserOnly(data: {
 
     const validatedData = validationResult.data;
     const providerGroup = normalizeProviderGroup(validatedData.providerGroup);
+    const priceProviderGroup = normalizeProviderGroup(validatedData.priceProviderGroup);
+    const latencyProviderGroup = normalizeProviderGroup(validatedData.latencyProviderGroup);
 
     const newUser = await createUser({
       name: validatedData.name,
       description: validatedData.note || "",
       providerGroup,
+      priceProviderGroup,
+      latencyProviderGroup,
       sortStrategy: validatedData.sortStrategy,
       tags: validatedData.tags,
       rpm: validatedData.rpm,
@@ -1696,6 +1727,8 @@ export async function editUser(
     name?: string;
     note?: string;
     providerGroup?: string | null;
+    priceProviderGroup?: string | null;
+    latencyProviderGroup?: string | null;
     sortStrategy?: SortStrategy;
     tags?: string[];
     rpm?: number | null;
@@ -1799,12 +1832,26 @@ export async function editUser(
       validatedData.providerGroup === undefined
         ? undefined
         : normalizeProviderGroup(validatedData.providerGroup);
+    const nextPriceProviderGroup =
+      validatedData.priceProviderGroup === undefined
+        ? undefined
+        : normalizeProviderGroup(validatedData.priceProviderGroup);
+    const nextLatencyProviderGroup =
+      validatedData.latencyProviderGroup === undefined
+        ? undefined
+        : normalizeProviderGroup(validatedData.latencyProviderGroup);
 
     // Update user with validated data
     await updateUser(userId, {
       name: validatedData.name,
       description: validatedData.note,
       ...(nextProviderGroup !== undefined ? { providerGroup: nextProviderGroup } : {}),
+      ...(nextPriceProviderGroup !== undefined
+        ? { priceProviderGroup: nextPriceProviderGroup }
+        : {}),
+      ...(nextLatencyProviderGroup !== undefined
+        ? { latencyProviderGroup: nextLatencyProviderGroup }
+        : {}),
       ...(validatedData.sortStrategy !== undefined
         ? { sortStrategy: validatedData.sortStrategy }
         : {}),

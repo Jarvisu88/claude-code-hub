@@ -332,6 +332,15 @@ export interface Provider {
   // Scheduled active time window (HH:mm format, null = always active)
   activeTimeStart: string | null;
   activeTimeEnd: string | null;
+  latencyProbeEnabled: boolean | null;
+  latencyProbeModel: string | null;
+  latencyProbeIntervalMs: number | null;
+  latencyProbeTimeStart: string | null;
+  latencyProbeTimeEnd: string | null;
+  latencyProbeLastAvgMs: number | null;
+  latencyProbeLastStatus: "success" | "failed" | null;
+  latencyProbeLastError: string | null;
+  latencyProbeLastRunAt: Date | null;
 
   // 模型列表：双重语义
   // - Anthropic 提供商：白名单（管理员限制可调度的模型，可选）
@@ -453,6 +462,15 @@ export interface ProviderDisplay {
   // Scheduled active time window
   activeTimeStart: string | null;
   activeTimeEnd: string | null;
+  latencyProbeEnabled: boolean | null;
+  latencyProbeModel: string | null;
+  latencyProbeIntervalMs: number | null;
+  latencyProbeTimeStart: string | null;
+  latencyProbeTimeEnd: string | null;
+  latencyProbeLastAvgMs: number | null;
+  latencyProbeLastStatus: "success" | "failed" | null;
+  latencyProbeLastError: string | null;
+  latencyProbeLastRunAt: string | null;
   // 模型列表（双重语义）
   allowedModels: AllowedModelRuleInput[] | null;
   allowedClients: string[]; // Allowed client patterns (empty = no restriction)
@@ -513,6 +531,18 @@ export interface ProviderDisplay {
   todayCallCount?: number;
   lastCallTime?: string | null;
   lastCallModel?: string | null;
+  upstreamRateSync?: ProviderUpstreamRateSyncSummary | null;
+}
+
+export interface ProviderUpstreamRateSyncSummary {
+  isConfigured: boolean;
+  isEnabled: boolean;
+  source: "sub2api" | "newapi";
+  lastSyncedAt: string | null;
+  lastSyncOk: boolean | null;
+  lastSyncRate: number | null;
+  lastSyncError: string | null;
+  lastUpstreamGroupName: string | null;
 }
 
 /**
@@ -570,6 +600,11 @@ export interface CreateProviderData {
   model_redirects?: ProviderModelRedirectRule[] | null;
   active_time_start?: string | null;
   active_time_end?: string | null;
+  latency_probe_enabled?: boolean | null;
+  latency_probe_model?: string | null;
+  latency_probe_interval_ms?: number | null;
+  latency_probe_time_start?: string | null;
+  latency_probe_time_end?: string | null;
   allowed_models?: AllowedModelRuleInput[] | null;
   allowed_clients?: string[] | null;
   blocked_clients?: string[] | null;
@@ -654,6 +689,11 @@ export interface UpdateProviderData {
   model_redirects?: ProviderModelRedirectRule[] | null;
   active_time_start?: string | null;
   active_time_end?: string | null;
+  latency_probe_enabled?: boolean | null;
+  latency_probe_model?: string | null;
+  latency_probe_interval_ms?: number | null;
+  latency_probe_time_start?: string | null;
+  latency_probe_time_end?: string | null;
   allowed_models?: AllowedModelRuleInput[] | null;
   allowed_clients?: string[] | null;
   blocked_clients?: string[] | null;

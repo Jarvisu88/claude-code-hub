@@ -3,6 +3,10 @@
   "actions": {
     "edit": "編輯",
     "test": "測試",
+    "rateSyncAutoOn": "開啟倍率自動同步",
+    "rateSyncAutoOff": "關閉倍率自動同步",
+    "miniProbeAutoOn": "開啟自動探針",
+    "miniProbeAutoOff": "關閉自動探針",
     "resetCircuit": "重設熔斷器",
     "delete": "刪除"
   },
@@ -66,6 +70,12 @@
     "undoFailed": "復原失敗: {error}",
     "failed": "操作失敗: {error}",
     "circuitReset": "已重設 {count} 個熔斷器"
+  },
+  "batchRateSyncAuto": {
+    "success": "上游倍率自動同步已更新 {updated} 個，跳過 {skipped} 個未配置項"
+  },
+  "batchMiniProbeAuto": {
+    "success": "Mini 探針自動開關已更新 {count} 個供應商"
   },
   "undo": {
     "batchDeleteSuccess": "已刪除 {count} 個供應商",

@@ -8,6 +8,14 @@ import { DatePickerField } from "@/components/form/date-picker-field";
 import { ArrayTagInputField, TagInputField, TextField } from "@/components/form/form-field";
 import { DialogFormLayout, FormGrid } from "@/components/form/form-layout";
 import { InlineWarning } from "@/components/ui/inline-warning";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { getAvailableProviderGroups } from "@/lib/api-client/v1/actions/providers";
 import { addUser, editUser } from "@/lib/api-client/v1/actions/users";
@@ -33,6 +41,9 @@ interface UserFormProps {
     rpm: number | null;
     dailyQuota: number | null;
     providerGroup?: string | null;
+    priceProviderGroup?: string | null;
+    latencyProviderGroup?: string | null;
+    sortStrategy?: "none" | "price" | "latency";
     tags?: string[];
     limit5hUsd?: number | null;
     limitWeeklyUsd?: number | null;
@@ -86,6 +97,9 @@ export function UserForm({ user, onSuccess, currentUser }: UserFormProps) {
       rpm: user?.rpm ?? null,
       dailyQuota: user?.dailyQuota ?? null,
       providerGroup: user?.providerGroup || PROVIDER_GROUP.DEFAULT,
+      priceProviderGroup: user?.priceProviderGroup || "",
+      latencyProviderGroup: user?.latencyProviderGroup || "",
+      sortStrategy: user?.sortStrategy ?? "none",
       tags: user?.tags || [],
       limit5hUsd: user?.limit5hUsd ?? null,
       limitWeeklyUsd: user?.limitWeeklyUsd ?? null,
@@ -115,6 +129,9 @@ export function UserForm({ user, onSuccess, currentUser }: UserFormProps) {
               rpm: data.rpm,
               dailyQuota: data.dailyQuota,
               providerGroup: data.providerGroup || PROVIDER_GROUP.DEFAULT,
+              priceProviderGroup: data.priceProviderGroup || "",
+              latencyProviderGroup: data.latencyProviderGroup || "",
+              sortStrategy: data.sortStrategy ?? "none",
               tags: data.tags,
               limit5hUsd: data.limit5hUsd,
               limitWeeklyUsd: data.limitWeeklyUsd,
@@ -134,6 +151,9 @@ export function UserForm({ user, onSuccess, currentUser }: UserFormProps) {
               rpm: data.rpm,
               dailyQuota: data.dailyQuota,
               providerGroup: data.providerGroup || PROVIDER_GROUP.DEFAULT,
+              priceProviderGroup: data.priceProviderGroup || "",
+              latencyProviderGroup: data.latencyProviderGroup || "",
+              sortStrategy: data.sortStrategy ?? "none",
               tags: data.tags,
               limit5hUsd: data.limit5hUsd,
               limitWeeklyUsd: data.limitWeeklyUsd,
@@ -234,6 +254,80 @@ export function UserForm({ user, onSuccess, currentUser }: UserFormProps) {
         error={form.getFieldProps("providerGroup").error}
         touched={form.getFieldProps("providerGroup").touched}
       />
+
+      {isAdmin && (
+        <FormGrid columns={2}>
+          <TagInputField
+            label={tUserEdit("fields.priceProviderGroup.label")}
+            maxTagLength={200}
+            placeholder={tUserEdit("fields.priceProviderGroup.placeholder")}
+            suggestions={providerGroupSuggestions}
+            validateTag={() => true}
+            onInvalidTag={(_tag, reason) => {
+              const messages: Record<string, string> = {
+                empty: tUI("emptyTag"),
+                duplicate: tUI("duplicateTag"),
+                too_long: tUI("tooLong", { max: 200 }),
+                invalid_format: tUI("invalidFormat"),
+                max_tags: tUI("maxTags"),
+              };
+              toast.error(messages[reason] || reason);
+            }}
+            value={String(form.getFieldProps("priceProviderGroup").value)}
+            onChange={form.getFieldProps("priceProviderGroup").onChange}
+            error={form.getFieldProps("priceProviderGroup").error}
+            touched={form.getFieldProps("priceProviderGroup").touched}
+          />
+
+          <TagInputField
+            label={tUserEdit("fields.latencyProviderGroup.label")}
+            maxTagLength={200}
+            placeholder={tUserEdit("fields.latencyProviderGroup.placeholder")}
+            suggestions={providerGroupSuggestions}
+            validateTag={() => true}
+            onInvalidTag={(_tag, reason) => {
+              const messages: Record<string, string> = {
+                empty: tUI("emptyTag"),
+                duplicate: tUI("duplicateTag"),
+                too_long: tUI("tooLong", { max: 200 }),
+                invalid_format: tUI("invalidFormat"),
+                max_tags: tUI("maxTags"),
+              };
+              toast.error(messages[reason] || reason);
+            }}
+            value={String(form.getFieldProps("latencyProviderGroup").value)}
+            onChange={form.getFieldProps("latencyProviderGroup").onChange}
+            error={form.getFieldProps("latencyProviderGroup").error}
+            touched={form.getFieldProps("latencyProviderGroup").touched}
+          />
+
+          <div className="grid gap-2 sm:col-span-2">
+            <Label>{tUserEdit("fields.sortStrategy.label")}</Label>
+            <Select
+              value={form.values.sortStrategy ?? "none"}
+              onValueChange={(value) =>
+                form.setValue("sortStrategy", value as "none" | "price" | "latency")
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{tUserEdit("fields.sortStrategy.optionNone")}</SelectItem>
+                <SelectItem value="price">
+                  {tUserEdit("fields.sortStrategy.optionPrice")}
+                </SelectItem>
+                <SelectItem value="latency">
+                  {tUserEdit("fields.sortStrategy.optionLatency")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {tUserEdit("fields.sortStrategy.hint")}
+            </p>
+          </div>
+        </FormGrid>
+      )}
 
       <ArrayTagInputField
         label={tForm("tags.label")}

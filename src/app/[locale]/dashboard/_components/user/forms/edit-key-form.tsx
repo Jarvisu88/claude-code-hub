@@ -45,6 +45,8 @@ interface EditKeyFormProps {
     expiresAt: string;
     canLoginWebUi?: boolean;
     providerGroup?: string | null;
+    priceProviderGroup?: string | null;
+    latencyProviderGroup?: string | null;
     sortStrategy?: "none" | "price" | "latency";
     cacheTtlPreference?: "inherit" | "5m" | "1h";
     limit5hUsd?: number | null;
@@ -130,6 +132,8 @@ export function EditKeyForm({ keyData, user, isAdmin = false, onSuccess }: EditK
       expiresAt: formatExpiresAt(keyData?.expiresAt || ""),
       canLoginWebUi: keyData?.canLoginWebUi ?? true,
       providerGroup: keyData?.providerGroup || PROVIDER_GROUP.DEFAULT,
+      priceProviderGroup: keyData?.priceProviderGroup || "",
+      latencyProviderGroup: keyData?.latencyProviderGroup || "",
       sortStrategy: keyData?.sortStrategy ?? "none",
       cacheTtlPreference: keyData?.cacheTtlPreference ?? "inherit",
       limit5hUsd: keyData?.limit5hUsd ?? null,
@@ -164,7 +168,13 @@ export function EditKeyForm({ keyData, user, isAdmin = false, onSuccess }: EditK
             limitMonthlyUsd: data.limitMonthlyUsd,
             limitTotalUsd: data.limitTotalUsd,
             limitConcurrentSessions: data.limitConcurrentSessions,
-            ...(isAdmin ? { providerGroup: data.providerGroup || PROVIDER_GROUP.DEFAULT } : {}),
+            ...(isAdmin
+              ? {
+                  providerGroup: data.providerGroup || PROVIDER_GROUP.DEFAULT,
+                  priceProviderGroup: data.priceProviderGroup || "",
+                  latencyProviderGroup: data.latencyProviderGroup || "",
+                }
+              : {}),
             ...(isAdmin ? { sortStrategy: data.sortStrategy ?? "none" } : {}),
           });
           if (!res.ok) {
@@ -285,6 +295,56 @@ export function EditKeyForm({ keyData, user, isAdmin = false, onSuccess }: EditK
         touched={form.getFieldProps("providerGroup").touched}
         disabled={!isAdmin}
       />
+
+      {isAdmin && (
+        <FormGrid columns={2}>
+          <TagInputField
+            label={tKeyEdit("priceProviderGroup.label")}
+            maxTagLength={200}
+            placeholder={tKeyEdit("priceProviderGroup.placeholder")}
+            description={tKeyEdit("priceProviderGroup.description")}
+            suggestions={providerGroupSuggestions}
+            validateTag={() => true}
+            onInvalidTag={(_tag, reason) => {
+              const messages: Record<string, string> = {
+                empty: tUI("emptyTag"),
+                duplicate: tUI("duplicateTag"),
+                too_long: tUI("tooLong", { max: 200 }),
+                invalid_format: tUI("invalidFormat"),
+                max_tags: tUI("maxTags"),
+              };
+              toast.error(messages[reason] || reason);
+            }}
+            value={String(form.getFieldProps("priceProviderGroup").value)}
+            onChange={(value) => form.setValue("priceProviderGroup", value)}
+            error={form.getFieldProps("priceProviderGroup").error}
+            touched={form.getFieldProps("priceProviderGroup").touched}
+          />
+
+          <TagInputField
+            label={tKeyEdit("latencyProviderGroup.label")}
+            maxTagLength={200}
+            placeholder={tKeyEdit("latencyProviderGroup.placeholder")}
+            description={tKeyEdit("latencyProviderGroup.description")}
+            suggestions={providerGroupSuggestions}
+            validateTag={() => true}
+            onInvalidTag={(_tag, reason) => {
+              const messages: Record<string, string> = {
+                empty: tUI("emptyTag"),
+                duplicate: tUI("duplicateTag"),
+                too_long: tUI("tooLong", { max: 200 }),
+                invalid_format: tUI("invalidFormat"),
+                max_tags: tUI("maxTags"),
+              };
+              toast.error(messages[reason] || reason);
+            }}
+            value={String(form.getFieldProps("latencyProviderGroup").value)}
+            onChange={(value) => form.setValue("latencyProviderGroup", value)}
+            error={form.getFieldProps("latencyProviderGroup").error}
+            touched={form.getFieldProps("latencyProviderGroup").touched}
+          />
+        </FormGrid>
+      )}
 
       <div className="space-y-2">
         <Label>{tKeyEdit("cacheTtl.label")}</Label>

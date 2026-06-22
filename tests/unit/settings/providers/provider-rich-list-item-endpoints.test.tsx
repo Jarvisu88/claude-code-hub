@@ -47,8 +47,14 @@ const providersActionMocks = vi.hoisted(() => ({
   getUnmaskedProviderKey: vi.fn(async () => ({ ok: true, data: { key: "sk-test" } })),
   resetProviderCircuit: vi.fn(async () => ({ ok: true })),
   resetProviderTotalUsage: vi.fn(async () => ({ ok: true })),
+  getProviderUpstreamRateSyncConfig: vi.fn(async () => ({ ok: true, data: null })),
+  runProviderLatencyProbe: vi.fn(async () => ({
+    ok: true,
+    data: { avgLatencyMs: 123, sampledAt: 1, status: "success" },
+  })),
+  syncProviderUpstreamRateNow: vi.fn(async () => ({ ok: true, data: {} })),
 }));
-vi.mock("@/actions/providers", () => providersActionMocks);
+vi.mock("@/lib/api-client/v1/actions/providers", () => providersActionMocks);
 
 // Mock tooltip to simplify testing
 vi.mock("@/components/ui/tooltip", () => ({
@@ -128,6 +134,22 @@ function makeProviderDisplay(overrides: Partial<ProviderDisplay> = {}): Provider
     codexParallelToolCallsPreference: null,
     anthropicMaxTokensPreference: null,
     anthropicThinkingBudgetPreference: null,
+    activeTimeStart: null,
+    activeTimeEnd: null,
+    allowedClients: [],
+    blockedClients: [],
+    groupPriorities: null,
+    isFailoverOnly: false,
+    latencyProbeEnabled: null,
+    latencyProbeIntervalMs: null,
+    latencyProbeLastAvgMs: null,
+    latencyProbeLastError: null,
+    latencyProbeLastRunAt: null,
+    latencyProbeLastStatus: null,
+    latencyProbeModel: null,
+    latencyProbeTimeEnd: null,
+    latencyProbeTimeStart: null,
+    upstreamRateSync: null,
     tpm: null,
     rpm: null,
     rpd: null,
@@ -170,6 +192,13 @@ async function flushTicks(times = 3) {
       await new Promise((r) => setTimeout(r, 0));
     });
   }
+}
+
+async function waitForClickDelay() {
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 280));
+  });
+  await flushTicks(2);
 }
 
 describe("ProviderRichListItem Endpoint Display", () => {
@@ -269,4 +298,119 @@ describe("ProviderRichListItem Endpoint Display", () => {
 
     unmount();
   });
+
+  test("single click runs upstream rate sync and double click opens its editor", async () => {
+    const provider = makeProviderDisplay();
+
+    const { unmount } = renderWithProviders(
+      <ProviderRichListItem
+        provider={provider}
+        currentUser={ADMIN_USER}
+        enableMultiProviderTypes={true}
+      />
+    );
+
+    await flushTicks(5);
+
+    const rateSyncButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.getAttribute("title") === "Upstream Rate Sync"
+    );
+    expect(rateSyncButton).toBeTruthy();
+
+    await act(async () => {
+      rateSyncButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await waitForClickDelay();
+
+    expect(providersActionMocks.syncProviderUpstreamRateNow).toHaveBeenCalledWith(provider.id);
+
+    providersActionMocks.syncProviderUpstreamRateNow.mockClear();
+
+    await act(async () => {
+      rateSyncButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      rateSyncButton?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    await waitForClickDelay();
+
+    expect(providersActionMocks.syncProviderUpstreamRateNow).not.toHaveBeenCalled();
+    expect(providersActionMocks.getProviderUpstreamRateSyncConfig).toHaveBeenCalledWith(
+      provider.id
+    );
+    expect(document.body.textContent).toContain("Upstream Rate Sync");
+
+    unmount();
+  }, 30000);
+
+  test("single click runs Mini probe and double click opens its editor", async () => {
+    const provider = makeProviderDisplay();
+
+    const { unmount } = renderWithProviders(
+      <ProviderRichListItem
+        provider={provider}
+        currentUser={ADMIN_USER}
+        enableMultiProviderTypes={true}
+      />
+    );
+
+    await flushTicks(5);
+
+    const probeButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.getAttribute("aria-label") === "Mini probe"
+    );
+    expect(probeButton).toBeTruthy();
+
+    await act(async () => {
+      probeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await waitForClickDelay();
+
+    expect(providersActionMocks.runProviderLatencyProbe).toHaveBeenCalledWith(provider.id);
+
+    providersActionMocks.runProviderLatencyProbe.mockClear();
+
+    await act(async () => {
+      probeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      probeButton?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+    await waitForClickDelay();
+
+    expect(providersActionMocks.runProviderLatencyProbe).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Mini probe");
+    expect(document.body.textContent).toContain("Enable background probe");
+
+    unmount();
+  }, 30000);
+
+  test("opens Mini probe failure details from the failed status chip", async () => {
+    const provider = makeProviderDisplay({
+      latencyProbeLastStatus: "failed",
+      latencyProbeLastError: "HTTP 401 - Unauthorized",
+      latencyProbeLastRunAt: "2026-06-22T00:00:00.000Z",
+    });
+
+    const { unmount } = renderWithProviders(
+      <ProviderRichListItem
+        provider={provider}
+        currentUser={ADMIN_USER}
+        enableMultiProviderTypes={true}
+      />
+    );
+
+    await flushTicks(5);
+
+    const failedProbeButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Probe failed")
+    );
+    expect(failedProbeButton).toBeTruthy();
+
+    await act(async () => {
+      failedProbeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flushTicks(2);
+
+    expect(document.body.textContent).toContain("Probe failure details");
+    expect(document.body.textContent).toContain("HTTP 401 - Unauthorized");
+
+    unmount();
+  }, 30000);
 });

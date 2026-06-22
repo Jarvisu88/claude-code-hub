@@ -82,48 +82,28 @@ describe("ProxyProviderResolver.pickRandomProvider - format/providerType compati
     expect(mismatch.details).toContain("claude");
   });
 
-  test("openai format rejects codex provider, selects openai-compatible", async () => {
+  test("openai format accepts codex provider (cross-compatible)", async () => {
     const ProxyProviderResolver = await setupResolverMocks();
 
-    const incompatible = createProvider(1, "codex");
-    const compatible = createProvider(2, "openai-compatible");
-    const session = createSessionStub("openai", [incompatible, compatible], "gpt-4o");
+    const codexProvider = createProvider(1, "codex");
+    const session = createSessionStub("openai", [codexProvider], "gpt-4o");
 
-    const { provider, context } = await (ProxyProviderResolver as any).pickRandomProvider(
-      session,
-      []
-    );
+    const { provider } = await (ProxyProviderResolver as any).pickRandomProvider(session, []);
 
-    expect(provider?.id).toBe(2);
-    expect(provider?.providerType).toBe("openai-compatible");
-
-    const mismatch = context.filteredProviders.find(
-      (fp: any) => fp.id === 1 && fp.reason === "format_type_mismatch"
-    );
-    expect(mismatch).toBeDefined();
+    expect(provider?.id).toBe(1);
+    expect(provider?.providerType).toBe("codex");
   });
 
-  test("response format rejects openai-compatible provider, selects codex", async () => {
+  test("response format accepts openai-compatible provider (cross-compatible)", async () => {
     const ProxyProviderResolver = await setupResolverMocks();
 
-    const incompatible = createProvider(1, "openai-compatible");
-    const compatible = createProvider(2, "codex");
-    const session = createSessionStub("response", [incompatible, compatible], "codex-mini-latest");
+    const openaiProvider = createProvider(1, "openai-compatible");
+    const session = createSessionStub("response", [openaiProvider], "codex-mini-latest");
 
-    const { provider, context } = await (ProxyProviderResolver as any).pickRandomProvider(
-      session,
-      []
-    );
+    const { provider } = await (ProxyProviderResolver as any).pickRandomProvider(session, []);
 
-    expect(provider?.id).toBe(2);
-    expect(provider?.providerType).toBe("codex");
-
-    const mismatch = context.filteredProviders.find(
-      (fp: any) => fp.id === 1 && fp.reason === "format_type_mismatch"
-    );
-    expect(mismatch).toBeDefined();
-    expect(mismatch.details).toContain("response");
-    expect(mismatch.details).toContain("openai-compatible");
+    expect(provider?.id).toBe(1);
+    expect(provider?.providerType).toBe("openai-compatible");
   });
 
   test("response format rejects claude provider, selects codex", async () => {
@@ -248,7 +228,7 @@ describe("ProxyProviderResolver.pickRandomProvider - format/providerType compati
     const ProxyProviderResolver = await setupResolverMocks();
 
     const p1 = createProvider(1, "claude");
-    const p2 = createProvider(2, "openai-compatible");
+    const p2 = createProvider(2, "gemini");
     const session = createSessionStub("response", [p1, p2], "codex-mini-latest");
 
     const { provider, context } = await (ProxyProviderResolver as any).pickRandomProvider(
@@ -268,8 +248,8 @@ describe("ProxyProviderResolver.pickRandomProvider - format/providerType compati
     const ProxyProviderResolver = await setupResolverMocks();
 
     const p1 = createProvider(1, "claude");
-    const p2 = createProvider(2, "codex");
-    const p3 = createProvider(3, "gemini");
+    const p2 = createProvider(2, "gemini");
+    const p3 = createProvider(3, "gemini-cli");
     const compatible = createProvider(4, "openai-compatible");
     const session = createSessionStub("openai", [p1, p2, p3, compatible], "gpt-4o");
 

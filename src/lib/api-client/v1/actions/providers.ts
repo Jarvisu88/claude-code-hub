@@ -1,4 +1,9 @@
 import type { EditProviderResult, RemoveProviderResult } from "@/actions/providers";
+import type {
+  ProviderLatencyProbeRunResult,
+  ProviderUpstreamRateSyncConfigResult,
+  ProviderUpstreamRateSyncInput,
+} from "@/actions/providers";
 import { DASHBOARD_COMPAT_HEADER } from "@/lib/api/v1/_shared/constants";
 import type {
   ProviderDisplay,
@@ -10,6 +15,7 @@ import {
   apiGet,
   apiPatchWithHeaders,
   apiPost,
+  apiPut,
   searchParams,
   toActionResult,
   unwrapItems,
@@ -103,6 +109,12 @@ export function autoSortProviderPriority(args: unknown) {
   );
 }
 
+export function runProviderLatencyPriorityWorkflowNow(args: unknown) {
+  return toActionResult(
+    apiPost("/api/v1/providers:latencyPriorityWorkflow", args, dashboardCompatOptions)
+  );
+}
+
 // 仪表盘内的 React Query 直接消费返回值；这里不要再用 `toActionResult` 包装，
 // 否则 consumer 会拿到 `{ ok, data }` 而非熔断状态 map，所有熔断指示器永远不显示。
 export function getProvidersHealthStatus(): Promise<ProviderHealthStatus> {
@@ -141,6 +153,12 @@ export function batchUpdateProviders(data: unknown) {
   return toActionResult(apiPost("/api/v1/providers:batchUpdate", data, dashboardCompatOptions));
 }
 
+export function batchSetProviderUpstreamRateSyncEnabled(data: unknown) {
+  return toActionResult(
+    apiPost("/api/v1/providers/upstream-rate-sync:batchSetEnabled", data, dashboardCompatOptions)
+  );
+}
+
 export function batchDeleteProviders(data: unknown) {
   return toActionResult(apiPost("/api/v1/providers:batchDelete", data, dashboardCompatOptions));
 }
@@ -175,6 +193,77 @@ export function testProviderProxy(data: unknown) {
 export function getUnmaskedProviderKey(providerId: number) {
   return toActionResult(
     apiGet<{ key: string }>(`/api/v1/providers/${providerId}/key:reveal`, dashboardCompatOptions)
+  );
+}
+
+export function getProviderUpstreamRateSyncConfig(providerId: number) {
+  return toActionResult(
+    apiGet<{ config: ProviderUpstreamRateSyncConfigResult | null }>(
+      `/api/v1/providers/${providerId}/upstream-rate-sync`,
+      dashboardCompatOptions
+    ).then((body) => body.config)
+  );
+}
+
+export function saveProviderUpstreamRateSyncConfig(
+  providerId: number,
+  data: ProviderUpstreamRateSyncInput
+) {
+  return toActionResult(
+    apiPut<{ config: ProviderUpstreamRateSyncConfigResult }>(
+      `/api/v1/providers/${providerId}/upstream-rate-sync`,
+      data,
+      dashboardCompatOptions
+    ).then((body) => body.config)
+  );
+}
+
+export function deleteProviderUpstreamRateSyncConfig(providerId: number) {
+  return toActionResult(
+    apiDeleteWithHeaders(
+      `/api/v1/providers/${providerId}/upstream-rate-sync`,
+      dashboardCompatOptions
+    ).then(() => ({ deleted: true }))
+  );
+}
+
+export function syncProviderUpstreamRateNow(providerId: number) {
+  return toActionResult(
+    apiPost(
+      `/api/v1/providers/${providerId}/upstream-rate-sync:run`,
+      undefined,
+      dashboardCompatOptions
+    )
+  );
+}
+
+export function runProviderLatencyProbe(providerId: number) {
+  return toActionResult(
+    apiPost<ProviderLatencyProbeRunResult>(
+      `/api/v1/providers/${providerId}/latency-probe:run`,
+      undefined,
+      dashboardCompatOptions
+    )
+  );
+}
+
+export function openProviderUpstreamRateAuthBrowser(providerId: number) {
+  return toActionResult(
+    apiPost<{ opened: true }>(
+      `/api/v1/providers/${providerId}/upstream-rate-sync:auth-open`,
+      undefined,
+      dashboardCompatOptions
+    )
+  );
+}
+
+export function importProviderUpstreamRateAuthFromBrowser(providerId: number) {
+  return toActionResult(
+    apiPost<{ config: ProviderUpstreamRateSyncConfigResult }>(
+      `/api/v1/providers/${providerId}/upstream-rate-sync:auth-import`,
+      undefined,
+      dashboardCompatOptions
+    ).then((body) => body.config)
   );
 }
 

@@ -100,6 +100,30 @@ export async function runApplicationCleanup(
       "stopLatencyProbeScheduler"
     );
 
+    // 2c. 速度优先级自动分组调度器
+    await withTimeout(
+      (async () => {
+        const { stopLatencyPriorityScheduler } = await import(
+          "@/lib/provider-sort/latency-priority-scheduler"
+        );
+        stopLatencyPriorityScheduler();
+      })(),
+      stepMs,
+      "stopLatencyPriorityScheduler"
+    );
+
+    // 2c. 上游倍率同步调度器
+    await withTimeout(
+      (async () => {
+        const { stopUpstreamRateSyncScheduler } = await import(
+          "@/lib/upstream-rate-sync/scheduler"
+        );
+        stopUpstreamRateSyncScheduler();
+      })(),
+      stepMs,
+      "stopUpstreamRateSyncScheduler"
+    );
+
     // 3. 公共状态重建调度器
     await withTimeout(
       (async () => {

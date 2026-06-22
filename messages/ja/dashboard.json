@@ -1088,6 +1088,16 @@
         "fixed": "最初の成功課金から 5 時間の固定ウィンドウを開始します",
         "rolling": "直近5時間のローリングウィンドウで集計します"
       }
+    },
+    "priceProviderGroup": {
+      "label": "価格グループ",
+      "placeholder": "コスト順で使うプロバイダーグループを入力",
+      "description": "価格順を選んだ時に優先して使います。空欄なら既定グループを継承します。"
+    },
+    "latencyProviderGroup": {
+      "label": "速度グループ",
+      "placeholder": "速度順で使うプロバイダーグループを入力",
+      "description": "速度順を選んだ時に優先して使います。空欄なら既定グループを継承します。"
     }
   },
   "userForm": {
@@ -1983,6 +1993,14 @@
           "confirmDisableDescription": "無効化すると、このユーザーとそのキーは使用できなくなります。",
           "cancel": "キャンセル",
           "processing": "処理中..."
+        },
+        "priceProviderGroup": {
+          "label": "価格グループ",
+          "placeholder": "空欄の場合はプロバイダーグループを使用"
+        },
+        "latencyProviderGroup": {
+          "label": "速度グループ",
+          "placeholder": "空欄の場合はプロバイダーグループを使用"
         }
       },
       "actions": {
@@ -2062,6 +2080,14 @@
           "optionPrice": "価格優先(最も安いものを優先)",
           "optionLatency": "レイテンシ優先(最速を優先)",
           "hint": "このキーのグループ内プロバイダーのリクエスト順序を制御します"
+        },
+        "priceProviderGroup": {
+          "label": "価格グループ",
+          "placeholder": "空欄の場合はユーザーの価格グループに従う"
+        },
+        "latencyProviderGroup": {
+          "label": "速度グループ",
+          "placeholder": "空欄の場合はユーザーの速度グループに従う"
         }
       },
       "limitRules": {

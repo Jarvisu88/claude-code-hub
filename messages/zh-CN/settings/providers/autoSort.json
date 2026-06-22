@@ -1,7 +1,7 @@
 {
   "button": "自动排序优先级",
   "dialogTitle": "自动排序供应商优先级",
-  "dialogDescription": "根据成本倍率自动分配优先级（低成本 = 高优先级）",
+  "dialogDescription": "按成本或 Mini 探针首字节结果预览并应用供应商优先级。数值越低，优先级越高。",
   "changeCount": "{count} 个供应商将被更新",
   "noChanges": "无需更改（已排序）",
   "costMultiplierHeader": "成本倍率",
@@ -12,5 +12,18 @@
   "priorityChangeHeader": "优先级变更",
   "confirm": "应用变更",
   "success": "已更新 {count} 个供应商的优先级",
-  "error": "更新优先级失败"
+  "error": "更新优先级失败",
+  "modeLabel": "排序方式",
+  "modePrice": "按成本",
+  "modeLatency": "按速度",
+  "providerGroupLabel": "供应商分组",
+  "providerGroupPlaceholder": "留空表示全部供应商",
+  "targetGroupLabel": "目标策略分组",
+  "targetGroupPlaceholder": "留空则使用供应商分组；速度/价格建议填写不同分组",
+  "preview": "预览",
+  "runLatencyWorkflow": "探测并应用速度分组",
+  "latencyWorkflowSuccess": "已探测并更新 {count} 个供应商的速度分组",
+  "targetGroupRequired": "请填写供应商分组或目标策略分组",
+  "latencyHeader": "首字节",
+  "unknownLatency": "未知"
 }

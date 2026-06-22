@@ -3,6 +3,10 @@
   "actions": {
     "edit": "Edit",
     "test": "Test",
+    "rateSyncAutoOn": "Enable Auto Rate Sync",
+    "rateSyncAutoOff": "Disable Auto Rate Sync",
+    "miniProbeAutoOn": "Enable Auto Probe",
+    "miniProbeAutoOff": "Disable Auto Probe",
     "resetCircuit": "Reset Circuit",
     "delete": "Delete"
   },
@@ -66,6 +70,12 @@
     "undoFailed": "Undo failed: {error}",
     "failed": "Operation failed: {error}",
     "circuitReset": "{count} circuit breakers reset"
+  },
+  "batchRateSyncAuto": {
+    "success": "Upstream auto rate sync updated for {updated}, skipped {skipped} unconfigured"
+  },
+  "batchMiniProbeAuto": {
+    "success": "Mini probe auto switch updated for {count} providers"
   },
   "undo": {
     "batchDeleteSuccess": "{count} providers deleted",

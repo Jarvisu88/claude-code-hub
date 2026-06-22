@@ -124,6 +124,8 @@ export async function addKey(data: {
   limitTotalUsd?: number | null;
   limitConcurrentSessions?: number;
   providerGroup?: string | null;
+  priceProviderGroup?: string | null;
+  latencyProviderGroup?: string | null;
   sortStrategy?: SortStrategy;
   cacheTtlPreference?: "inherit" | "5m" | "1h";
 }): Promise<ActionResult<{ id: number; generatedKey: string; name: string }>> {
@@ -199,6 +201,8 @@ export async function addKey(data: {
       limitTotalUsd: data.limitTotalUsd,
       limitConcurrentSessions: data.limitConcurrentSessions,
       providerGroup: providerGroupForKey,
+      priceProviderGroup: isAdmin ? normalizeProviderGroup(data.priceProviderGroup) : null,
+      latencyProviderGroup: isAdmin ? normalizeProviderGroup(data.latencyProviderGroup) : null,
       sortStrategy: data.sortStrategy,
       cacheTtlPreference: data.cacheTtlPreference,
     });
@@ -369,6 +373,8 @@ export async function addKey(data: {
       limit_total_usd: validatedData.limitTotalUsd,
       limit_concurrent_sessions: validatedData.limitConcurrentSessions,
       provider_group: validatedData.providerGroup,
+      price_provider_group: normalizeProviderGroup(validatedData.priceProviderGroup),
+      latency_provider_group: normalizeProviderGroup(validatedData.latencyProviderGroup),
       sort_strategy: validatedData.sortStrategy,
       cache_ttl_preference: validatedData.cacheTtlPreference,
     });
@@ -447,6 +453,8 @@ export async function editKey(
     limitTotalUsd?: number | null;
     limitConcurrentSessions?: number;
     providerGroup?: string | null;
+    priceProviderGroup?: string | null;
+    latencyProviderGroup?: string | null;
     sortStrategy?: SortStrategy;
     cacheTtlPreference?: "inherit" | "5m" | "1h";
   }
@@ -672,6 +680,8 @@ export async function editKey(
       ...(isAdmin
         ? {
             provider_group: normalizeProviderGroup(validatedData.providerGroup),
+            price_provider_group: normalizeProviderGroup(validatedData.priceProviderGroup),
+            latency_provider_group: normalizeProviderGroup(validatedData.latencyProviderGroup),
             sort_strategy: validatedData.sortStrategy,
           }
         : {}),

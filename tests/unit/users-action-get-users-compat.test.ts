@@ -61,6 +61,9 @@ function makeUser(id: number, name = `user-${id}`): User {
     allowedClients: [],
     blockedClients: [],
     allowedModels: [],
+    priceProviderGroup: null,
+    latencyProviderGroup: null,
+    sortStrategy: "none",
   };
 }
 
@@ -464,5 +467,31 @@ describe("getUsers compatibility", () => {
         hasMore: false,
       },
     });
+  });
+
+  test("keeps user scheduling strategy fields in dashboard list data", async () => {
+    const user = makeUser(90, "latency-user");
+    user.providerGroup = "fallback-group";
+    user.priceProviderGroup = "cheap-group";
+    user.latencyProviderGroup = "fast-group";
+    user.sortStrategy = "latency";
+    findUserListBatchMock.mockResolvedValueOnce({
+      users: [user],
+      nextCursor: null,
+      hasMore: false,
+    });
+
+    const { getUsers } = await import("@/actions/users");
+
+    const result = await getUsers();
+
+    expect(result[0]).toEqual(
+      expect.objectContaining({
+        providerGroup: "fallback-group",
+        priceProviderGroup: "cheap-group",
+        latencyProviderGroup: "fast-group",
+        sortStrategy: "latency",
+      })
+    );
   });
 });

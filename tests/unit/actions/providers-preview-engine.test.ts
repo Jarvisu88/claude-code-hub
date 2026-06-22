@@ -12,6 +12,7 @@ vi.mock("@/repository/provider", () => ({
   findAllProvidersFresh: findAllProvidersFreshMock,
   updateProvidersBatch: vi.fn(),
   deleteProvidersBatch: vi.fn(),
+  updateProviderCostMultiplier: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/cache/provider-cache", () => ({

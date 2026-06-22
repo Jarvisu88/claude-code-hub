@@ -42,6 +42,19 @@ import {
   type TestSubStatus,
 } from "@/lib/provider-testing";
 import { getPresetsForProvider } from "@/lib/provider-testing/presets";
+import { probeProviderLatency } from "@/lib/provider-sort/latency-probe-service";
+import {
+  runLatencyPriorityWorkflow,
+  type LatencyPriorityWorkflowResult,
+} from "@/lib/provider-sort/latency-sort-workflow";
+import {
+  syncProviderUpstreamRateByProviderId,
+  type UpstreamRateSyncServiceResult,
+} from "@/lib/upstream-rate-sync/service";
+import {
+  openChromeForUpstreamAuth,
+  readChromeAuthForUpstream,
+} from "@/lib/upstream-rate-sync/browser-auth";
 import {
   createProxyAgentForProvider,
   isValidProxyUrl,
@@ -73,9 +86,19 @@ import {
   getProviderStatistics,
   resetProviderTotalCostResetAt,
   updateProvider,
+  updateProviderGroupPrioritiesBatch,
   updateProviderPrioritiesBatch,
   updateProvidersBatch,
 } from "@/repository/provider";
+import {
+  deleteProviderUpstreamRateSyncConfig,
+  findProviderUpstreamRateSyncConfig,
+  findProviderUpstreamRateSyncConfigsByProviderIds,
+  setProviderUpstreamRateSyncEnabledByProviderIds,
+  shareUpstreamRateSyncAuthBySourceAndBaseUrl,
+  upsertProviderUpstreamRateSyncConfig,
+  type UpstreamRateSyncConfig,
+} from "@/repository/upstream-rate-sync";
 import {
   backfillProviderEndpointsFromProviders,
   computeVendorKey,
@@ -109,7 +132,9 @@ import type { ActionResult } from "./types";
 
 type AutoSortResult = {
   groups: Array<{
-    costMultiplier: number;
+    metric: number | null;
+    costMultiplier?: number;
+    avgLatencyMs?: number | null;
     priority: number;
     providers: Array<{ id: number; name: string }>;
   }>;
@@ -119,6 +144,7 @@ type AutoSortResult = {
     oldPriority: number;
     newPriority: number;
     costMultiplier: number;
+    avgLatencyMs: number | null;
   }>;
   summary: {
     totalProviders: number;
@@ -126,7 +152,70 @@ type AutoSortResult = {
     groupCount: number;
   };
   applied: boolean;
+  mode: "price" | "latency";
+  providerGroup: string | null;
+  targetGroup: string | null;
 };
+
+export type ProviderUpstreamRateSyncConfigResult = {
+  id: number;
+  providerId: number;
+  source: "sub2api" | "newapi";
+  isEnabled: boolean;
+  baseUrl: string;
+  apiKey: string | null;
+  keyName: string | null;
+  providerBaseUrl: string;
+  providerKeyName: string;
+  providerKeySuffix: string | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+  tokenExpiresAt: number | null;
+  cookie: string | null;
+  userId: string | null;
+  syncIntervalMinutes: number;
+  lastSyncedAt: string | null;
+  lastSyncOk: boolean | null;
+  lastSyncRate: number | null;
+  lastSyncError: string | null;
+  lastUpstreamGroupName: string | null;
+};
+
+export type ProviderLatencyProbeRunResult = {
+  avgLatencyMs: number | null;
+  status: "success" | "failed";
+  sampledAt: number;
+};
+
+export type ProviderUpstreamRateSyncInput = {
+  source: "sub2api" | "newapi";
+  is_enabled?: boolean;
+  base_url?: string | null;
+  api_key?: string | null;
+  key_name?: string | null;
+  access_token?: string | null;
+  refresh_token?: string | null;
+  token_expires_at?: number | null;
+  cookie?: string | null;
+  user_id?: string | null;
+  sync_interval_minutes?: number;
+};
+
+const ProviderUpstreamRateSyncInputSchema = z
+  .object({
+    source: z.enum(["sub2api", "newapi"]),
+    is_enabled: z.boolean().optional(),
+    base_url: z.string().trim().url().nullable().optional(),
+    api_key: z.string().trim().nullable().optional(),
+    key_name: z.string().trim().nullable().optional(),
+    access_token: z.string().trim().nullable().optional(),
+    refresh_token: z.string().trim().nullable().optional(),
+    token_expires_at: z.number().int().nonnegative().nullable().optional(),
+    cookie: z.string().trim().nullable().optional(),
+    user_id: z.string().trim().nullable().optional(),
+    sync_interval_minutes: z.number().int().min(1).max(7 * 24 * 60).optional(),
+  })
+  .strict();
 
 const API_TEST_TIMEOUT_LIMITS = {
   DEFAULT: 15000,
@@ -272,6 +361,9 @@ export async function getProviders(): Promise<ProviderDisplay[]> {
 
     // 将统计数据按 provider_id 索引
     const statsMap = new Map(statistics.map((stat) => [stat.id, stat]));
+    const upstreamSyncMap = await findProviderUpstreamRateSyncConfigsByProviderIds(
+      providers.map((provider) => provider.id)
+    );
 
     const result = providers.map((provider) => {
       const stats = statsMap.get(provider.id);
@@ -336,6 +428,17 @@ export async function getProviders(): Promise<ProviderDisplay[]> {
         modelRedirects: provider.modelRedirects,
         activeTimeStart: provider.activeTimeStart,
         activeTimeEnd: provider.activeTimeEnd,
+        latencyProbeEnabled: provider.latencyProbeEnabled,
+        latencyProbeModel: provider.latencyProbeModel,
+        latencyProbeIntervalMs: provider.latencyProbeIntervalMs,
+        latencyProbeTimeStart: provider.latencyProbeTimeStart,
+        latencyProbeTimeEnd: provider.latencyProbeTimeEnd,
+        latencyProbeLastAvgMs: provider.latencyProbeLastAvgMs,
+        latencyProbeLastStatus: provider.latencyProbeLastStatus,
+        latencyProbeLastError: provider.latencyProbeLastError,
+        latencyProbeLastRunAt: provider.latencyProbeLastRunAt
+          ? provider.latencyProbeLastRunAt.toISOString()
+          : null,
         allowedModels: provider.allowedModels,
         allowedClients: provider.allowedClients,
         blockedClients: provider.blockedClients,
@@ -386,6 +489,7 @@ export async function getProviders(): Promise<ProviderDisplay[]> {
         todayCallCount: stats?.today_calls ?? 0,
         lastCallTime: lastCallTimeStr,
         lastCallModel: stats?.last_call_model ?? null,
+        upstreamRateSync: serializeUpstreamRateSyncSummary(upstreamSyncMap.get(provider.id)),
       };
     });
 
@@ -399,6 +503,70 @@ export async function getProviders(): Promise<ProviderDisplay[]> {
     logger.error("获取服务商数据失败:", error);
     return [];
   }
+}
+
+const ProviderUpstreamRateSyncBatchEnabledSchema = z
+  .object({
+    providerIds: z.array(z.number().int().positive()).min(1).max(500),
+    enabled: z.boolean(),
+  })
+  .strict();
+
+export type ProviderUpstreamRateSyncBatchEnabledResult = {
+  updatedCount: number;
+  skippedCount: number;
+};
+
+export async function batchSetProviderUpstreamRateSyncEnabled(
+  input: unknown
+): Promise<ActionResult<ProviderUpstreamRateSyncBatchEnabledResult>> {
+  try {
+    const session = await getSession();
+    if (!session || session.user.role !== "admin") {
+      return { ok: false, error: "无权限执行此操作" };
+    }
+
+    const parsed = ProviderUpstreamRateSyncBatchEnabledSchema.safeParse(input);
+    if (!parsed.success) {
+      return buildActionValidationError(parsed.error);
+    }
+
+    const providerIds = dedupeProviderIds(parsed.data.providerIds);
+    const updatedCount = await setProviderUpstreamRateSyncEnabledByProviderIds(
+      providerIds,
+      parsed.data.enabled
+    );
+
+    await publishProviderCacheInvalidation();
+
+    return {
+      ok: true,
+      data: {
+        updatedCount,
+        skippedCount: providerIds.length - updatedCount,
+      },
+    };
+  } catch (error) {
+    logger.error("批量设置上游倍率自动同步失败:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "批量设置上游倍率自动同步失败",
+    };
+  }
+}
+
+function serializeUpstreamRateSyncSummary(config: UpstreamRateSyncConfig | undefined) {
+  if (!config) return null;
+  return {
+    isConfigured: true,
+    isEnabled: config.isEnabled,
+    source: config.source,
+    lastSyncedAt: config.lastSyncedAt?.toISOString() ?? null,
+    lastSyncOk: config.lastSyncOk,
+    lastSyncRate: config.lastSyncRate == null ? null : Number(config.lastSyncRate),
+    lastSyncError: config.lastSyncError,
+    lastUpstreamGroupName: config.lastUpstreamGroupName,
+  };
 }
 
 /**
@@ -536,6 +704,11 @@ export async function addProvider(data: {
   model_redirects?: ProviderModelRedirectRule[] | null;
   active_time_start?: string | null;
   active_time_end?: string | null;
+  latency_probe_enabled?: boolean | null;
+  latency_probe_model?: string | null;
+  latency_probe_interval_ms?: number | null;
+  latency_probe_time_start?: string | null;
+  latency_probe_time_end?: string | null;
   allowed_models?: AllowedModelRuleInput[] | null;
   allowed_clients?: string[] | null;
   blocked_clients?: string[] | null;
@@ -750,6 +923,11 @@ export async function editProvider(
     model_redirects?: ProviderModelRedirectRule[] | null;
     active_time_start?: string | null;
     active_time_end?: string | null;
+    latency_probe_enabled?: boolean | null;
+    latency_probe_model?: string | null;
+    latency_probe_interval_ms?: number | null;
+    latency_probe_time_start?: string | null;
+    latency_probe_time_end?: string | null;
     allowed_models?: AllowedModelRuleInput[] | null;
     allowed_clients?: string[] | null;
     blocked_clients?: string[] | null;
@@ -986,6 +1164,360 @@ export async function editProvider(
   }
 }
 
+export async function getProviderUpstreamRateSyncConfig(
+  providerId: number
+): Promise<ActionResult<ProviderUpstreamRateSyncConfigResult | null>> {
+  try {
+    const session = await getSession();
+    if (!session || session.user.role !== "admin") {
+      return { ok: false, error: "无权限执行此操作" };
+    }
+
+    const provider = await findProviderById(providerId);
+    if (!provider) {
+      return { ok: false, error: "供应商不存在", errorCode: "PROVIDER_NOT_FOUND" };
+    }
+
+    const config = await findProviderUpstreamRateSyncConfig(providerId);
+    return { ok: true, data: config ? serializeUpstreamRateSyncConfig(config, provider) : null };
+  } catch (error) {
+    logger.error("获取上游倍率同步配置失败:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "获取上游倍率同步配置失败",
+    };
+  }
+}
+
+export async function saveProviderUpstreamRateSyncConfig(
+  providerId: number,
+  input: ProviderUpstreamRateSyncInput
+): Promise<ActionResult<ProviderUpstreamRateSyncConfigResult>> {
+  try {
+    const session = await getSession();
+    if (!session || session.user.role !== "admin") {
+      return { ok: false, error: "无权限执行此操作" };
+    }
+
+    const provider = await findProviderById(providerId);
+    if (!provider) {
+      return { ok: false, error: "供应商不存在", errorCode: "PROVIDER_NOT_FOUND" };
+    }
+
+    const parsed = ProviderUpstreamRateSyncInputSchema.parse(input);
+    const existingConfig = await findProviderUpstreamRateSyncConfig(providerId);
+    const upstreamBaseUrl =
+      parsed.base_url?.trim() || resolveUpstreamRateProviderBaseUrl(provider);
+    const config = await upsertProviderUpstreamRateSyncConfig(providerId, {
+      source: parsed.source,
+      isEnabled: parsed.is_enabled,
+      baseUrl: upstreamBaseUrl,
+      apiKey: parsed.api_key ?? existingConfig?.apiKey ?? provider.key,
+      keyName: parsed.key_name ?? existingConfig?.keyName ?? provider.name,
+      accessToken: parsed.access_token,
+      refreshToken: parsed.refresh_token,
+      tokenExpiresAt: parsed.token_expires_at,
+      cookie: parsed.cookie,
+      userId: parsed.user_id,
+      syncIntervalMinutes: parsed.sync_interval_minutes,
+    });
+
+    emitActionAudit({
+      category: "provider",
+      action: "provider.upstream_rate_sync_config.save",
+      targetType: "provider",
+      targetId: String(providerId),
+      targetName: provider.name,
+      success: true,
+      after: {
+        source: parsed.source,
+        isEnabled: parsed.is_enabled ?? true,
+        baseUrl: redactUrlCredentials(upstreamBaseUrl),
+        syncIntervalMinutes: parsed.sync_interval_minutes ?? 60,
+      },
+      redactExtraKeys: [
+        "apiKey",
+        "api_key",
+        "accessToken",
+        "access_token",
+        "refreshToken",
+        "cookie",
+      ],
+    });
+
+    return { ok: true, data: serializeUpstreamRateSyncConfig(config, provider) };
+  } catch (error) {
+    logger.error("保存上游倍率同步配置失败:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "保存上游倍率同步配置失败",
+    };
+  }
+}
+
+export async function deleteProviderUpstreamRateSyncConfigAction(
+  providerId: number
+): Promise<ActionResult<{ deleted: boolean }>> {
+  try {
+    const session = await getSession();
+    if (!session || session.user.role !== "admin") {
+      return { ok: false, error: "无权限执行此操作" };
+    }
+
+    const provider = await findProviderById(providerId);
+    if (!provider) {
+      return { ok: false, error: "供应商不存在", errorCode: "PROVIDER_NOT_FOUND" };
+    }
+
+    const deleted = await deleteProviderUpstreamRateSyncConfig(providerId);
+    return { ok: true, data: { deleted } };
+  } catch (error) {
+    logger.error("删除上游倍率同步配置失败:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "删除上游倍率同步配置失败",
+    };
+  }
+}
+
+export async function syncProviderUpstreamRateNow(
+  providerId: number
+): Promise<ActionResult<Extract<UpstreamRateSyncServiceResult, { ok: true }>>> {
+  try {
+    const session = await getSession();
+    if (!session || session.user.role !== "admin") {
+      return { ok: false, error: "无权限执行此操作" };
+    }
+
+    const provider = await findProviderById(providerId);
+    if (!provider) {
+      return { ok: false, error: "供应商不存在", errorCode: "PROVIDER_NOT_FOUND" };
+    }
+
+    const result = await syncProviderUpstreamRateByProviderId(providerId);
+    if (!result) {
+      return { ok: false, error: "未配置上游倍率同步" };
+    }
+    if (!result.ok) {
+      return { ok: false, error: result.error };
+    }
+    return { ok: true, data: result };
+  } catch (error) {
+    logger.error("同步上游倍率失败:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "同步上游倍率失败",
+    };
+  }
+}
+
+export async function runProviderLatencyProbeNow(
+  providerId: number
+): Promise<ActionResult<ProviderLatencyProbeRunResult>> {
+  try {
+    const session = await getSession();
+    if (!session || session.user.role !== "admin") {
+      return { ok: false, error: "无权限执行此操作" };
+    }
+
+    const provider = await findProviderById(providerId);
+    if (!provider) {
+      return { ok: false, error: "供应商不存在", errorCode: "PROVIDER_NOT_FOUND" };
+    }
+
+    const sampledAt = Date.now();
+    const avgLatencyMs = await probeProviderLatency(provider, sampledAt);
+    await broadcastProviderCacheInvalidation({ operation: "edit", providerId });
+
+    return {
+      ok: true,
+      data: {
+        avgLatencyMs,
+        sampledAt,
+        status: avgLatencyMs === null ? "failed" : "success",
+      },
+    };
+  } catch (error) {
+    logger.error("运行 Mini 探针失败:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "运行 Mini 探针失败",
+    };
+  }
+}
+
+export async function openProviderUpstreamRateAuthBrowser(
+  providerId: number
+): Promise<ActionResult<{ opened: true }>> {
+  try {
+    const session = await getSession();
+    if (!session || session.user.role !== "admin") {
+      return { ok: false, error: "无权限执行此操作" };
+    }
+
+    const provider = await findProviderById(providerId);
+    if (!provider) {
+      return { ok: false, error: "供应商不存在", errorCode: "PROVIDER_NOT_FOUND" };
+    }
+
+    const config = await findProviderUpstreamRateSyncConfig(providerId);
+    if (!config) {
+      return { ok: false, error: "未配置上游倍率同步" };
+    }
+
+    const upstreamBaseUrl = resolveUpstreamRateConfiguredBaseUrl(config, provider);
+    await openChromeForUpstreamAuth(upstreamBaseUrl);
+    emitActionAudit({
+      category: "provider",
+      action: "provider.upstream_rate_sync_auth.open_browser",
+      targetType: "provider",
+      targetId: String(providerId),
+      targetName: provider.name,
+      success: true,
+      after: {
+        source: config.source,
+        baseUrl: redactUrlCredentials(upstreamBaseUrl),
+      },
+    });
+    return { ok: true, data: { opened: true } };
+  } catch (error) {
+    logger.error("打开上游登录浏览器失败:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "打开上游登录浏览器失败",
+    };
+  }
+}
+
+export async function importProviderUpstreamRateAuthFromBrowser(
+  providerId: number
+): Promise<ActionResult<ProviderUpstreamRateSyncConfigResult>> {
+  try {
+    const session = await getSession();
+    if (!session || session.user.role !== "admin") {
+      return { ok: false, error: "无权限执行此操作" };
+    }
+
+    const provider = await findProviderById(providerId);
+    if (!provider) {
+      return { ok: false, error: "供应商不存在", errorCode: "PROVIDER_NOT_FOUND" };
+    }
+
+    const config = await findProviderUpstreamRateSyncConfig(providerId);
+    if (!config) {
+      return { ok: false, error: "未配置上游倍率同步" };
+    }
+
+    const upstreamBaseUrl = resolveUpstreamRateConfiguredBaseUrl(config, provider);
+    const auth = await readChromeAuthForUpstream(config.source, upstreamBaseUrl);
+    const updated = await upsertProviderUpstreamRateSyncConfig(providerId, {
+      source: config.source,
+      isEnabled: config.isEnabled,
+      baseUrl: upstreamBaseUrl,
+      apiKey: config.apiKey ?? provider.key,
+      keyName: config.keyName ?? provider.name,
+      accessToken: auth.authToken ?? auth.token ?? config.accessToken,
+      refreshToken: auth.refreshToken ?? config.refreshToken,
+      tokenExpiresAt: auth.tokenExpiresAt ?? config.tokenExpiresAt,
+      cookie: auth.cookie ?? config.cookie,
+      userId: auth.userId ? String(auth.userId) : config.userId,
+      syncIntervalMinutes: config.syncIntervalMinutes,
+    });
+    const sharedAuthUpdatedCount = await shareUpstreamRateSyncAuthBySourceAndBaseUrl(
+      {
+        source: config.source,
+        baseUrl: upstreamBaseUrl,
+        accessToken: auth.authToken ?? auth.token,
+        refreshToken: auth.refreshToken,
+        tokenExpiresAt: auth.tokenExpiresAt,
+        cookie: auth.cookie,
+        userId: auth.userId == null ? undefined : String(auth.userId),
+      },
+      updated.id
+    );
+
+    emitActionAudit({
+      category: "provider",
+      action: "provider.upstream_rate_sync_auth.import_browser",
+      targetType: "provider",
+      targetId: String(providerId),
+      targetName: provider.name,
+      success: true,
+      after: {
+        source: config.source,
+        baseUrl: redactUrlCredentials(upstreamBaseUrl),
+        hasAccessToken: Boolean(updated.accessToken),
+        hasRefreshToken: Boolean(updated.refreshToken),
+        hasCookie: Boolean(updated.cookie),
+        sharedAuthUpdatedCount,
+      },
+      redactExtraKeys: ["accessToken", "refreshToken", "cookie"],
+    });
+
+    return { ok: true, data: serializeUpstreamRateSyncConfig(updated, provider) };
+  } catch (error) {
+    logger.error("读取上游登录态失败:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "读取上游登录态失败",
+    };
+  }
+}
+
+function serializeUpstreamRateSyncConfig(
+  config: UpstreamRateSyncConfig,
+  provider?: Provider
+): ProviderUpstreamRateSyncConfigResult {
+  const providerBaseUrl = provider
+    ? resolveUpstreamRateConfiguredBaseUrl(config, provider)
+    : config.baseUrl;
+  const providerKeyName = config.keyName ?? provider?.name ?? "";
+  const providerKeySuffix = keySuffix(config.apiKey ?? provider?.key);
+
+  return {
+    id: config.id,
+    providerId: config.providerId,
+    source: config.source,
+    isEnabled: config.isEnabled,
+    baseUrl: providerBaseUrl,
+    apiKey: null,
+    keyName: providerKeyName || null,
+    providerBaseUrl,
+    providerKeyName,
+    providerKeySuffix,
+    accessToken: config.accessToken,
+    refreshToken: config.refreshToken,
+    tokenExpiresAt: config.tokenExpiresAt,
+    cookie: config.cookie,
+    userId: config.userId,
+    syncIntervalMinutes: config.syncIntervalMinutes,
+    lastSyncedAt: config.lastSyncedAt?.toISOString() ?? null,
+    lastSyncOk: config.lastSyncOk,
+    lastSyncRate: config.lastSyncRate == null ? null : Number(config.lastSyncRate),
+    lastSyncError: config.lastSyncError,
+    lastUpstreamGroupName: config.lastUpstreamGroupName,
+  };
+}
+
+function resolveUpstreamRateProviderBaseUrl(provider: Provider): string {
+  const url = new URL(provider.url.trim());
+  return url.origin;
+}
+
+function resolveUpstreamRateConfiguredBaseUrl(
+  config: UpstreamRateSyncConfig,
+  provider: Provider
+): string {
+  const configured = config.baseUrl.trim();
+  return configured || resolveUpstreamRateProviderBaseUrl(provider);
+}
+
+function keySuffix(value: string | null | undefined): string | null {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  return trimmed.slice(-4);
+}
+
 // 删除服务商
 export async function removeProvider(
   providerId: number
@@ -1076,6 +1608,9 @@ export async function removeProvider(
 
 export async function autoSortProviderPriority(args: {
   confirm: boolean;
+  mode?: "price" | "latency";
+  providerGroup?: string | null;
+  targetGroup?: string | null;
 }): Promise<ActionResult<AutoSortResult>> {
   try {
     const session = await getSession();
@@ -1083,7 +1618,15 @@ export async function autoSortProviderPriority(args: {
       return { ok: false, error: "无权限执行此操作" };
     }
 
-    const providers = await findAllProvidersFresh();
+    const sortMode = args.mode ?? "price";
+    const providerGroup = args.providerGroup?.trim() || null;
+    const targetGroup = args.targetGroup?.trim() || providerGroup;
+    const allProviders = await findAllProvidersFresh();
+    const providers = providerGroup
+      ? allProviders.filter((provider) =>
+          parseProviderGroups(provider.groupTag).includes(providerGroup)
+        )
+      : allProviders;
     if (providers.length === 0) {
       return {
         ok: true,
@@ -1096,40 +1639,52 @@ export async function autoSortProviderPriority(args: {
             groupCount: 0,
           },
           applied: args.confirm,
+          mode: sortMode,
+          providerGroup,
+          targetGroup,
         },
       };
     }
 
-    const groupsByCostMultiplier = new Map<number, typeof providers>();
+    const groupsByMetric = new Map<number, typeof providers>();
     for (const provider of providers) {
-      const rawCostMultiplier = Number(provider.costMultiplier);
-      const costMultiplier = Number.isFinite(rawCostMultiplier) ? rawCostMultiplier : 0;
+      const rawMetric =
+        sortMode === "latency"
+          ? Number(provider.latencyProbeLastAvgMs)
+          : Number(provider.costMultiplier);
+      const metric =
+        Number.isFinite(rawMetric) && rawMetric > 0 ? rawMetric : Number.POSITIVE_INFINITY;
 
-      if (!Number.isFinite(rawCostMultiplier)) {
-        logger.warn("autoSortProviderPriority:invalid_cost_multiplier", {
+      if (!Number.isFinite(rawMetric)) {
+        logger.warn("autoSortProviderPriority:invalid_metric", {
           providerId: provider.id,
           providerName: provider.name,
+          mode: sortMode,
           costMultiplier: provider.costMultiplier,
-          fallback: costMultiplier,
+          latencyProbeLastAvgMs: provider.latencyProbeLastAvgMs,
+          fallback: metric,
         });
       }
 
-      const bucket = groupsByCostMultiplier.get(costMultiplier);
+      const bucket = groupsByMetric.get(metric);
       if (bucket) {
         bucket.push(provider);
       } else {
-        groupsByCostMultiplier.set(costMultiplier, [provider]);
+        groupsByMetric.set(metric, [provider]);
       }
     }
 
-    const sortedCostMultipliers = Array.from(groupsByCostMultiplier.keys()).sort((a, b) => a - b);
+    const sortedMetrics = Array.from(groupsByMetric.keys()).sort((a, b) => a - b);
     const groups: AutoSortResult["groups"] = [];
     const changes: AutoSortResult["changes"] = [];
 
-    for (const [priority, costMultiplier] of sortedCostMultipliers.entries()) {
-      const groupProviders = groupsByCostMultiplier.get(costMultiplier) ?? [];
+    for (const [priority, metric] of sortedMetrics.entries()) {
+      const groupProviders = groupsByMetric.get(metric) ?? [];
       groups.push({
-        costMultiplier,
+        metric: Number.isFinite(metric) ? metric : null,
+        ...(sortMode === "price"
+          ? { costMultiplier: Number.isFinite(metric) ? metric : undefined }
+          : { avgLatencyMs: Number.isFinite(metric) ? metric : null }),
         priority,
         providers: groupProviders
           .slice()
@@ -1138,7 +1693,10 @@ export async function autoSortProviderPriority(args: {
       });
 
       for (const provider of groupProviders) {
-        const oldPriority = provider.priority ?? 0;
+        const oldPriority =
+          targetGroup && provider.groupPriorities
+            ? (provider.groupPriorities[targetGroup] ?? provider.priority ?? 0)
+            : (provider.priority ?? 0);
         const newPriority = priority;
         if (oldPriority !== newPriority) {
           changes.push({
@@ -1146,7 +1704,8 @@ export async function autoSortProviderPriority(args: {
             name: provider.name,
             oldPriority,
             newPriority,
-            costMultiplier,
+            costMultiplier: provider.costMultiplier,
+            avgLatencyMs: provider.latencyProbeLastAvgMs,
           });
         }
       }
@@ -1166,14 +1725,33 @@ export async function autoSortProviderPriority(args: {
           changes,
           summary,
           applied: false,
+          mode: sortMode,
+          providerGroup,
+          targetGroup,
         },
       };
     }
 
     if (changes.length > 0) {
-      await updateProviderPrioritiesBatch(
-        changes.map((change) => ({ id: change.providerId, priority: change.newPriority }))
-      );
+      if (targetGroup) {
+        const providerById = new Map(providers.map((provider) => [provider.id, provider]));
+        await updateProviderGroupPrioritiesBatch(
+          changes.map((change) => {
+            const provider = providerById.get(change.providerId);
+            return {
+              id: change.providerId,
+              groupPriorities: {
+                ...(provider?.groupPriorities ?? {}),
+                [targetGroup]: change.newPriority,
+              },
+            };
+          })
+        );
+      } else {
+        await updateProviderPrioritiesBatch(
+          changes.map((change) => ({ id: change.providerId, priority: change.newPriority }))
+        );
+      }
       try {
         await publishProviderCacheInvalidation();
       } catch (error) {
@@ -1191,12 +1769,58 @@ export async function autoSortProviderPriority(args: {
         changes,
         summary,
         applied: true,
+        mode: sortMode,
+        providerGroup,
+        targetGroup,
       },
     };
   } catch (error) {
     logger.error("autoSortProviderPriority:error", error);
     const message = error instanceof Error ? error.message : "自动排序供应商优先级失败";
     return { ok: false, error: message };
+  }
+}
+
+export async function runProviderLatencyPriorityWorkflowNow(args: {
+  confirm: boolean;
+  providerGroup?: string | null;
+  targetGroup: string;
+}): Promise<ActionResult<LatencyPriorityWorkflowResult>> {
+  try {
+    const session = await getSession();
+    if (!session || session.user.role !== "admin") {
+      return { ok: false, error: "无权限执行此操作" };
+    }
+
+    const providerGroup = args.providerGroup?.trim() || null;
+    const allProviders = await findAllProvidersFresh();
+    const providers = (
+      providerGroup
+        ? allProviders.filter((provider) =>
+            parseProviderGroups(provider.groupTag).includes(providerGroup)
+          )
+        : allProviders
+    ).filter((provider) => provider.isEnabled);
+
+    const result = await runLatencyPriorityWorkflow({
+      providers,
+      targetGroup: args.targetGroup,
+      confirm: args.confirm,
+      probeProviderLatency,
+      updateProviderGroupPriorities: updateProviderGroupPrioritiesBatch,
+    });
+
+    if (args.confirm && result.changes.length > 0) {
+      await publishProviderCacheInvalidation();
+    }
+
+    return { ok: true, data: result };
+  } catch (error) {
+    logger.error("执行速度分组流程失败:", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "执行速度分组流程失败",
+    };
   }
 }
 
@@ -2366,6 +2990,7 @@ export interface BatchUpdateProvidersParams {
   providerIds: number[];
   updates: {
     is_enabled?: boolean;
+    latency_probe_enabled?: boolean | null;
     priority?: number;
     weight?: number;
     cost_multiplier?: number;
@@ -2413,6 +3038,9 @@ export async function batchUpdateProviders(
 
     const repositoryUpdates: Parameters<typeof updateProvidersBatch>[1] = {};
     if (updates.is_enabled !== undefined) repositoryUpdates.isEnabled = updates.is_enabled;
+    if (updates.latency_probe_enabled !== undefined) {
+      repositoryUpdates.latencyProbeEnabled = updates.latency_probe_enabled;
+    }
     if (updates.priority !== undefined) repositoryUpdates.priority = updates.priority;
     if (updates.weight !== undefined) repositoryUpdates.weight = updates.weight;
     if (updates.cost_multiplier !== undefined) {

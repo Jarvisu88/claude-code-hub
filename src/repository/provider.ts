@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm"
 import { db } from "@/drizzle/db";
 import { providerEndpoints, providers } from "@/drizzle/schema";
 import { normalizeAllowedModelRules } from "@/lib/allowed-model-rules";
-import { getCachedProviders } from "@/lib/cache/provider-cache";
+import { getCachedProviders, publishProviderCacheInvalidation } from "@/lib/cache/provider-cache";
 import { PROVIDER_TIMEOUT_DEFAULTS } from "@/lib/constants/provider.constants";
 import { resetEndpointCircuit } from "@/lib/endpoint-circuit-breaker";
 import { logger } from "@/lib/logger";
@@ -212,6 +212,11 @@ export async function createProvider(providerData: CreateProviderData): Promise<
     blockedClients: providerData.blocked_clients ?? [],
     activeTimeStart: providerData.active_time_start ?? null,
     activeTimeEnd: providerData.active_time_end ?? null,
+    latencyProbeEnabled: providerData.latency_probe_enabled ?? null,
+    latencyProbeModel: providerData.latency_probe_model ?? null,
+    latencyProbeIntervalMs: providerData.latency_probe_interval_ms ?? null,
+    latencyProbeTimeStart: providerData.latency_probe_time_start ?? null,
+    latencyProbeTimeEnd: providerData.latency_probe_time_end ?? null,
     mcpPassthroughType: providerData.mcp_passthrough_type ?? "none",
     mcpPassthroughUrl: providerData.mcp_passthrough_url ?? null,
     limit5hUsd: providerData.limit_5h_usd != null ? providerData.limit_5h_usd.toString() : null,
@@ -300,6 +305,15 @@ export async function createProvider(providerData: CreateProviderData): Promise<
         blockedClients: providers.blockedClients,
         activeTimeStart: providers.activeTimeStart,
         activeTimeEnd: providers.activeTimeEnd,
+        latencyProbeEnabled: providers.latencyProbeEnabled,
+        latencyProbeModel: providers.latencyProbeModel,
+        latencyProbeIntervalMs: providers.latencyProbeIntervalMs,
+        latencyProbeTimeStart: providers.latencyProbeTimeStart,
+        latencyProbeTimeEnd: providers.latencyProbeTimeEnd,
+        latencyProbeLastAvgMs: providers.latencyProbeLastAvgMs,
+        latencyProbeLastStatus: providers.latencyProbeLastStatus,
+        latencyProbeLastError: providers.latencyProbeLastError,
+        latencyProbeLastRunAt: providers.latencyProbeLastRunAt,
         mcpPassthroughType: providers.mcpPassthroughType,
         mcpPassthroughUrl: providers.mcpPassthroughUrl,
         limit5hUsd: providers.limit5hUsd,
@@ -388,6 +402,15 @@ export async function findProviderList(
       blockedClients: providers.blockedClients,
       activeTimeStart: providers.activeTimeStart,
       activeTimeEnd: providers.activeTimeEnd,
+      latencyProbeEnabled: providers.latencyProbeEnabled,
+      latencyProbeModel: providers.latencyProbeModel,
+      latencyProbeIntervalMs: providers.latencyProbeIntervalMs,
+      latencyProbeTimeStart: providers.latencyProbeTimeStart,
+      latencyProbeTimeEnd: providers.latencyProbeTimeEnd,
+      latencyProbeLastAvgMs: providers.latencyProbeLastAvgMs,
+      latencyProbeLastStatus: providers.latencyProbeLastStatus,
+      latencyProbeLastError: providers.latencyProbeLastError,
+      latencyProbeLastRunAt: providers.latencyProbeLastRunAt,
       mcpPassthroughType: providers.mcpPassthroughType,
       mcpPassthroughUrl: providers.mcpPassthroughUrl,
       limit5hUsd: providers.limit5hUsd,
@@ -476,6 +499,15 @@ export async function findAllProvidersFresh(): Promise<Provider[]> {
       blockedClients: providers.blockedClients,
       activeTimeStart: providers.activeTimeStart,
       activeTimeEnd: providers.activeTimeEnd,
+      latencyProbeEnabled: providers.latencyProbeEnabled,
+      latencyProbeModel: providers.latencyProbeModel,
+      latencyProbeIntervalMs: providers.latencyProbeIntervalMs,
+      latencyProbeTimeStart: providers.latencyProbeTimeStart,
+      latencyProbeTimeEnd: providers.latencyProbeTimeEnd,
+      latencyProbeLastAvgMs: providers.latencyProbeLastAvgMs,
+      latencyProbeLastStatus: providers.latencyProbeLastStatus,
+      latencyProbeLastError: providers.latencyProbeLastError,
+      latencyProbeLastRunAt: providers.latencyProbeLastRunAt,
       mcpPassthroughType: providers.mcpPassthroughType,
       mcpPassthroughUrl: providers.mcpPassthroughUrl,
       limit5hUsd: providers.limit5hUsd,
@@ -568,6 +600,15 @@ export async function findProviderById(id: number): Promise<Provider | null> {
       blockedClients: providers.blockedClients,
       activeTimeStart: providers.activeTimeStart,
       activeTimeEnd: providers.activeTimeEnd,
+      latencyProbeEnabled: providers.latencyProbeEnabled,
+      latencyProbeModel: providers.latencyProbeModel,
+      latencyProbeIntervalMs: providers.latencyProbeIntervalMs,
+      latencyProbeTimeStart: providers.latencyProbeTimeStart,
+      latencyProbeTimeEnd: providers.latencyProbeTimeEnd,
+      latencyProbeLastAvgMs: providers.latencyProbeLastAvgMs,
+      latencyProbeLastStatus: providers.latencyProbeLastStatus,
+      latencyProbeLastError: providers.latencyProbeLastError,
+      latencyProbeLastRunAt: providers.latencyProbeLastRunAt,
       mcpPassthroughType: providers.mcpPassthroughType,
       mcpPassthroughUrl: providers.mcpPassthroughUrl,
       limit5hUsd: providers.limit5hUsd,
@@ -660,6 +701,16 @@ export async function updateProvider(
     dbData.activeTimeStart = providerData.active_time_start ?? null;
   if (providerData.active_time_end !== undefined)
     dbData.activeTimeEnd = providerData.active_time_end ?? null;
+  if (providerData.latency_probe_enabled !== undefined)
+    dbData.latencyProbeEnabled = providerData.latency_probe_enabled;
+  if (providerData.latency_probe_model !== undefined)
+    dbData.latencyProbeModel = providerData.latency_probe_model ?? null;
+  if (providerData.latency_probe_interval_ms !== undefined)
+    dbData.latencyProbeIntervalMs = providerData.latency_probe_interval_ms ?? null;
+  if (providerData.latency_probe_time_start !== undefined)
+    dbData.latencyProbeTimeStart = providerData.latency_probe_time_start ?? null;
+  if (providerData.latency_probe_time_end !== undefined)
+    dbData.latencyProbeTimeEnd = providerData.latency_probe_time_end ?? null;
   if (providerData.mcp_passthrough_type !== undefined)
     dbData.mcpPassthroughType = providerData.mcp_passthrough_type;
   if (providerData.mcp_passthrough_url !== undefined)
@@ -814,9 +865,18 @@ export async function updateProvider(
         allowedModels: providers.allowedModels,
         allowedClients: providers.allowedClients,
         blockedClients: providers.blockedClients,
-        activeTimeStart: providers.activeTimeStart,
-        activeTimeEnd: providers.activeTimeEnd,
-        mcpPassthroughType: providers.mcpPassthroughType,
+      activeTimeStart: providers.activeTimeStart,
+      activeTimeEnd: providers.activeTimeEnd,
+      latencyProbeEnabled: providers.latencyProbeEnabled,
+      latencyProbeModel: providers.latencyProbeModel,
+      latencyProbeIntervalMs: providers.latencyProbeIntervalMs,
+      latencyProbeTimeStart: providers.latencyProbeTimeStart,
+      latencyProbeTimeEnd: providers.latencyProbeTimeEnd,
+      latencyProbeLastAvgMs: providers.latencyProbeLastAvgMs,
+      latencyProbeLastStatus: providers.latencyProbeLastStatus,
+      latencyProbeLastError: providers.latencyProbeLastError,
+      latencyProbeLastRunAt: providers.latencyProbeLastRunAt,
+      mcpPassthroughType: providers.mcpPassthroughType,
         mcpPassthroughUrl: providers.mcpPassthroughUrl,
         limit5hUsd: providers.limit5hUsd,
         limit5hResetMode: providers.limit5hResetMode,
@@ -979,6 +1039,38 @@ export async function updateProviderPrioritiesBatch(
   return Array.from(result).length;
 }
 
+export async function updateProviderGroupPrioritiesBatch(
+  updates: Array<{ id: number; groupPriorities: Record<string, number> }>
+): Promise<number> {
+  if (updates.length === 0) {
+    return 0;
+  }
+
+  const uniqueUpdates = new Map<number, Record<string, number>>();
+  for (const update of updates) {
+    uniqueUpdates.set(update.id, update.groupPriorities);
+  }
+
+  let updatedCount = 0;
+  await db.transaction(async (tx) => {
+    for (const [id, groupPriorities] of uniqueUpdates) {
+      const [updated] = await tx
+        .update(providers)
+        .set({
+          groupPriorities,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(providers.id, id), isNull(providers.deletedAt)))
+        .returning({ id: providers.id });
+      if (updated) {
+        updatedCount += 1;
+      }
+    }
+  });
+
+  return updatedCount;
+}
+
 export async function deleteProvider(id: number): Promise<boolean> {
   const now = new Date();
 
@@ -1077,6 +1169,11 @@ export interface BatchProviderUpdates {
   disableSessionReuse?: boolean;
   activeTimeStart?: string | null;
   activeTimeEnd?: string | null;
+  latencyProbeEnabled?: boolean | null;
+  latencyProbeModel?: string | null;
+  latencyProbeIntervalMs?: number | null;
+  latencyProbeTimeStart?: string | null;
+  latencyProbeTimeEnd?: string | null;
   groupPriorities?: Record<string, number> | null;
   cacheTtlPreference?: string | null;
   swapCacheTtlBilling?: boolean;
@@ -1171,6 +1268,21 @@ export async function updateProvidersBatch(
   }
   if (updates.activeTimeEnd !== undefined) {
     setClauses.activeTimeEnd = updates.activeTimeEnd;
+  }
+  if (updates.latencyProbeEnabled !== undefined) {
+    setClauses.latencyProbeEnabled = updates.latencyProbeEnabled;
+  }
+  if (updates.latencyProbeModel !== undefined) {
+    setClauses.latencyProbeModel = updates.latencyProbeModel;
+  }
+  if (updates.latencyProbeIntervalMs !== undefined) {
+    setClauses.latencyProbeIntervalMs = updates.latencyProbeIntervalMs;
+  }
+  if (updates.latencyProbeTimeStart !== undefined) {
+    setClauses.latencyProbeTimeStart = updates.latencyProbeTimeStart;
+  }
+  if (updates.latencyProbeTimeEnd !== undefined) {
+    setClauses.latencyProbeTimeEnd = updates.latencyProbeTimeEnd;
   }
   if (updates.groupPriorities !== undefined) {
     setClauses.groupPriorities = updates.groupPriorities;
@@ -1682,4 +1794,56 @@ export async function getProviderStatistics(): Promise<ProviderStatisticsRow[]> 
     });
     throw error;
   }
+}
+
+export async function updateProviderCostMultiplier(
+  providerId: number,
+  costMultiplier: number
+): Promise<boolean> {
+  const result = await db
+    .update(providers)
+    .set({
+      costMultiplier: costMultiplier.toString(),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(providers.id, providerId), isNull(providers.deletedAt)))
+    .returning({ id: providers.id });
+
+  if (result.length === 0) {
+    return false;
+  }
+
+  await publishProviderCacheInvalidation();
+  return true;
+}
+
+export async function updateProviderLatencyProbeSnapshot(
+  providerId: number,
+  snapshot: {
+    avgLatencyMs: number | null;
+    status: "success" | "failed";
+    errorMessage?: string | null;
+    sampledAt: number;
+  }
+): Promise<void> {
+  await db
+    .update(providers)
+    .set({
+      latencyProbeLastAvgMs:
+        snapshot.avgLatencyMs === null ? null : Math.round(snapshot.avgLatencyMs),
+      latencyProbeLastStatus: snapshot.status,
+      latencyProbeLastError:
+        snapshot.status === "failed" ? normalizeProbeError(snapshot.errorMessage) : null,
+      latencyProbeLastRunAt: new Date(snapshot.sampledAt),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(providers.id, providerId), isNull(providers.deletedAt)));
+
+  await publishProviderCacheInvalidation();
+}
+
+function normalizeProbeError(errorMessage: string | null | undefined): string | null {
+  const trimmed = errorMessage?.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, 2000);
 }

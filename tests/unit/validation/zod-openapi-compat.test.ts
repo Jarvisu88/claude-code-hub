@@ -6,6 +6,7 @@ import {
   UpdateProviderSchema,
   UpdateUserSchema,
 } from "@/lib/validation/schemas";
+import { UserUpdateSchema as V1UserUpdateSchema } from "@/lib/api/v1/schemas/users";
 
 describe("validation schemas after OpenAPI zod registration", () => {
   test("keeps optional user fields optional", () => {
@@ -20,6 +21,20 @@ describe("validation schemas after OpenAPI zod registration", () => {
     expect(updated.allowedClients).toBeUndefined();
     expect(updated.blockedClients).toBeUndefined();
     expect(updated.expiresAt).toBeUndefined();
+  });
+
+  test("keeps user scheduling strategy fields accepted by v1 update schema", () => {
+    const parsed = V1UserUpdateSchema.parse({
+      priceProviderGroup: "cheap-group",
+      latencyProviderGroup: "fast-group",
+      sortStrategy: "latency",
+    });
+
+    expect(parsed).toEqual({
+      priceProviderGroup: "cheap-group",
+      latencyProviderGroup: "fast-group",
+      sortStrategy: "latency",
+    });
   });
 
   test("keeps optional provider fields optional", () => {

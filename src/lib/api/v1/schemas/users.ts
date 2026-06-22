@@ -13,6 +13,18 @@ const UserMutationFieldsSchema = {
   name: z.string().trim().min(1).max(64).describe("User name."),
   note: z.string().max(200).optional().describe("Operator note."),
   providerGroup: z.string().max(200).nullable().optional().describe("Provider group expression."),
+  priceProviderGroup: z
+    .string()
+    .max(200)
+    .nullable()
+    .optional()
+    .describe("Provider group used by price-first scheduling."),
+  latencyProviderGroup: z
+    .string()
+    .max(200)
+    .nullable()
+    .optional()
+    .describe("Provider group used by latency-first scheduling."),
   sortStrategy: z
     .enum(["none", "price", "latency"])
     .optional()
@@ -158,6 +170,20 @@ export const UserDetailResponseSchema = z
     rpm: z.number().nullable().describe("Per-minute request limit, or null for unlimited."),
     dailyQuota: z.number().nullable().describe("Daily USD quota, or null for unlimited."),
     providerGroup: z.string().nullable().describe("Provider group expression, or null."),
+    priceProviderGroup: z
+      .string()
+      .nullable()
+      .optional()
+      .describe("Provider group used by price-first scheduling."),
+    latencyProviderGroup: z
+      .string()
+      .nullable()
+      .optional()
+      .describe("Provider group used by latency-first scheduling."),
+    sortStrategy: z
+      .enum(["none", "price", "latency"])
+      .optional()
+      .describe("Provider sort strategy."),
     tags: z.array(z.string()).optional().describe("User tags."),
     createdAt: IsoDateTimeSchema.describe("Creation timestamp."),
     updatedAt: IsoDateTimeSchema.describe("Last update timestamp."),

@@ -200,6 +200,8 @@ export async function validateKey(
       rpm: 0,
       dailyQuota: 0,
       providerGroup: null,
+      priceProviderGroup: null,
+      latencyProviderGroup: null,
       sortStrategy: "none",
       isEnabled: true,
       expiresAt: null,
@@ -218,6 +220,8 @@ export async function validateKey(
       isEnabled: true,
       canLoginWebUi: true, // Admin Token
       providerGroup: null,
+      priceProviderGroup: null,
+      latencyProviderGroup: null,
       sortStrategy: "none",
       limit5hUsd: null,
       limit5hResetMode: "rolling",

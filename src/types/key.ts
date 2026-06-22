@@ -29,6 +29,8 @@ export interface Key {
 
   // Provider group override (null = inherit from user)
   providerGroup: string | null;
+  priceProviderGroup: string | null;
+  latencyProviderGroup: string | null;
 
   // 排序策略 (none = 跟随用户)
   sortStrategy: SortStrategy;
@@ -65,6 +67,8 @@ export interface CreateKeyData {
   limit_concurrent_sessions?: number;
   // Provider group override (null = inherit from user)
   provider_group?: string | null;
+  price_provider_group?: string | null;
+  latency_provider_group?: string | null;
   // 排序策略 (none = 跟随用户)
   sort_strategy?: SortStrategy;
 
@@ -94,6 +98,8 @@ export interface UpdateKeyData {
   limit_concurrent_sessions?: number;
   // Provider group override (null = inherit from user)
   provider_group?: string | null;
+  price_provider_group?: string | null;
+  latency_provider_group?: string | null;
   // 排序策略 (none = 跟随用户)
   sort_strategy?: SortStrategy;
 

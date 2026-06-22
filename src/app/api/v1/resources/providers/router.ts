@@ -17,6 +17,8 @@ import {
   ProviderIdParamSchema,
   ProviderIdsBodySchema,
   ProviderKeyRevealResponseSchema,
+  ProviderLatencyPriorityWorkflowSchema,
+  ProviderLatencyProbeRunResponseSchema,
   ProviderListQuerySchema,
   ProviderListResponseSchema,
   ProviderModelSuggestionsQuerySchema,
@@ -25,24 +27,34 @@ import {
   ProviderTestByIdSchema,
   ProviderTypeQuerySchema,
   ProviderUndoBodySchema,
+  ProviderUpstreamRateSyncBatchEnabledSchema,
+  ProviderUpstreamRateSyncAuthOpenResponseSchema,
+  ProviderUpstreamRateSyncConfigResponseSchema,
+  ProviderUpstreamRateSyncRunResponseSchema,
+  ProviderUpstreamRateSyncUpdateSchema,
   ProviderUnifiedTestSchema,
   ProviderUpdateSchema,
 } from "@/lib/api/v1/schemas/providers";
 import {
   applyBatchPatch,
   autoSortProviders,
+  batchSetProviderUpstreamRateSyncEnabled,
   batchDeleteProviders,
   batchUpdateProviders,
   createProvider,
   deleteProvider,
+  deleteProviderUpstreamRateSync,
   fetchProviderUpstreamModels,
   getProvider,
+  getProviderUpstreamRateSync,
   getProviderLimit,
   getProviderLimitBatch,
   getProviderModelSuggestions,
   getProvidersHealth,
   getProviderTestPresets,
+  importProviderUpstreamRateSyncAuth,
   listProviderGroups,
+  openProviderUpstreamRateSyncAuth,
   listProviders,
   previewBatchPatch,
   reclusterProviderVendors,
@@ -50,6 +62,10 @@ import {
   resetProviderCircuitsBatch,
   resetProviderUsage,
   revealProviderKey,
+  runProviderLatencyPriorityWorkflow,
+  runProviderLatencyProbe,
+  runProviderUpstreamRateSync,
+  saveProviderUpstreamRateSync,
   testProviderAnthropic,
   testProviderById,
   testProviderGemini,
@@ -273,6 +289,213 @@ providersRouter.get("/providers/:id{[0-9]+}/key:reveal", requireAuth("admin"), r
 providersRouter.openapi(
   createRoute({
     method: "get",
+    path: "/providers/{id}/upstream-rate-sync",
+    middleware: requireAuth("admin"),
+    tags: ["Providers"],
+    summary: "Get provider upstream rate sync config",
+    description: "Returns the upstream multiplier sync configuration for one provider.",
+    "x-required-access": "admin",
+    security,
+    request: { params: ProviderIdParamSchema },
+    responses: {
+      200: {
+        description: "Upstream rate sync configuration.",
+        content: {
+          "application/json": { schema: ProviderUpstreamRateSyncConfigResponseSchema },
+        },
+      },
+      ...problemResponses,
+    },
+  }),
+  getProviderUpstreamRateSync as never
+);
+
+providersRouter.openapi(
+  createRoute({
+    method: "put",
+    path: "/providers/{id}/upstream-rate-sync",
+    middleware: requireAuth("admin"),
+    tags: ["Providers"],
+    summary: "Save provider upstream rate sync config",
+    description:
+      "Saves the upstream multiplier sync configuration for one provider. The next scheduled sync updates the provider cost multiplier.",
+    "x-required-access": "admin",
+    security,
+    request: {
+      params: ProviderIdParamSchema,
+      body: {
+        required: true,
+        content: {
+          "application/json": { schema: ProviderUpstreamRateSyncUpdateSchema },
+        },
+      },
+    },
+    responses: {
+      200: {
+        description: "Saved upstream rate sync configuration.",
+        content: {
+          "application/json": { schema: ProviderUpstreamRateSyncConfigResponseSchema },
+        },
+      },
+      ...problemResponses,
+    },
+  }),
+  saveProviderUpstreamRateSync as never
+);
+
+providersRouter.openapi(
+  createRoute({
+    method: "delete",
+    path: "/providers/{id}/upstream-rate-sync",
+    middleware: requireAuth("admin"),
+    tags: ["Providers"],
+    summary: "Delete provider upstream rate sync config",
+    description: "Deletes the upstream multiplier sync configuration for one provider.",
+    "x-required-access": "admin",
+    security,
+    request: { params: ProviderIdParamSchema },
+    responses: {
+      200: {
+        description: "Delete result.",
+        content: { "application/json": { schema: ProviderGenericResponseSchema } },
+      },
+      ...problemResponses,
+    },
+  }),
+  deleteProviderUpstreamRateSync as never
+);
+
+providersRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/providers/upstream-rate-sync:batchSetEnabled",
+    middleware: requireAuth("admin"),
+    tags: ["Providers"],
+    summary: "Batch set upstream rate sync enabled",
+    description:
+      "Enables or disables scheduled upstream multiplier sync for providers that already have sync configuration.",
+    "x-required-access": "admin",
+    security,
+    request: {
+      body: {
+        required: true,
+        content: { "application/json": { schema: ProviderUpstreamRateSyncBatchEnabledSchema } },
+      },
+    },
+    responses: {
+      200: {
+        description: "Batch enablement result.",
+        content: { "application/json": { schema: ProviderGenericResponseSchema } },
+      },
+      ...problemResponses,
+    },
+  }),
+  batchSetProviderUpstreamRateSyncEnabled as never
+);
+
+providersRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/providers/{id}/upstream-rate-sync:run",
+    middleware: requireAuth("admin"),
+    tags: ["Providers"],
+    summary: "Run provider upstream rate sync",
+    description:
+      "Immediately reads the upstream multiplier and writes it to the provider cost multiplier.",
+    "x-required-access": "admin",
+    security,
+    request: { params: ProviderIdParamSchema },
+    responses: {
+      200: {
+        description: "Manual upstream rate sync result.",
+        content: {
+          "application/json": { schema: ProviderUpstreamRateSyncRunResponseSchema },
+        },
+      },
+      ...problemResponses,
+    },
+  }),
+  runProviderUpstreamRateSync as never
+);
+
+providersRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/providers/{id}/latency-probe:run",
+    middleware: requireAuth("admin"),
+    tags: ["Providers"],
+    summary: "Run provider latency probe",
+    description:
+      "Immediately runs the Mini latency probe for one provider and persists its latest result.",
+    "x-required-access": "admin",
+    security,
+    request: { params: ProviderIdParamSchema },
+    responses: {
+      200: {
+        description: "Manual provider latency probe result.",
+        content: {
+          "application/json": { schema: ProviderLatencyProbeRunResponseSchema },
+        },
+      },
+      ...problemResponses,
+    },
+  }),
+  runProviderLatencyProbe as never
+);
+
+providersRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/providers/{id}/upstream-rate-sync:auth-open",
+    middleware: requireAuth("admin"),
+    tags: ["Providers"],
+    summary: "Open upstream auth browser",
+    description:
+      "Starts a local Chrome login window for the configured upstream rate sync site.",
+    "x-required-access": "admin",
+    security,
+    request: { params: ProviderIdParamSchema },
+    responses: {
+      200: {
+        description: "Chrome login window was opened.",
+        content: {
+          "application/json": { schema: ProviderUpstreamRateSyncAuthOpenResponseSchema },
+        },
+      },
+      ...problemResponses,
+    },
+  }),
+  openProviderUpstreamRateSyncAuth as never
+);
+
+providersRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/providers/{id}/upstream-rate-sync:auth-import",
+    middleware: requireAuth("admin"),
+    tags: ["Providers"],
+    summary: "Import upstream auth from browser",
+    description:
+      "Reads local Chrome storage/cookies for the configured upstream site and saves usable login state.",
+    "x-required-access": "admin",
+    security,
+    request: { params: ProviderIdParamSchema },
+    responses: {
+      200: {
+        description: "Imported upstream login state.",
+        content: {
+          "application/json": { schema: ProviderUpstreamRateSyncConfigResponseSchema },
+        },
+      },
+      ...problemResponses,
+    },
+  }),
+  importProviderUpstreamRateSyncAuth as never
+);
+
+providersRouter.openapi(
+  createRoute({
+    method: "get",
     path: "/providers/health",
     middleware: requireAuth("admin"),
     tags: ["Providers"],
@@ -452,6 +675,34 @@ providersRouter.openapi(
     },
   }),
   autoSortProviders as never
+);
+
+providersRouter.openapi(
+  createRoute({
+    method: "post",
+    path: "/providers:latencyPriorityWorkflow",
+    middleware: requireAuth("admin"),
+    tags: ["Providers"],
+    summary: "Probe providers and apply latency priority group",
+    description:
+      "Runs Mini probes, then writes latency-based priorities to a target provider group.",
+    "x-required-access": "admin",
+    security,
+    request: {
+      body: {
+        required: true,
+        content: { "application/json": { schema: ProviderLatencyPriorityWorkflowSchema } },
+      },
+    },
+    responses: {
+      200: {
+        description: "Latency priority workflow result.",
+        content: { "application/json": { schema: ProviderGenericResponseSchema } },
+      },
+      ...problemResponses,
+    },
+  }),
+  runProviderLatencyPriorityWorkflow as never
 );
 
 providersRouter.openapi(

@@ -29,6 +29,7 @@ import {
   ProviderBatchPatchPreviewSchema,
   ProviderBatchUpdateSchema,
   ProviderConfirmBodySchema,
+  ProviderLatencyPriorityWorkflowSchema,
   ProviderCreateSchema,
   ProviderFetchUpstreamModelsSchema,
   ProviderGroupsQuerySchema,
@@ -40,6 +41,8 @@ import {
   ProviderTestByIdSchema,
   ProviderTypeQuerySchema,
   ProviderUndoBodySchema,
+  ProviderUpstreamRateSyncBatchEnabledSchema,
+  ProviderUpstreamRateSyncUpdateSchema,
   ProviderUnifiedTestSchema,
   type ProviderUpdateInput,
   ProviderUpdateSchema,
@@ -220,6 +223,141 @@ export async function revealProviderKey(c: Context): Promise<Response> {
   return jsonResponse(result.data, { headers: withNoStoreHeaders() });
 }
 
+export async function getProviderUpstreamRateSync(c: Context): Promise<Response> {
+  const id = Number(c.req.param("id"));
+  const provider = await findVisibleProvider(c, id);
+  if (provider instanceof Response) return provider;
+  if (!provider) return providerNotFound(c);
+
+  const providerActions = await import("@/actions/providers");
+  const result = await callAction(
+    c,
+    providerActions.getProviderUpstreamRateSyncConfig,
+    [id] as never[],
+    c.get("auth")
+  );
+  if (!result.ok) return actionError(c, result);
+  return jsonResponse({ config: result.data }, { headers: withNoStoreHeaders() });
+}
+
+export async function saveProviderUpstreamRateSync(c: Context): Promise<Response> {
+  const id = Number(c.req.param("id"));
+  const provider = await findVisibleProvider(c, id);
+  if (provider instanceof Response) return provider;
+  if (!provider) return providerNotFound(c);
+
+  const body = await parseJson(c, ProviderUpstreamRateSyncUpdateSchema);
+  if (body instanceof Response) return body;
+  const providerActions = await import("@/actions/providers");
+  const result = await callAction(
+    c,
+    providerActions.saveProviderUpstreamRateSyncConfig,
+    [id, body] as never[],
+    c.get("auth")
+  );
+  if (!result.ok) return actionError(c, result);
+  return jsonResponse({ config: result.data }, { headers: withNoStoreHeaders() });
+}
+
+export async function deleteProviderUpstreamRateSync(c: Context): Promise<Response> {
+  const id = Number(c.req.param("id"));
+  const provider = await findVisibleProvider(c, id);
+  if (provider instanceof Response) return provider;
+  if (!provider) return providerNotFound(c);
+
+  const providerActions = await import("@/actions/providers");
+  const result = await callAction(
+    c,
+    providerActions.deleteProviderUpstreamRateSyncConfigAction,
+    [id] as never[],
+    c.get("auth")
+  );
+  return result.ok ? jsonResponse(result.data, { headers: withNoStoreHeaders() }) : actionError(c, result);
+}
+
+export async function batchSetProviderUpstreamRateSyncEnabled(c: Context): Promise<Response> {
+  const body = await parseJson(c, ProviderUpstreamRateSyncBatchEnabledSchema);
+  if (body instanceof Response) return body;
+  const visibilityError = await ensureVisibleProviderIds(c, body.providerIds);
+  if (visibilityError) return visibilityError;
+
+  const providerActions = await import("@/actions/providers");
+  return actionJson(
+    c,
+    await callAction(
+      c,
+      providerActions.batchSetProviderUpstreamRateSyncEnabled,
+      [body] as never[],
+      c.get("auth")
+    )
+  );
+}
+
+export async function runProviderUpstreamRateSync(c: Context): Promise<Response> {
+  const id = parseProviderIdWithSuffix(c, "upstream-rate-sync:run");
+  if (id instanceof Response) return id;
+  const provider = await findVisibleProvider(c, id);
+  if (provider instanceof Response) return provider;
+  if (!provider) return providerNotFound(c);
+
+  const providerActions = await import("@/actions/providers");
+  return actionJson(
+    c,
+    await callAction(c, providerActions.syncProviderUpstreamRateNow, [id] as never[], c.get("auth"))
+  );
+}
+
+export async function runProviderLatencyProbe(c: Context): Promise<Response> {
+  const id = parseProviderIdWithSuffix(c, "latency-probe:run");
+  if (id instanceof Response) return id;
+  const provider = await findVisibleProvider(c, id);
+  if (provider instanceof Response) return provider;
+  if (!provider) return providerNotFound(c);
+
+  const providerActions = await import("@/actions/providers");
+  return actionJson(
+    c,
+    await callAction(c, providerActions.runProviderLatencyProbeNow, [id] as never[], c.get("auth"))
+  );
+}
+
+export async function openProviderUpstreamRateSyncAuth(c: Context): Promise<Response> {
+  const id = parseProviderIdWithSuffix(c, "upstream-rate-sync:auth-open");
+  if (id instanceof Response) return id;
+  const provider = await findVisibleProvider(c, id);
+  if (provider instanceof Response) return provider;
+  if (!provider) return providerNotFound(c);
+
+  const providerActions = await import("@/actions/providers");
+  return actionJson(
+    c,
+    await callAction(
+      c,
+      providerActions.openProviderUpstreamRateAuthBrowser,
+      [id] as never[],
+      c.get("auth")
+    )
+  );
+}
+
+export async function importProviderUpstreamRateSyncAuth(c: Context): Promise<Response> {
+  const id = parseProviderIdWithSuffix(c, "upstream-rate-sync:auth-import");
+  if (id instanceof Response) return id;
+  const provider = await findVisibleProvider(c, id);
+  if (provider instanceof Response) return provider;
+  if (!provider) return providerNotFound(c);
+
+  const providerActions = await import("@/actions/providers");
+  const result = await callAction(
+    c,
+    providerActions.importProviderUpstreamRateAuthFromBrowser,
+    [id] as never[],
+    c.get("auth")
+  );
+  if (!result.ok) return actionError(c, result);
+  return jsonResponse({ config: result.data }, { headers: withNoStoreHeaders() });
+}
+
 export async function getProvidersHealth(c: Context): Promise<Response> {
   const providerActions = await import("@/actions/providers");
   const result = await callAction(c, providerActions.getProvidersHealthStatus, [], c.get("auth"));
@@ -346,6 +484,21 @@ export async function autoSortProviders(c: Context): Promise<Response> {
   return actionJson(
     c,
     await callAction(c, providerActions.autoSortProviderPriority, [body] as never[], c.get("auth"))
+  );
+}
+
+export async function runProviderLatencyPriorityWorkflow(c: Context): Promise<Response> {
+  const body = await parseJson(c, ProviderLatencyPriorityWorkflowSchema);
+  if (body instanceof Response) return body;
+  const providerActions = await import("@/actions/providers");
+  return actionJson(
+    c,
+    await callAction(
+      c,
+      providerActions.runProviderLatencyPriorityWorkflowNow,
+      [body] as never[],
+      c.get("auth")
+    )
   );
 }
 
@@ -623,6 +776,16 @@ function sanitizeProvider(
     modelRedirects: provider.modelRedirects,
     activeTimeStart: provider.activeTimeStart,
     activeTimeEnd: provider.activeTimeEnd,
+    latencyProbeEnabled: provider.latencyProbeEnabled,
+    latencyProbeModel: provider.latencyProbeModel,
+    latencyProbeIntervalMs: provider.latencyProbeIntervalMs,
+    latencyProbeTimeStart: provider.latencyProbeTimeStart,
+    latencyProbeTimeEnd: provider.latencyProbeTimeEnd,
+    latencyProbeLastAvgMs: provider.latencyProbeLastAvgMs,
+    latencyProbeLastStatus: provider.latencyProbeLastStatus,
+    latencyProbeLastError: provider.latencyProbeLastError,
+    latencyProbeLastRunAt: provider.latencyProbeLastRunAt,
+    upstreamRateSync: provider.upstreamRateSync ?? null,
     allowedModels: provider.allowedModels,
     allowedClients: provider.allowedClients,
     blockedClients: provider.blockedClients,

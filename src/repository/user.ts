@@ -50,6 +50,8 @@ export async function createUser(userData: CreateUserData): Promise<User> {
     rpmLimit: userData.rpm,
     dailyLimitUsd: userData.dailyQuota?.toString(),
     providerGroup: userData.providerGroup,
+    priceProviderGroup: userData.priceProviderGroup ?? null,
+    latencyProviderGroup: userData.latencyProviderGroup ?? null,
     sortStrategy: userData.sortStrategy ?? "none",
     tags: userData.tags ?? [],
     limit5hUsd: userData.limit5hUsd?.toString(),
@@ -75,6 +77,8 @@ export async function createUser(userData: CreateUserData): Promise<User> {
     rpm: users.rpmLimit,
     dailyQuota: users.dailyLimitUsd,
     providerGroup: users.providerGroup,
+    priceProviderGroup: users.priceProviderGroup,
+    latencyProviderGroup: users.latencyProviderGroup,
     sortStrategy: users.sortStrategy,
     tags: users.tags,
     createdAt: users.createdAt,
@@ -112,6 +116,8 @@ export async function findUserList(limit: number = 50, offset: number = 0): Prom
       rpm: users.rpmLimit,
       dailyQuota: users.dailyLimitUsd,
       providerGroup: users.providerGroup,
+      priceProviderGroup: users.priceProviderGroup,
+      latencyProviderGroup: users.latencyProviderGroup,
       sortStrategy: users.sortStrategy,
       tags: users.tags,
       createdAt: users.createdAt,
@@ -363,6 +369,8 @@ export async function findUserListBatch(
       rpm: users.rpmLimit,
       dailyQuota: users.dailyLimitUsd,
       providerGroup: users.providerGroup,
+      priceProviderGroup: users.priceProviderGroup,
+      latencyProviderGroup: users.latencyProviderGroup,
       sortStrategy: users.sortStrategy,
       tags: users.tags,
       createdAt: users.createdAt,
@@ -425,6 +433,8 @@ export async function findUserById(id: number): Promise<User | null> {
       rpm: users.rpmLimit,
       dailyQuota: users.dailyLimitUsd,
       providerGroup: users.providerGroup,
+      priceProviderGroup: users.priceProviderGroup,
+      latencyProviderGroup: users.latencyProviderGroup,
       sortStrategy: users.sortStrategy,
       tags: users.tags,
       createdAt: users.createdAt,
@@ -465,6 +475,8 @@ export async function updateUser(id: number, userData: UpdateUserData): Promise<
     rpmLimit?: number | null;
     dailyLimitUsd?: string | null;
     providerGroup?: string | null;
+    priceProviderGroup?: string | null;
+    latencyProviderGroup?: string | null;
     sortStrategy?: SortStrategy;
     tags?: string[];
     updatedAt?: Date;
@@ -492,6 +504,10 @@ export async function updateUser(id: number, userData: UpdateUserData): Promise<
   if (userData.dailyQuota !== undefined)
     dbData.dailyLimitUsd = userData.dailyQuota === null ? null : userData.dailyQuota.toString();
   if (userData.providerGroup !== undefined) dbData.providerGroup = userData.providerGroup;
+  if (userData.priceProviderGroup !== undefined)
+    dbData.priceProviderGroup = userData.priceProviderGroup;
+  if (userData.latencyProviderGroup !== undefined)
+    dbData.latencyProviderGroup = userData.latencyProviderGroup;
   if (userData.sortStrategy !== undefined) dbData.sortStrategy = userData.sortStrategy;
   if (userData.tags !== undefined) dbData.tags = userData.tags;
   if (userData.limit5hUsd !== undefined)
@@ -528,6 +544,8 @@ export async function updateUser(id: number, userData: UpdateUserData): Promise<
       rpm: users.rpmLimit,
       dailyQuota: users.dailyLimitUsd,
       providerGroup: users.providerGroup,
+      priceProviderGroup: users.priceProviderGroup,
+      latencyProviderGroup: users.latencyProviderGroup,
       sortStrategy: users.sortStrategy,
       tags: users.tags,
       createdAt: users.createdAt,

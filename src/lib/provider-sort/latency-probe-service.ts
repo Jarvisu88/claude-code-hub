@@ -2,6 +2,8 @@ import { queryProviderAvailability } from "@/lib/availability/availability-servi
 import { logger } from "@/lib/logger";
 import { DEFAULT_TEST_MODELS } from "@/lib/provider-testing/default-test-models";
 import { executeProviderTest } from "@/lib/provider-testing/test-service";
+import type { ProviderTestResult } from "@/lib/provider-testing/types";
+import { updateProviderLatencyProbeSnapshot } from "@/repository/provider";
 import type { Provider } from "@/types/provider";
 import { readLatencyCache, writeLatencySample } from "./latency-cache";
 
@@ -14,11 +16,16 @@ export interface LatencyDeps {
 
 /** 仅对 success 的运行取平均; 无成功返回 null。导出供单测。 */
 export function computeAvgLatency(
-  runs: Array<{ success: boolean; latencyMs: number }>
+  runs: Array<{ success: boolean; latencyMs: number; firstByteMs?: number }>
 ): number | null {
   const ok = runs.filter((r) => r.success);
   if (ok.length === 0) return null;
-  return ok.reduce((s, r) => s + r.latencyMs, 0) / ok.length;
+  return (
+    ok.reduce((s, r) => {
+      const firstByteMs = Number(r.firstByteMs);
+      return s + (Number.isFinite(firstByteMs) && firstByteMs > 0 ? firstByteMs : r.latencyMs);
+    }, 0) / ok.length
+  );
 }
 
 /** 被动: 从 availability-service 取近 24h avgLatencyMs, 并回填缓存避免冷启动期反复打 DB。 */
@@ -71,12 +78,18 @@ export async function getLatencyMap(
   return map;
 }
 
-/** 对单个供应商跑 PROBE_RUNS 次测试取平均, 写缓存。 */
-export async function probeProviderLatency(provider: Provider, now: number): Promise<void> {
-  const model = DEFAULT_TEST_MODELS[provider.providerType];
+function resolveProbeModel(provider: Provider): string {
+  const configured = provider.latencyProbeModel?.trim();
+  return configured || DEFAULT_TEST_MODELS[provider.providerType];
+}
+
+/** 对单个供应商跑 PROBE_RUNS 次测试取平均, 写缓存和最近状态快照。 */
+export async function probeProviderLatency(provider: Provider, now: number): Promise<number | null> {
+  const model = resolveProbeModel(provider);
   const timeoutMs =
     provider.providerType === "gemini" || provider.providerType === "gemini-cli" ? 60000 : 15000;
-  const runs: Array<{ success: boolean; latencyMs: number }> = [];
+  const runs: Array<{ success: boolean; latencyMs: number; firstByteMs?: number }> = [];
+  let lastErrorMessage: string | null = null;
   for (let i = 0; i < PROBE_RUNS; i++) {
     try {
       const r = await executeProviderTest({
@@ -88,15 +101,41 @@ export async function probeProviderLatency(provider: Provider, now: number): Pro
         proxyFallbackToDirect: provider.proxyFallbackToDirect ?? false,
         timeoutMs,
       });
-      runs.push({ success: r.success, latencyMs: r.latencyMs });
-    } catch {
+      runs.push({ success: r.success, latencyMs: r.latencyMs, firstByteMs: r.firstByteMs });
+      if (!r.success) {
+        lastErrorMessage = formatProbeFailure(r);
+      }
+    } catch (error) {
       runs.push({ success: false, latencyMs: 0 });
+      lastErrorMessage = error instanceof Error ? error.message : String(error);
     }
   }
+  const avgLatencyMs = computeAvgLatency(runs);
   await writeLatencySample({
     providerId: provider.id,
-    avgLatencyMs: computeAvgLatency(runs),
+    avgLatencyMs,
     sampledAt: now,
     source: "probe",
   });
+  await updateProviderLatencyProbeSnapshot(provider.id, {
+    avgLatencyMs,
+    sampledAt: now,
+    status: avgLatencyMs === null ? "failed" : "success",
+    errorMessage: avgLatencyMs === null ? lastErrorMessage : null,
+  });
+  return avgLatencyMs;
+}
+
+function formatProbeFailure(result: ProviderTestResult): string {
+  if (result.errorMessage?.trim()) {
+    return result.errorMessage.trim();
+  }
+
+  const parts = [
+    result.httpStatusCode ? `HTTP ${result.httpStatusCode}` : null,
+    result.httpStatusText?.trim() || null,
+    result.subStatus,
+    result.content?.trim() || null,
+  ].filter(Boolean);
+  return parts.join(" - ");
 }

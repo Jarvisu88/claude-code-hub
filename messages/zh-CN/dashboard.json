@@ -1097,6 +1097,16 @@
         "fixed": "从首次成功记账开始锁定 5 小时固定窗口",
         "rolling": "按最近 5 小时滚动窗口统计额度"
       }
+    },
+    "priceProviderGroup": {
+      "label": "价格分组",
+      "placeholder": "输入按成本排序使用的供应商分组",
+      "description": "选择价格排序时优先使用此分组；留空则继承默认分组。"
+    },
+    "latencyProviderGroup": {
+      "label": "速度分组",
+      "placeholder": "输入按速度排序使用的供应商分组",
+      "description": "选择速度排序时优先使用此分组；留空则继承默认分组。"
     }
   },
   "userForm": {
@@ -2006,6 +2016,14 @@
           "confirmDisableDescription": "禁用后该用户及其密钥将无法继续使用",
           "cancel": "取消",
           "processing": "处理中..."
+        },
+        "priceProviderGroup": {
+          "label": "价格分组",
+          "placeholder": "留空则使用供应商分组"
+        },
+        "latencyProviderGroup": {
+          "label": "速度分组",
+          "placeholder": "留空则使用供应商分组"
         }
       },
       "actions": {
@@ -2085,6 +2103,14 @@
           "optionPrice": "价格优先（最便宜先请求）",
           "optionLatency": "延迟优先（最快先请求）",
           "hint": "决定此 Key 在分组内的供应商请求顺序"
+        },
+        "priceProviderGroup": {
+          "label": "价格分组",
+          "placeholder": "留空则跟随用户价格分组"
+        },
+        "latencyProviderGroup": {
+          "label": "速度分组",
+          "placeholder": "留空则跟随用户速度分组"
         }
       },
       "limitRules": {

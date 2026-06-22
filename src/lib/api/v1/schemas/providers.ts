@@ -7,6 +7,19 @@ export const HIDDEN_PROVIDER_TYPES = new Set(HIDDEN_PROVIDER_TYPE_VALUES);
 
 const NullableStringSchema = z.string().nullable();
 
+const ProviderUpstreamRateSyncSummarySchema = z
+  .object({
+    isConfigured: z.boolean(),
+    isEnabled: z.boolean(),
+    source: z.enum(["sub2api", "newapi"]),
+    lastSyncedAt: NullableStringSchema,
+    lastSyncOk: z.boolean().nullable(),
+    lastSyncRate: z.number().nullable(),
+    lastSyncError: NullableStringSchema,
+    lastUpstreamGroupName: NullableStringSchema,
+  })
+  .describe("Non-sensitive upstream rate sync summary for provider list display.");
+
 export const ProviderListQuerySchema = z.object({
   q: z.string().trim().optional().describe("Case-insensitive provider search text."),
   providerType: ProviderTypeSchema.optional().describe("Filter by supported provider type."),
@@ -39,6 +52,28 @@ export const ProviderSummarySchema = z
     modelRedirects: z.array(z.unknown()).nullable().describe("Model redirect rules."),
     activeTimeStart: NullableStringSchema.describe("Scheduled active start time in HH:mm."),
     activeTimeEnd: NullableStringSchema.describe("Scheduled active end time in HH:mm."),
+    latencyProbeEnabled: z.boolean().nullable().describe("Provider latency probe override."),
+    latencyProbeModel: NullableStringSchema.describe("Provider latency probe model override."),
+    latencyProbeIntervalMs: z
+      .number()
+      .int()
+      .nullable()
+      .describe("Provider latency probe interval override in milliseconds."),
+    latencyProbeTimeStart: NullableStringSchema.describe("Latency probe active start time in HH:mm."),
+    latencyProbeTimeEnd: NullableStringSchema.describe("Latency probe active end time in HH:mm."),
+    latencyProbeLastAvgMs: z
+      .number()
+      .nullable()
+      .describe("Last persisted average first-byte latency in milliseconds."),
+    latencyProbeLastStatus: z
+      .enum(["success", "failed"])
+      .nullable()
+      .describe("Last persisted latency probe status."),
+    latencyProbeLastError: NullableStringSchema.describe("Last persisted latency probe error."),
+    latencyProbeLastRunAt: NullableStringSchema.describe("Last latency probe run timestamp."),
+    upstreamRateSync: ProviderUpstreamRateSyncSummarySchema.nullable().describe(
+      "Upstream rate sync summary without auth material."
+    ),
     allowedModels: z.array(z.unknown()).nullable().describe("Allowed model rules."),
     allowedClients: z.array(z.string()).describe("Allowed client patterns."),
     blockedClients: z.array(z.string()).describe("Blocked client patterns."),
@@ -171,6 +206,75 @@ export const ProviderGenericResponseSchema = z
   .record(z.string(), z.unknown())
   .describe("Provider action response object.");
 
+export const ProviderUpstreamRateSyncSourceSchema = z.enum(["sub2api", "newapi"]);
+
+export const ProviderUpstreamRateSyncConfigSchema = z
+  .object({
+    id: z.number().int().positive(),
+    providerId: z.number().int().positive(),
+    source: ProviderUpstreamRateSyncSourceSchema,
+    isEnabled: z.boolean(),
+    baseUrl: z.string(),
+    apiKey: NullableStringSchema,
+    keyName: NullableStringSchema,
+    providerBaseUrl: z.string(),
+    providerKeyName: z.string(),
+    providerKeySuffix: NullableStringSchema,
+    accessToken: NullableStringSchema,
+    refreshToken: NullableStringSchema,
+    tokenExpiresAt: z.number().int().nonnegative().nullable(),
+    cookie: NullableStringSchema,
+    userId: NullableStringSchema,
+    syncIntervalMinutes: z.number().int().positive(),
+    lastSyncedAt: NullableStringSchema,
+    lastSyncOk: z.boolean().nullable(),
+    lastSyncRate: z.number().nullable(),
+    lastSyncError: NullableStringSchema,
+    lastUpstreamGroupName: NullableStringSchema,
+  })
+  .describe("Provider upstream rate sync configuration.");
+
+export const ProviderUpstreamRateSyncConfigResponseSchema = z
+  .object({
+    config: ProviderUpstreamRateSyncConfigSchema.nullable(),
+  })
+  .describe("Provider upstream rate sync configuration response.");
+
+export const ProviderUpstreamRateSyncUpdateSchema = z
+  .object({
+    source: ProviderUpstreamRateSyncSourceSchema,
+    is_enabled: z.boolean().optional(),
+    base_url: z.string().trim().url().nullable().optional(),
+    api_key: z.string().trim().nullable().optional(),
+    key_name: z.string().trim().nullable().optional(),
+    access_token: z.string().trim().nullable().optional(),
+    refresh_token: z.string().trim().nullable().optional(),
+    token_expires_at: z.number().int().nonnegative().nullable().optional(),
+    cookie: z.string().trim().nullable().optional(),
+    user_id: z.string().trim().nullable().optional(),
+    sync_interval_minutes: z.number().int().min(1).max(7 * 24 * 60).optional(),
+  })
+  .strict()
+  .describe("Provider upstream rate sync configuration update.");
+
+export const ProviderUpstreamRateSyncRunResponseSchema = z
+  .record(z.string(), z.unknown())
+  .describe("Provider upstream rate sync run result.");
+
+export const ProviderLatencyProbeRunResponseSchema = z
+  .object({
+    avgLatencyMs: z.number().nullable(),
+    sampledAt: z.number().int().nonnegative(),
+    status: z.enum(["success", "failed"]),
+  })
+  .describe("Provider latency probe run result.");
+
+export const ProviderUpstreamRateSyncAuthOpenResponseSchema = z
+  .object({
+    opened: z.literal(true),
+  })
+  .describe("Provider upstream browser auth open result.");
+
 export const ProviderArrayResponseSchema = z.object({
   items: z.array(z.unknown()).describe("Provider response items."),
 });
@@ -181,6 +285,46 @@ export const ProviderConfirmBodySchema = z
       .boolean()
       .default(false)
       .describe("Whether to apply the operation instead of previewing it."),
+    mode: z
+      .enum(["price", "latency"])
+      .optional()
+      .describe("Provider priority sort mode. Defaults to price."),
+    providerGroup: z
+      .string()
+      .trim()
+      .max(200)
+      .nullable()
+      .optional()
+      .describe("Optional provider group tag to sort independently."),
+    targetGroup: z
+      .string()
+      .trim()
+      .max(200)
+      .nullable()
+      .optional()
+      .describe("Optional group priority key to write sort results into."),
+  })
+  .strict();
+
+export const ProviderLatencyPriorityWorkflowSchema = z
+  .object({
+    confirm: z
+      .boolean()
+      .default(false)
+      .describe("Whether to apply the operation instead of previewing it."),
+    providerGroup: z
+      .string()
+      .trim()
+      .max(200)
+      .nullable()
+      .optional()
+      .describe("Optional provider group tag to probe."),
+    targetGroup: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .describe("Group priority key to write latency sort results into."),
   })
   .strict();
 
@@ -190,9 +334,21 @@ export const ProviderIdsBodySchema = z
   })
   .strict();
 
+export const ProviderUpstreamRateSyncBatchEnabledSchema = z
+  .object({
+    providerIds: z.array(z.number().int().positive()).min(1).max(500).describe("Provider ids."),
+    enabled: z.boolean().describe("Whether configured upstream rate sync jobs are enabled."),
+  })
+  .strict();
+
 const ProviderBatchUpdateFieldsSchema = z
   .object({
     is_enabled: z.boolean().optional().describe("Provider enabled state."),
+    latency_probe_enabled: z
+      .boolean()
+      .nullable()
+      .optional()
+      .describe("Per-provider latency probe enabled override."),
     priority: z.number().int().optional().describe("Provider routing priority."),
     weight: z.number().min(0).optional().describe("Provider routing weight."),
     cost_multiplier: z.number().min(0).optional().describe("Provider cost multiplier."),
@@ -367,6 +523,32 @@ export const ProviderCreateSchema = z
       .optional()
       .describe("Scheduled active start time."),
     active_time_end: TimeOfDaySchema.nullable().optional().describe("Scheduled active end time."),
+    latency_probe_enabled: z
+      .boolean()
+      .nullable()
+      .optional()
+      .describe("Per-provider latency probe enabled override."),
+    latency_probe_model: z
+      .string()
+      .trim()
+      .max(128)
+      .nullable()
+      .optional()
+      .describe("Per-provider latency probe model override."),
+    latency_probe_interval_ms: z
+      .number()
+      .int()
+      .min(10_000)
+      .max(86_400_000)
+      .nullable()
+      .optional()
+      .describe("Per-provider latency probe interval override in milliseconds."),
+    latency_probe_time_start: TimeOfDaySchema.nullable()
+      .optional()
+      .describe("Per-provider latency probe active start time."),
+    latency_probe_time_end: TimeOfDaySchema.nullable()
+      .optional()
+      .describe("Per-provider latency probe active end time."),
     allowed_models: z.array(z.unknown()).nullable().optional().describe("Allowed model rules."),
     allowed_clients: z.array(z.string().min(1)).optional().describe("Allowed client patterns."),
     blocked_clients: z.array(z.string().min(1)).optional().describe("Blocked client patterns."),
@@ -512,6 +694,9 @@ export const ProviderUpdateSchema = ProviderCreateSchema.omit({ key: true })
 
 export type ProviderSummaryResponse = z.infer<typeof ProviderSummarySchema>;
 export type ProviderListQuery = z.infer<typeof ProviderListQuerySchema>;
+export type ProviderUpstreamRateSyncUpdateInput = z.infer<
+  typeof ProviderUpstreamRateSyncUpdateSchema
+>;
 export type ProviderCreateInput = z.infer<typeof ProviderCreateSchema>;
 export type ProviderUpdateInput = z.infer<typeof ProviderUpdateSchema>;
 export type ProviderConfirmBodyInput = z.infer<typeof ProviderConfirmBodySchema>;

@@ -1,12 +1,21 @@
 "use client";
 
-import { FlaskConical, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Activity, FlaskConical, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
-export type BatchActionMode = "edit" | "delete" | "resetCircuit" | "test" | null;
+export type BatchActionMode =
+  | "edit"
+  | "delete"
+  | "resetCircuit"
+  | "test"
+  | "rateSyncAutoOn"
+  | "rateSyncAutoOff"
+  | "miniProbeAutoOn"
+  | "miniProbeAutoOff"
+  | null;
 
 export interface ProviderBatchActionsProps {
   selectedCount: number;
@@ -50,6 +59,26 @@ export function ProviderBatchActions({
         <Button size="sm" variant="outline" onClick={() => onAction("test")}>
           <FlaskConical className="mr-2 h-4 w-4" />
           {t("actions.test")}
+        </Button>
+
+        <Button size="sm" variant="outline" onClick={() => onAction("rateSyncAutoOn")}>
+          <RotateCcw className="mr-2 h-4 w-4" />
+          {t("actions.rateSyncAutoOn")}
+        </Button>
+
+        <Button size="sm" variant="outline" onClick={() => onAction("rateSyncAutoOff")}>
+          <RotateCcw className="mr-2 h-4 w-4" />
+          {t("actions.rateSyncAutoOff")}
+        </Button>
+
+        <Button size="sm" variant="outline" onClick={() => onAction("miniProbeAutoOn")}>
+          <Activity className="mr-2 h-4 w-4" />
+          {t("actions.miniProbeAutoOn")}
+        </Button>
+
+        <Button size="sm" variant="outline" onClick={() => onAction("miniProbeAutoOff")}>
+          <Activity className="mr-2 h-4 w-4" />
+          {t("actions.miniProbeAutoOff")}
         </Button>
 
         <Button size="sm" variant="outline" onClick={() => onAction("resetCircuit")}>

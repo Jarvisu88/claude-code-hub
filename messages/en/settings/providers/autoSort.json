@@ -4,7 +4,7 @@
   "changesTitle": "Change Details",
   "confirm": "Apply Changes",
   "costMultiplierHeader": "Cost Multiplier",
-  "dialogDescription": "Automatically assign priority based on cost multiplier (lower cost = higher priority)",
+  "dialogDescription": "Preview and apply provider priority by cost or Mini probe first-byte results. Lower values get higher priority.",
   "dialogTitle": "Auto Sort Provider Priority",
   "error": "Failed to update priorities",
   "noChanges": "No changes needed (already sorted)",
@@ -12,5 +12,18 @@
   "priorityHeader": "Priority",
   "providerHeader": "Provider",
   "providersHeader": "Providers",
-  "success": "Updated priority for {count} providers"
+  "success": "Updated priority for {count} providers",
+  "modeLabel": "Sort mode",
+  "modePrice": "By cost",
+  "modeLatency": "By speed",
+  "providerGroupLabel": "Provider group",
+  "providerGroupPlaceholder": "Empty means all providers",
+  "targetGroupLabel": "Target strategy group",
+  "targetGroupPlaceholder": "Empty uses provider group; use different groups for speed and price",
+  "preview": "Preview",
+  "runLatencyWorkflow": "Probe and apply speed group",
+  "latencyWorkflowSuccess": "Probed and updated speed group for {count} providers",
+  "targetGroupRequired": "Enter a provider group or target strategy group",
+  "latencyHeader": "First byte",
+  "unknownLatency": "Unknown"
 }

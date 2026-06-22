@@ -123,6 +123,18 @@ export const CreateUserSchema = z.object({
     .nullable()
     .optional()
     .default(""),
+  priceProviderGroup: z
+    .string()
+    .max(200, "价格分组不能超过200个字符")
+    .nullable()
+    .optional()
+    .default(""),
+  latencyProviderGroup: z
+    .string()
+    .max(200, "速度分组不能超过200个字符")
+    .nullable()
+    .optional()
+    .default(""),
   sortStrategy: z.enum(["none", "price", "latency"]).optional().default("none"),
   tags: z
     .array(z.string().max(32, "标签长度不能超过32个字符"))
@@ -247,6 +259,8 @@ export const UpdateUserSchema = z.object({
   name: z.string().min(1, "用户名不能为空").max(64, "用户名不能超过64个字符").optional(),
   note: z.string().max(200, "备注不能超过200个字符").optional(),
   providerGroup: z.string().max(200, "供应商分组不能超过200个字符").nullable().optional(),
+  priceProviderGroup: z.string().max(200, "价格分组不能超过200个字符").nullable().optional(),
+  latencyProviderGroup: z.string().max(200, "速度分组不能超过200个字符").nullable().optional(),
   sortStrategy: z.enum(["none", "price", "latency"]).optional(),
   tags: z
     .array(z.string().max(32, "标签长度不能超过32个字符"))
@@ -426,6 +440,18 @@ export const KeyFormSchema = z.object({
     .nullable()
     .optional()
     .default(""),
+  priceProviderGroup: z
+    .string()
+    .max(200, "价格分组不能超过200个字符")
+    .nullable()
+    .optional()
+    .default(""),
+  latencyProviderGroup: z
+    .string()
+    .max(200, "速度分组不能超过200个字符")
+    .nullable()
+    .optional()
+    .default(""),
   sortStrategy: z.enum(["none", "price", "latency"]).optional().default("none"),
   cacheTtlPreference: CACHE_TTL_PREFERENCE.optional().default("inherit"),
 });
@@ -502,6 +528,30 @@ export const CreateProviderSchema = z
     active_time_end: z
       .string()
       .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "active_time_end must be HH:mm format")
+      .nullable()
+      .optional(),
+    latency_probe_enabled: z.boolean().nullable().optional(),
+    latency_probe_model: z
+      .string()
+      .trim()
+      .max(128, "探针模型长度不能超过128个字符")
+      .nullable()
+      .optional(),
+    latency_probe_interval_ms: z.coerce
+      .number()
+      .int("探针频率必须是整数")
+      .min(10000, "探针频率不能少于10秒")
+      .max(86400000, "探针频率不能超过24小时")
+      .nullable()
+      .optional(),
+    latency_probe_time_start: z
+      .string()
+      .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "latency_probe_time_start must be HH:mm format")
+      .nullable()
+      .optional(),
+    latency_probe_time_end: z
+      .string()
+      .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "latency_probe_time_end must be HH:mm format")
       .nullable()
       .optional(),
     allowed_models: PROVIDER_ALLOWED_MODEL_RULES_SCHEMA,
@@ -698,6 +748,26 @@ export const CreateProviderSchema = z
         path: ["active_time_end"],
       });
     }
+    const hasProbeStart = data.latency_probe_time_start != null;
+    const hasProbeEnd = data.latency_probe_time_end != null;
+    if (hasProbeStart !== hasProbeEnd) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "latency_probe_time_start and latency_probe_time_end must be both set or both cleared",
+        path: [hasProbeStart ? "latency_probe_time_end" : "latency_probe_time_start"],
+      });
+    }
+    if (
+      hasProbeStart &&
+      hasProbeEnd &&
+      data.latency_probe_time_start === data.latency_probe_time_end
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "latency_probe_time_start and latency_probe_time_end must not be the same",
+        path: ["latency_probe_time_end"],
+      });
+    }
   });
 
 /**
@@ -746,6 +816,30 @@ export const UpdateProviderSchema = z
     active_time_end: z
       .string()
       .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "active_time_end must be HH:mm format")
+      .nullable()
+      .optional(),
+    latency_probe_enabled: z.boolean().nullable().optional(),
+    latency_probe_model: z
+      .string()
+      .trim()
+      .max(128, "探针模型长度不能超过128个字符")
+      .nullable()
+      .optional(),
+    latency_probe_interval_ms: z.coerce
+      .number()
+      .int("探针频率必须是整数")
+      .min(10000, "探针频率不能少于10秒")
+      .max(86400000, "探针频率不能超过24小时")
+      .nullable()
+      .optional(),
+    latency_probe_time_start: z
+      .string()
+      .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "latency_probe_time_start must be HH:mm format")
+      .nullable()
+      .optional(),
+    latency_probe_time_end: z
+      .string()
+      .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "latency_probe_time_end must be HH:mm format")
       .nullable()
       .optional(),
     allowed_models: PROVIDER_ALLOWED_MODEL_RULES_SCHEMA,
@@ -935,6 +1029,26 @@ export const UpdateProviderSchema = z
         code: z.ZodIssueCode.custom,
         message: "active_time_start and active_time_end must not be the same",
         path: ["active_time_end"],
+      });
+    }
+    const hasProbeStart = data.latency_probe_time_start != null;
+    const hasProbeEnd = data.latency_probe_time_end != null;
+    if (hasProbeStart !== hasProbeEnd) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "latency_probe_time_start and latency_probe_time_end must be both set or both cleared",
+        path: [hasProbeStart ? "latency_probe_time_end" : "latency_probe_time_start"],
+      });
+    }
+    if (
+      hasProbeStart &&
+      hasProbeEnd &&
+      data.latency_probe_time_start === data.latency_probe_time_end
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "latency_probe_time_start and latency_probe_time_end must not be the same",
+        path: ["latency_probe_time_end"],
       });
     }
   });

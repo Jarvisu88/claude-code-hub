@@ -1,0 +1,1 @@
+ALTER TABLE "provider_upstream_rate_sync_configs" ADD COLUMN "last_upstream_group_name" varchar(255);

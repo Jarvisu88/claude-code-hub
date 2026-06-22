@@ -18,6 +18,7 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/repository/provider", () => ({
   updateProvidersBatch: updateProvidersBatchMock,
   deleteProvidersBatch: deleteProvidersBatchMock,
+  updateProviderCostMultiplier: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/cache/provider-cache", () => ({

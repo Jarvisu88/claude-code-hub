@@ -3,6 +3,10 @@
   "actions": {
     "edit": "Редактировать",
     "test": "Тест",
+    "rateSyncAutoOn": "Включить автосинхр. тарифа",
+    "rateSyncAutoOff": "Отключить автосинхр. тарифа",
+    "miniProbeAutoOn": "Включить автозонд",
+    "miniProbeAutoOff": "Отключить автозонд",
     "resetCircuit": "Сбросить предохранитель",
     "delete": "Удалить"
   },
@@ -66,6 +70,12 @@
     "undoFailed": "Ошибка отмены: {error}",
     "failed": "Ошибка операции: {error}",
     "circuitReset": "Сброшено предохранителей: {count}"
+  },
+  "batchRateSyncAuto": {
+    "success": "Автосинхронизация тарифов обновлена: {updated}, пропущено без настройки: {skipped}"
+  },
+  "batchMiniProbeAuto": {
+    "success": "Автопереключатель Mini-зонда обновлен для {count} провайдеров"
   },
   "undo": {
     "batchDeleteSuccess": "Удалено провайдеров: {count}",

@@ -20,6 +20,8 @@ export interface EditKeyDialogProps {
     expiresAt: string;
     canLoginWebUi?: boolean;
     providerGroup?: string | null;
+    priceProviderGroup?: string | null;
+    latencyProviderGroup?: string | null;
     cacheTtlPreference?: "inherit" | "5m" | "1h";
     limit5hUsd?: number | null;
     limitDailyUsd?: number | null;

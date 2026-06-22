@@ -4,6 +4,7 @@ import { PROVIDER_GROUP } from "@/lib/constants/provider.constants";
 import { logger } from "@/lib/logger";
 import { applySortStrategy } from "@/lib/provider-sort/apply-sort-strategy";
 import { resolveEffectiveSortStrategy } from "@/lib/provider-sort/get-effective-sort-strategy";
+import { resolveEffectiveProviderGroupForStrategy } from "@/lib/provider-sort/group-strategy";
 import { getLatencyMap } from "@/lib/provider-sort/latency-probe-service";
 import type { SortStrategy } from "@/lib/provider-sort/types";
 import { RateLimitService } from "@/lib/rate-limit";
@@ -34,18 +35,12 @@ import type { ProxySession } from "./session";
  * @param session - 代理会话对象
  * @returns 有效分组字符串，或 null（无认证信息时）
  */
-function getEffectiveProviderGroup(session?: ProxySession): string | null {
+function getEffectiveProviderGroup(session?: ProxySession, sortStrategy: SortStrategy = "none"): string | null {
   if (!session?.authState) {
     return null;
   }
   const { key, user } = session.authState;
-  if (key) {
-    return key.providerGroup || PROVIDER_GROUP.DEFAULT;
-  }
-  if (user) {
-    return user.providerGroup || PROVIDER_GROUP.DEFAULT;
-  }
-  return PROVIDER_GROUP.DEFAULT;
+  return resolveEffectiveProviderGroupForStrategy({ sortStrategy, key, user });
 }
 
 /**
@@ -99,8 +94,8 @@ function providerSupportsModel(provider: Provider, requestedModel: string): bool
  *
  * 映射关系：
  * - claude → claude | claude-auth
- * - response → codex
- * - openai → openai-compatible
+ * - response → codex | openai-compatible
+ * - openai → openai-compatible | codex
  * - gemini → gemini
  * - gemini-cli → gemini-cli
  *
@@ -118,15 +113,15 @@ function checkFormatProviderTypeCompatibility(
     case "claude":
       return providerType === "claude" || providerType === "claude-auth";
     case "response":
-      return providerType === "codex";
+      return providerType === "codex" || providerType === "openai-compatible";
     case "openai":
-      return providerType === "openai-compatible";
+      return providerType === "openai-compatible" || providerType === "codex";
     case "gemini":
       return providerType === "gemini";
     case "gemini-cli":
       return providerType === "gemini-cli";
     default:
-      return true; // 未知格式回退为兼容（不会主动过滤）
+      return true;
   }
 }
 
@@ -220,7 +215,11 @@ export class ProxyProviderResolver {
     // === Resolve group cost multiplier ===
     // Fail soft: if the lookup throws (Redis/DB hiccup), fall back to 1.0 so
     // request handling proceeds without billing disruption.
-    const effectiveGroup = getEffectiveProviderGroup(session);
+    const effectiveSortStrategy = resolveEffectiveSortStrategy(
+      session?.authState?.key?.sortStrategy,
+      session?.authState?.user?.sortStrategy
+    );
+    const effectiveGroup = getEffectiveProviderGroup(session, effectiveSortStrategy);
     if (effectiveGroup) {
       try {
         const multiplier = await getGroupCostMultiplier(effectiveGroup);
@@ -751,9 +750,13 @@ export class ProxyProviderResolver {
     // 如果没有 session，回退到 findAllProviders（内部已使用缓存）
     const allProviders = session ? await session.getProvidersSnapshot() : await findAllProviders();
     const requestedModel = session?.getOriginalModel() || "";
+    const sortStrategy: SortStrategy = resolveEffectiveSortStrategy(
+      session?.authState?.key?.sortStrategy,
+      session?.authState?.user?.sortStrategy
+    );
 
     // === Step 1: 分组预过滤（静默，用户只能看到自己分组内的供应商）===
-    const effectiveGroupPick = getEffectiveProviderGroup(session);
+    const effectiveGroupPick = getEffectiveProviderGroup(session, sortStrategy);
     const keyGroupPick = session?.authState?.key?.providerGroup;
 
     let visibleProviders = allProviders;
@@ -1030,11 +1033,6 @@ export class ProxyProviderResolver {
     // Step 6: 选择供应商
     // - none (默认): 成本排序 + 加权随机 (现有逻辑, 保持不变)
     // - price/latency: 在最高优先级档内按策略确定性选择第一个 (最便宜/最快)
-    const sortStrategy: SortStrategy = resolveEffectiveSortStrategy(
-      session?.authState?.key?.sortStrategy,
-      session?.authState?.user?.sortStrategy
-    );
-
     let selected: Provider;
     if (sortStrategy === "none") {
       const totalWeight = topPriorityProviders.reduce((sum, p) => sum + p.weight, 0);

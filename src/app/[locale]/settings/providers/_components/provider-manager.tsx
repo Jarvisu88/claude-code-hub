@@ -1,5 +1,6 @@
 "use client";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Filter,
@@ -11,6 +12,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
 import { Dialog, DialogTitle } from "@/components/ui/dialog";
@@ -26,6 +28,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useDebounce } from "@/lib/hooks/use-debounce";
+import {
+  batchSetProviderUpstreamRateSyncEnabled,
+  batchUpdateProviders,
+} from "@/lib/api-client/v1/actions/providers";
 import type { CurrencyCode } from "@/lib/utils/currency";
 import { parseProviderGroups, resolveProviderGroupsWithDefault } from "@/lib/utils/provider-group";
 import type {
@@ -43,6 +49,7 @@ import {
 } from "./batch-edit";
 import { BatchTestDialog } from "./batch-test";
 import { ProviderForm } from "./forms/provider-form";
+import { invalidateProviderQueries } from "./invalidate-provider-queries";
 import { ProviderFormDialogContent } from "./provider-form-dialog-content";
 import { ProviderGroupTab } from "./provider-group-tab";
 import { ProviderList } from "./provider-list";
@@ -89,10 +96,12 @@ export function ProviderManager({
   refreshing = false,
   addDialogSlot,
 }: ProviderManagerProps) {
+  const queryClient = useQueryClient();
   const t = useTranslations("settings.providers.search");
   const tStrings = useTranslations("settings.providers");
   const tFilter = useTranslations("settings.providers.filter");
   const tCommon = useTranslations("settings.common");
+  const tBatchEdit = useTranslations("settings.providers.batchEdit");
   const [typeFilter, setTypeFilter] = useState<ProviderType | "all">("all");
   const [sortBy, setSortBy] = useState<SortKey>("priority");
   const [searchTerm, setSearchTerm] = useState("");
@@ -316,9 +325,41 @@ export function ProviderManager({
       setBatchTestOpen(true);
       return;
     }
+    if (mode === "miniProbeAutoOn" || mode === "miniProbeAutoOff") {
+      void setSelectedMiniProbeEnabled(
+        mode === "miniProbeAutoOn",
+        Array.from(selectedProviderIds),
+        queryClient,
+        {
+          t: tBatchEdit,
+          onDone: async () => {
+            await invalidateProviderQueries(queryClient);
+            setSelectedProviderIds(new Set());
+            setIsMultiSelectMode(false);
+          },
+        }
+      );
+      return;
+    }
+    if (mode === "rateSyncAutoOn" || mode === "rateSyncAutoOff") {
+      void setSelectedUpstreamRateSyncEnabled(
+        mode === "rateSyncAutoOn",
+        Array.from(selectedProviderIds),
+        queryClient,
+        {
+          t: tBatchEdit,
+          onDone: async () => {
+            await invalidateProviderQueries(queryClient);
+            setSelectedProviderIds(new Set());
+            setIsMultiSelectMode(false);
+          },
+        }
+      );
+      return;
+    }
     setBatchActionMode(mode);
     setBatchDialogOpen(true);
-  }, []);
+  }, [queryClient, selectedProviderIds, tBatchEdit]);
 
   // 批量测试基于全量列表取已选项：筛选条件变化不会丢失已勾选的供应商
   const selectedProviders = useMemo(
@@ -752,6 +793,83 @@ export function ProviderManager({
 }
 
 export type { ProviderDisplay } from "@/types/provider";
+
+async function setSelectedMiniProbeEnabled(
+  enabled: boolean,
+  providerIds: number[],
+  queryClient: QueryClient,
+  options: {
+    t: ReturnType<typeof useTranslations>;
+    onDone: () => void | Promise<void>;
+  }
+) {
+  if (providerIds.length === 0) return;
+
+  const result = await batchUpdateProviders({
+    providerIds,
+    updates: { latency_probe_enabled: enabled },
+  });
+
+  if (result.ok) {
+    updateProvidersQueryCache(queryClient, providerIds, (provider) => ({
+      ...provider,
+      latencyProbeEnabled: enabled,
+    }));
+    toast.success(options.t("batchMiniProbeAuto.success", { count: providerIds.length }));
+  } else {
+    toast.error(options.t("toast.failed", { error: result.error }));
+  }
+
+  await options.onDone();
+}
+
+async function setSelectedUpstreamRateSyncEnabled(
+  enabled: boolean,
+  providerIds: number[],
+  queryClient: QueryClient,
+  options: {
+    t: ReturnType<typeof useTranslations>;
+    onDone: () => void | Promise<void>;
+  }
+) {
+  if (providerIds.length === 0) return;
+
+  const result = await batchSetProviderUpstreamRateSyncEnabled({ providerIds, enabled });
+  if (result.ok) {
+    updateProvidersQueryCache(queryClient, providerIds, (provider) =>
+      provider.upstreamRateSync
+        ? {
+            ...provider,
+            upstreamRateSync: {
+              ...provider.upstreamRateSync,
+              isEnabled: enabled,
+            },
+          }
+        : provider
+    );
+    toast.success(
+      options.t("batchRateSyncAuto.success", {
+        updated: result.data.updatedCount,
+        skipped: result.data.skippedCount,
+      })
+    );
+  } else {
+    toast.error(options.t("toast.failed", { error: result.error }));
+  }
+
+  await options.onDone();
+}
+
+function updateProvidersQueryCache(
+  queryClient: QueryClient,
+  providerIds: number[],
+  updateProvider: (provider: ProviderDisplay) => ProviderDisplay
+) {
+  const selectedIds = new Set(providerIds);
+  queryClient.setQueryData<ProviderDisplay[]>(["providers"], (current) =>
+    current?.map((provider) => (selectedIds.has(provider.id) ? updateProvider(provider) : provider))
+  );
+}
 
 function InlineLoading({ label }: { label: string }) {
   return (

@@ -29,6 +29,14 @@ export interface KeyEditTranslations {
       allGroups: string;
       noGroupHint: string;
     };
+    priceProviderGroup: {
+      label: string;
+      placeholder: string;
+    };
+    latencyProviderGroup: {
+      label: string;
+      placeholder: string;
+    };
     cacheTtl: {
       label: string;
       options: {
@@ -159,6 +167,14 @@ export function useKeyTranslations(): KeyEditTranslations {
           editHint: t("keyEditSection.fields.providerGroup.editHint"),
           allGroups: t("keyEditSection.fields.providerGroup.allGroups"),
           noGroupHint: t("keyEditSection.fields.providerGroup.noGroupHint"),
+        },
+        priceProviderGroup: {
+          label: t("keyEditSection.fields.priceProviderGroup.label"),
+          placeholder: t("keyEditSection.fields.priceProviderGroup.placeholder"),
+        },
+        latencyProviderGroup: {
+          label: t("keyEditSection.fields.latencyProviderGroup.label"),
+          placeholder: t("keyEditSection.fields.latencyProviderGroup.placeholder"),
         },
         cacheTtl: {
           label: t("keyEditSection.fields.cacheTtl.label"),

@@ -3,6 +3,10 @@
   "actions": {
     "edit": "編集",
     "test": "テスト",
+    "rateSyncAutoOn": "倍率自動同期を有効化",
+    "rateSyncAutoOff": "倍率自動同期を無効化",
+    "miniProbeAutoOn": "自動プローブを有効化",
+    "miniProbeAutoOff": "自動プローブを無効化",
     "resetCircuit": "サーキットブレーカーをリセット",
     "delete": "削除"
   },
@@ -66,6 +70,12 @@
     "undoFailed": "元に戻す操作に失敗: {error}",
     "failed": "操作に失敗: {error}",
     "circuitReset": "{count} 件のサーキットブレーカーをリセットしました"
+  },
+  "batchRateSyncAuto": {
+    "success": "上流倍率の自動同期を {updated} 件更新、未設定 {skipped} 件をスキップしました"
+  },
+  "batchMiniProbeAuto": {
+    "success": "{count} 件のプロバイダーで Mini プローブ自動スイッチを更新しました"
   },
   "undo": {
     "batchDeleteSuccess": "{count} 件のプロバイダーを削除しました",

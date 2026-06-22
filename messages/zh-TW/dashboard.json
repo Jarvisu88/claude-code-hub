@@ -1087,6 +1087,16 @@
         "fixed": "從首次成功記帳開始鎖定 5 小時固定視窗",
         "rolling": "依最近 5 小時滾動視窗統計額度"
       }
+    },
+    "priceProviderGroup": {
+      "label": "價格分組",
+      "placeholder": "輸入按成本排序使用的供應商分組",
+      "description": "選擇價格排序時優先使用此分組；留空則繼承預設分組。"
+    },
+    "latencyProviderGroup": {
+      "label": "速度分組",
+      "placeholder": "輸入按速度排序使用的供應商分組",
+      "description": "選擇速度排序時優先使用此分組；留空則繼承預設分組。"
     }
   },
   "userForm": {
@@ -1991,6 +2001,14 @@
           "confirmDisableDescription": "停用後該使用者及其金鑰將無法繼續使用",
           "cancel": "取消變更",
           "processing": "處理中..."
+        },
+        "priceProviderGroup": {
+          "label": "價格分組",
+          "placeholder": "留空則使用供應商分組"
+        },
+        "latencyProviderGroup": {
+          "label": "速度分組",
+          "placeholder": "留空則使用供應商分組"
         }
       },
       "actions": {
@@ -2070,6 +2088,14 @@
           "optionPrice": "價格優先（最便宜先請求）",
           "optionLatency": "延遲優先（最快先請求）",
           "hint": "決定此 Key 在分組內的供應商請求順序"
+        },
+        "priceProviderGroup": {
+          "label": "價格分組",
+          "placeholder": "留空則跟隨使用者價格分組"
+        },
+        "latencyProviderGroup": {
+          "label": "速度分組",
+          "placeholder": "留空則跟隨使用者速度分組"
         }
       },
       "limitRules": {

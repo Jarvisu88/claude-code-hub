@@ -3,6 +3,7 @@ import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Activity,
   CheckCircle,
   Clock,
   Copy,
@@ -10,13 +11,17 @@ import {
   Globe,
   Key,
   MoreHorizontal,
+  MoveDown,
+  MoveRight,
+  MoveUp,
   RotateCcw,
   ShieldCheck,
   Trash,
   XCircle,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { memo, useCallback, useEffect, useState, useTransition } from "react";
+import { memo, useCallback, useEffect, useRef, useState, useTransition } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { toast } from "sonner";
 import { FormErrorBoundary } from "@/components/form-error-boundary";
 import {
@@ -55,6 +60,8 @@ import {
   removeProvider,
   resetProviderCircuit,
   resetProviderTotalUsage,
+  runProviderLatencyProbe,
+  syncProviderUpstreamRateNow,
   undoProviderDelete,
 } from "@/lib/api-client/v1/actions/providers";
 import {
@@ -81,9 +88,11 @@ import { ProviderForm } from "./forms/provider-form";
 import { GroupEditCombobox } from "./group-edit-combobox";
 import { InlineEditPopover } from "./inline-edit-popover";
 import { invalidateProviderQueries } from "./invalidate-provider-queries";
+import { MiniProbeDialog } from "./mini-probe-dialog";
 import { PriorityEditPopover } from "./priority-edit-popover";
 import { ProviderEndpointHover } from "./provider-endpoint-hover";
 import { ProviderFormDialogContent } from "./provider-form-dialog-content";
+import { UpstreamRateSyncDialog } from "./upstream-rate-sync-dialog";
 
 interface ProviderRichListItemProps {
   provider: ProviderDisplay;
@@ -140,6 +149,8 @@ function ProviderRichListItemInner({
 
   const [openEdit, setOpenEdit] = useState(false);
   const [openClone, setOpenClone] = useState(false);
+  const [openRateSync, setOpenRateSync] = useState(false);
+  const [openMiniProbe, setOpenMiniProbe] = useState(false);
   const [showKeyDialog, setShowKeyDialog] = useState(false);
 
   // Defer heavy ProviderForm mount so dialog animation doesn't compete with React work
@@ -185,6 +196,8 @@ function ProviderRichListItemInner({
   const [resetUsagePending, startResetUsageTransition] = useTransition();
   const [deletePending, startDeleteTransition] = useTransition();
   const [togglePending, startToggleTransition] = useTransition();
+  const [rateSyncPending, startRateSyncTransition] = useTransition();
+  const [miniProbePending, startMiniProbeTransition] = useTransition();
 
   const canEdit = currentUser?.role === "admin";
   const t = useTranslations("settings.providers");
@@ -395,6 +408,54 @@ function ProviderRichListItemInner({
     });
   };
 
+  const handleRunUpstreamRateSync = () => {
+    startRateSyncTransition(async () => {
+      try {
+        const result = await syncProviderUpstreamRateNow(provider.id);
+        if (result.ok) {
+          toast.success(t("upstreamRateSync.syncSuccess"));
+          await doInvalidate();
+        } else {
+          toast.error(t("upstreamRateSync.syncFailed"), {
+            description: result.error || tList("unknownError"),
+          });
+        }
+      } catch (error) {
+        console.error("Failed to sync upstream rate:", error);
+        toast.error(t("upstreamRateSync.syncFailed"), {
+          description: tList("unknownError"),
+        });
+      }
+    });
+  };
+
+  const handleRunMiniProbe = () => {
+    startMiniProbeTransition(async () => {
+      try {
+        const result = await runProviderLatencyProbe(provider.id);
+        if (result.ok) {
+          const description =
+            result.data.avgLatencyMs === null
+              ? tList("miniProbe.failedStatus")
+              : tList("miniProbe.avgLatency", {
+                  value: Math.round(result.data.avgLatencyMs),
+                });
+          toast.success(tList("miniProbe.runSuccess"), { description });
+          await doInvalidate();
+        } else {
+          toast.error(tList("miniProbe.runFailed"), {
+            description: result.error || tList("unknownError"),
+          });
+        }
+      } catch (error) {
+        console.error("Failed to run Mini probe:", error);
+        toast.error(tList("miniProbe.runFailed"), {
+          description: tList("unknownError"),
+        });
+      }
+    });
+  };
+
   // 处理启用/禁用切换
   const handleToggle = () => {
     startToggleTransition(async () => {
@@ -493,6 +554,13 @@ function ProviderRichListItemInner({
 
   const hasKeyCircuitOpen = healthStatus?.circuitState === "open";
   const hasEndpointCircuitOpen = endpointCircuitInfo?.some((ep) => ep.circuitState === "open");
+  const statusChips = (
+    <ProviderListStatusChips
+      provider={provider}
+      localRate={provider.costMultiplier}
+      tList={tList}
+    />
+  );
   const accentColor = hasKeyCircuitOpen
     ? "border-l-red-500"
     : hasEndpointCircuitOpen
@@ -600,6 +668,7 @@ function ProviderRichListItemInner({
               {provider.activeTimeStart}-{provider.activeTimeEnd}
             </Badge>
           )}
+          {statusChips}
         </div>
 
         {/* Mobile: metrics row */}
@@ -678,6 +747,14 @@ function ProviderRichListItemInner({
                 <DropdownMenuItem onClick={handleClone}>
                   <Copy className="mr-2 h-4 w-4" />
                   {tList("actionClone")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setOpenRateSync(true)}>
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  {tList("actionRateSync")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setOpenMiniProbe(true)}>
+                  <Clock className="mr-2 h-4 w-4" />
+                  {tList("actionMiniProbe")}
                 </DropdownMenuItem>
                 {healthStatus?.circuitState === "open" && (
                   <DropdownMenuItem onClick={handleResetCircuit} disabled={resetPending}>
@@ -806,6 +883,7 @@ function ProviderRichListItemInner({
                 {provider.activeTimeStart}-{provider.activeTimeEnd}
               </Badge>
             )}
+            {statusChips}
           </div>
           <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground flex-wrap">
             {/* Vendor & Endpoints OR Legacy URL */}
@@ -974,6 +1052,23 @@ function ProviderRichListItemInner({
             />
           )}
           {canEdit && (
+            <ClickRunDoubleClickEditButton
+              label={t("upstreamRateSync.title")}
+              disabled={rateSyncPending}
+              onRun={handleRunUpstreamRateSync}
+              onEdit={() => setOpenRateSync(true)}
+            />
+          )}
+          {canEdit && (
+            <ClickRunDoubleClickEditButton
+              label={tList("actionMiniProbe")}
+              disabled={miniProbePending}
+              icon={<Activity className="h-4 w-4" />}
+              onRun={handleRunMiniProbe}
+              onEdit={() => setOpenMiniProbe(true)}
+            />
+          )}
+          {canEdit && (
             <Button
               size="icon"
               variant="ghost"
@@ -1138,6 +1233,25 @@ function ProviderRichListItemInner({
           </div>
         </DialogContent>
       </Dialog>
+
+      <UpstreamRateSyncDialog
+        providerId={provider.id}
+        providerUrl={provider.url}
+        providerName={provider.name}
+        maskedKey={provider.maskedKey}
+        open={openRateSync}
+        onOpenChange={setOpenRateSync}
+        onSynced={doInvalidate}
+      />
+
+      {canEdit && (
+        <MiniProbeDialog
+          provider={provider}
+          open={openMiniProbe}
+          onOpenChange={setOpenMiniProbe}
+          onUpdated={doInvalidate}
+        />
+      )}
     </>
   );
 }
@@ -1166,6 +1280,235 @@ export const ProviderRichListItem = memo(ProviderRichListItemInner, (prev, next)
     prev.isAdmin === next.isAdmin
   );
 });
+
+function ClickRunDoubleClickEditButton({
+  label,
+  disabled,
+  icon,
+  onRun,
+  onEdit,
+}: {
+  label: string;
+  disabled?: boolean;
+  icon?: ReactNode;
+  onRun: () => void;
+  onEdit: () => void;
+}) {
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+    };
+  }, []);
+
+  const handleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (disabled) return;
+
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+
+    const timer = setTimeout(() => {
+      clickTimerRef.current = null;
+      onRun();
+    }, 240);
+    clickTimerRef.current = timer;
+  };
+
+  const handleDoubleClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (disabled) return;
+
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    onEdit();
+  };
+
+  return (
+    <Button
+      size="icon"
+      variant="ghost"
+      title={label}
+      aria-label={label}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      disabled={disabled}
+    >
+      {icon ?? <RotateCcw className="h-4 w-4" />}
+    </Button>
+  );
+}
+
+function ProviderListStatusChips({
+  provider,
+  localRate,
+  tList,
+}: {
+  provider: ProviderDisplay;
+  localRate: number;
+  tList: ReturnType<typeof useTranslations>;
+}) {
+  const probeChip = getProbeChip(provider, tList);
+  const rateChip = getRateSyncChip(provider, localRate, tList);
+  const [probeErrorOpen, setProbeErrorOpen] = useState(false);
+  const canShowProbeError =
+    provider.latencyProbeLastStatus === "failed" && Boolean(provider.latencyProbeLastError);
+
+  return (
+    <>
+      {canShowProbeError ? (
+        <Dialog open={probeErrorOpen} onOpenChange={setProbeErrorOpen}>
+          <Badge
+            asChild
+            variant="outline"
+            className={cn("gap-1 font-normal cursor-pointer", probeChip.className)}
+          >
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setProbeErrorOpen(true);
+              }}
+            >
+              <Clock className="h-3 w-3" />
+              <span>{probeChip.label}</span>
+            </button>
+          </Badge>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{tList("miniProbe.failureDetailsTitle")}</DialogTitle>
+              <DialogDescription>
+                {tList("miniProbe.failureDetailsDescription", { name: provider.name })}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                <div className="text-xs font-medium uppercase text-muted-foreground">
+                  {tList("miniProbe.lastResult")}
+                </div>
+                <div className="mt-1">
+                  {provider.latencyProbeLastRunAt
+                    ? new Date(provider.latencyProbeLastRunAt).toLocaleString()
+                    : tList("miniProbe.neverRun")}
+                </div>
+              </div>
+              <pre className="max-h-64 overflow-auto rounded-md border bg-muted/40 p-3 text-xs whitespace-pre-wrap break-words">
+                {provider.latencyProbeLastError || tList("unknownError")}
+              </pre>
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : (
+        <Badge variant="outline" className={cn("gap-1 font-normal", probeChip.className)}>
+          <Clock className="h-3 w-3" />
+          <span>{probeChip.label}</span>
+        </Badge>
+      )}
+      {rateChip && (
+        <Badge variant="outline" className={cn("gap-1 font-normal", rateChip.className)}>
+          <rateChip.Icon className="h-3 w-3" />
+          <span>{rateChip.label}</span>
+        </Badge>
+      )}
+    </>
+  );
+}
+
+function getProbeChip(provider: ProviderDisplay, tList: ReturnType<typeof useTranslations>) {
+  if (provider.latencyProbeLastStatus === "success" && provider.latencyProbeLastAvgMs != null) {
+    return {
+      label: tList("probeChipSuccess", {
+        value: Math.round(provider.latencyProbeLastAvgMs),
+      }),
+      className: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30",
+    };
+  }
+
+  if (provider.latencyProbeLastStatus === "failed") {
+    return {
+      label: tList("probeChipFailed"),
+      className: "border-red-200 bg-red-50 text-red-700 dark:bg-red-950/30",
+    };
+  }
+
+  return {
+    label: tList("probeChipPending"),
+    className: "border-muted-foreground/20 text-muted-foreground",
+  };
+}
+
+function getRateSyncChip(
+  provider: ProviderDisplay,
+  localRate: number,
+  tList: ReturnType<typeof useTranslations>
+) {
+  const sync = provider.upstreamRateSync;
+  if (!sync) {
+    return null;
+  }
+
+  if (sync.lastSyncOk === false) {
+    return {
+      label: tList("rateSyncChipFailed"),
+      Icon: AlertTriangle,
+      className: "border-red-200 bg-red-50 text-red-700 dark:bg-red-950/30",
+    };
+  }
+
+  if (sync.lastSyncRate == null) {
+    return {
+      label: sync.isEnabled ? tList("rateSyncChipPending") : tList("rateSyncChipDisabled"),
+      Icon: MoveRight,
+      className: "border-muted-foreground/20 text-muted-foreground",
+    };
+  }
+
+  const comparison = compareRates(localRate, sync.lastSyncRate);
+  const group = sync.lastUpstreamGroupName ? ` ${sync.lastUpstreamGroupName}` : "";
+
+  return {
+    label: tList(`rateSyncChip${comparison.key}`, {
+      local: formatRate(localRate),
+      upstream: formatRate(sync.lastSyncRate),
+      group,
+    }),
+    Icon: comparison.Icon,
+    className: comparison.className,
+  };
+}
+
+function compareRates(localRate: number, upstreamRate: number) {
+  const diff = localRate - upstreamRate;
+  if (Math.abs(diff) < 0.0001) {
+    return {
+      key: "Equal" as const,
+      Icon: MoveRight,
+      className: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30",
+    };
+  }
+  if (diff > 0) {
+    return {
+      key: "Decrease" as const,
+      Icon: MoveDown,
+      className: "border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-950/30",
+    };
+  }
+  return {
+    key: "Increase" as const,
+    Icon: MoveUp,
+    className: "border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-950/30",
+  };
+}
+
+function formatRate(value: number): string {
+  if (Number.isInteger(value)) return value.toString();
+  return value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
 
 /** Lightweight placeholder shown while ProviderForm mounts (keeps dialog animation smooth) */
 function DialogFormSkeleton() {

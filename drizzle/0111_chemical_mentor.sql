@@ -1,0 +1,1 @@
+ALTER TABLE "providers" ADD COLUMN "latency_probe_last_error" text;

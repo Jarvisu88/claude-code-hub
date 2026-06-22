@@ -462,6 +462,28 @@ export async function register() {
       }
 
       try {
+        const { startLatencyPriorityScheduler } = await import(
+          "@/lib/provider-sort/latency-priority-scheduler"
+        );
+        startLatencyPriorityScheduler();
+      } catch (error) {
+        logger.warn("[Instrumentation] Failed to start latency priority scheduler", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      try {
+        const { startUpstreamRateSyncScheduler } = await import(
+          "@/lib/upstream-rate-sync/scheduler"
+        );
+        startUpstreamRateSyncScheduler();
+      } catch (error) {
+        logger.warn("[Instrumentation] Failed to start upstream rate sync scheduler", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      try {
         const { startPublicStatusRebuildScheduler } = await import("@/lib/public-status/scheduler");
         startPublicStatusRebuildScheduler();
       } catch (error) {
@@ -607,6 +629,28 @@ export async function register() {
           startLatencyProbeScheduler();
         } catch (error) {
           logger.warn("[Instrumentation] Failed to start latency probe scheduler", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+
+        try {
+          const { startLatencyPriorityScheduler } = await import(
+            "@/lib/provider-sort/latency-priority-scheduler"
+          );
+          startLatencyPriorityScheduler();
+        } catch (error) {
+          logger.warn("[Instrumentation] Failed to start latency priority scheduler", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+
+        try {
+          const { startUpstreamRateSyncScheduler } = await import(
+            "@/lib/upstream-rate-sync/scheduler"
+          );
+          startUpstreamRateSyncScheduler();
+        } catch (error) {
+          logger.warn("[Instrumentation] Failed to start upstream rate sync scheduler", {
             error: error instanceof Error ? error.message : String(error),
           });
         }

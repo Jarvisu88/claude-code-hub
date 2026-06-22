@@ -162,6 +162,8 @@ export async function createKey(keyData: CreateKeyData): Promise<Key> {
     costResetAt: keyData.cost_reset_at ?? null,
     limitConcurrentSessions: keyData.limit_concurrent_sessions,
     providerGroup: keyData.provider_group ?? null,
+    priceProviderGroup: keyData.price_provider_group ?? null,
+    latencyProviderGroup: keyData.latency_provider_group ?? null,
     sortStrategy: keyData.sort_strategy ?? "none",
     cacheTtlPreference: keyData.cache_ttl_preference ?? null,
   };
@@ -258,6 +260,10 @@ export async function updateKey(id: number, keyData: UpdateKeyData): Promise<Key
   if (keyData.limit_concurrent_sessions !== undefined)
     dbData.limitConcurrentSessions = keyData.limit_concurrent_sessions;
   if (keyData.provider_group !== undefined) dbData.providerGroup = keyData.provider_group;
+  if (keyData.price_provider_group !== undefined)
+    dbData.priceProviderGroup = keyData.price_provider_group;
+  if (keyData.latency_provider_group !== undefined)
+    dbData.latencyProviderGroup = keyData.latency_provider_group;
   if (keyData.sort_strategy !== undefined) dbData.sortStrategy = keyData.sort_strategy;
   if (keyData.cache_ttl_preference !== undefined)
     dbData.cacheTtlPreference = keyData.cache_ttl_preference ?? null;

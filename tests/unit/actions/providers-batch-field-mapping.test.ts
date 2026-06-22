@@ -13,6 +13,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/repository/provider", () => ({
   updateProvidersBatch: updateProvidersBatchMock,
+  updateProviderCostMultiplier: vi.fn(async () => true),
 }));
 
 vi.mock("@/lib/cache/provider-cache", () => ({

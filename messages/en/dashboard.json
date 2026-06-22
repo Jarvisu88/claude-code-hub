@@ -255,7 +255,7 @@
         "responseModelLabel": "Actual Response Model",
         "mismatchTooltip": "The upstream provider returned a different model than the one requested. Billing is still based on the requested model.",
         "secondaryLineAriaLabel": "Actual response model: {model}",
-        "arrowPrefix": "\u21b3",
+        "arrowPrefix": "↳",
         "noSignatureBadge": "No thinking signature",
         "noSignatureTooltip": "Thinking was enabled but no thinking signature was returned in the stream; the actual response model falls back to the plain model field from message_start."
       },
@@ -1096,6 +1096,16 @@
         "fixed": "Start a fixed 5-hour window from the first successful charge",
         "rolling": "Use a rolling 5-hour window from the latest usage"
       }
+    },
+    "priceProviderGroup": {
+      "label": "Price group",
+      "placeholder": "Enter the provider group used for cost sorting",
+      "description": "Used first when price sorting is selected. Empty inherits the default group."
+    },
+    "latencyProviderGroup": {
+      "label": "Speed group",
+      "placeholder": "Enter the provider group used for speed sorting",
+      "description": "Used first when speed sorting is selected. Empty inherits the default group."
     }
   },
   "userForm": {
@@ -2047,6 +2057,14 @@
           "confirmDisableDescription": "Disabling will prevent this user and their keys from being used.",
           "cancel": "Cancel",
           "processing": "Processing..."
+        },
+        "priceProviderGroup": {
+          "label": "Price group",
+          "placeholder": "Leave empty to use provider group"
+        },
+        "latencyProviderGroup": {
+          "label": "Speed group",
+          "placeholder": "Leave empty to use provider group"
         }
       },
       "actions": {
@@ -2126,6 +2144,14 @@
           "optionPrice": "Price first (cheapest requested first)",
           "optionLatency": "Latency first (fastest requested first)",
           "hint": "Controls provider request order within the group for this key"
+        },
+        "priceProviderGroup": {
+          "label": "Price group",
+          "placeholder": "Leave empty to follow the user price group"
+        },
+        "latencyProviderGroup": {
+          "label": "Speed group",
+          "placeholder": "Leave empty to follow the user speed group"
         }
       },
       "limitRules": {
